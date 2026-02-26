@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "86d-mobile",
+    "name": "86'd",
     "slug": "86d-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,7 +12,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera to scan barcodes on bottles.",
+        "NSPhotoLibraryUsageDescription": "This app saves photos of bottles for inventory records."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +25,23 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan barcodes."
+        }
+      ]
+    ]
   }
 }
