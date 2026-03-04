@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  TouchableOpacity, 
+import {
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
   SafeAreaView,
   FlatList,
   TextInput,
@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
-import { api, Product, InventorySession } from './api';
+import { apiService as api } from './src/services/api';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { Product, InventorySession } from './src/types';
 
 // Level options for bottle scanning
 const LEVELS = [
@@ -25,7 +27,7 @@ const LEVELS = [
 
 type Screen = 'home' | 'scan' | 'products' | 'session' | 'order';
 
-export default function App() {
+function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [permission, requestPermission] = useCameraPermissions();
   const [products, setProducts] = useState<Product[]>([]);
@@ -334,6 +336,17 @@ function getLevelColor(decimal: number): string {
   if (decimal >= 0.25) return '#FF9800'; // Orange
   return '#F44336'; // Red
 }
+
+// Wrapper component with AuthProvider
+function AppWrapper() {
+  return (
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  );
+}
+
+export default AppWrapper;
 
 const styles = StyleSheet.create({
   safeArea: {
