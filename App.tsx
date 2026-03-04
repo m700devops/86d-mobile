@@ -14,6 +14,7 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import { apiService as api } from './src/services/api';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { LoginScreen, RegisterScreen } from './src/screens';
 import { Product, InventorySession } from './src/types';
 
 // Level options for bottle scanning
@@ -25,9 +26,10 @@ const LEVELS = [
   { label: 'Empty', value: 'empty', decimal: 0.0 },
 ];
 
-type Screen = 'home' | 'scan' | 'products' | 'session' | 'order';
+type Screen = 'home' | 'scan' | 'products' | 'session' | 'order' | 'login' | 'register';
 
 function App() {
+  const { isAuthenticated, isLoading: authLoading, logout } = useAuth();
   const [screen, setScreen] = useState<Screen>('home');
   const [permission, requestPermission] = useCameraPermissions();
   const [products, setProducts] = useState<Product[]>([]);
@@ -163,6 +165,13 @@ function App() {
         <Text style={styles.infoText}>Backend: eight6d-api.onrender.com</Text>
         <Text style={styles.infoText}>Status: {apiConnected ? '🟢 Connected' : '🔴 Offline'}</Text>
       </View>
+
+      <TouchableOpacity 
+        style={[styles.button, styles.logoutButton]} 
+        onPress={logout}
+      >
+        <Text style={styles.buttonText}>🚪 Logout</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -313,9 +322,38 @@ function App() {
     </View>
   );
 
+  // Show loading while checking auth status
+  if (authLoading) {
+    return (
+      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
+        <StatusBar style="light" />
+        <ActivityIndicator size="large" color="#FF6B35" />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Show auth screens if not authenticated
+  if (!isAuthenticated) {
+    if (screen === 'register') {
+      return (
+        <RegisterScreen
+          onNavigateToLogin={() => setScreen('login')}
+          onRegisterSuccess={() => setScreen('home')}
+        />
+      );
+    }
+    return (
+      <LoginScreen
+        onNavigateToRegister={() => setScreen('register')}
+        onLoginSuccess={() => setScreen('home')}
+      />
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="auto" />
+      <StatusBar style="light" />
       {screen === 'home' && renderHome()}
       {screen === 'products' && renderProducts()}
       {screen === 'scan' && renderScan()}
@@ -351,7 +389,16 @@ export default AppWrapper;
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#0F0F0F',
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#A3A3A3',
   },
   container: {
     flex: 1,
@@ -389,6 +436,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 20,
     alignItems: 'center',
+  },
+  logoutButton: {
+    backgroundColor: '#2d2d2d',
+    marginTop: 20,
   },
   buttonText: {
     color: '#fff',
