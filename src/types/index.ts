@@ -1,5 +1,6 @@
-// Type definitions for 86'd API
+// Type definitions for 86'd API and Mobile App
 
+// API Types
 export interface User {
   id: string;
   email: string;
@@ -82,16 +83,6 @@ export interface ScanResponse extends Scan {
   updated_at: string;
 }
 
-export interface Location {
-  id: string;
-  user_id: string;
-  name: string;
-  address: string | null;
-  timezone: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface ParLevel {
   id: string;
   location_id: string;
@@ -133,19 +124,62 @@ export interface VoiceNote {
   created_at: string;
 }
 
-export interface Distributor {
-  id: string;
-  user_id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  rep_name: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface ApiError {
   error: string;
   message: string;
   details?: Record<string, any>;
 }
+
+// Mobile App Types
+export interface Bottle {
+  id: string;
+  name: string;
+  brand: string;
+  category: string;
+  size: string;
+  currentLevel: number;
+  parLevel: number;
+  distributorId?: string;
+  upc?: string;
+  imageUrl?: string;
+  level?: LiquidLevel;
+  currentStock?: number;
+  price?: number;
+}
+
+export interface Location {
+  id: string;
+  name: string;
+  address?: string;
+  isCurrent?: boolean;
+}
+
+export interface Distributor {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  repName?: string;
+  initials?: string;
+}
+
+export interface OrderItem {
+  bottleId: string;
+  bottleName: string;
+  quantity: number;
+  distributorId?: string;
+  name?: string;
+  price?: number;
+  category?: string;
+  urgency?: 'critical' | 'normal';
+}
+
+export type LiquidLevel = 'full' | 'almost_full' | '3/4' | 'half' | '1/4' | 'empty';
+
+export type AppScreen = 
+  | 'onboarding' 
+  | 'camera' 
+  | 'pen-detection' 
+  | 'review' 
+  | 'order'
+  | 'settings';
