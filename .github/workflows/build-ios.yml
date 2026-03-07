@@ -42,10 +42,3 @@ jobs:
           --non-interactive
       env:
         EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        
-    - name: Upload build artifacts
-      if: success()
-      uses: actions/upload-artifact@v3
-      with:
-        name: ios-build
-        path: ~/Library/Caches/EAS/builds
