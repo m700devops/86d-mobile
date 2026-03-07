@@ -52,17 +52,3 @@
     "owner": "m700devops"
   }
 }
-{
-  "expo": {
-    "name": "86'd",
-    "slug": "86d-mobile",
-    "version": "1.0.0",
-    "ios": {
-      "bundleIdentifier": "com.my86d.app",
-      "supportsTablet": false
-    },
-    "android": {
-      "package": "com.my86d.app"
-    }
-  }
-}
