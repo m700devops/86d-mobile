@@ -1,33 +1,32 @@
 {
   "expo": {
+    "owner": "m700devops",
+    "extra": {
+      "eas": {
+        "projectId": "514e311c-b6a4-4702-9ed8-08324144be33"
+      }
+    },
     "name": "86'd",
     "slug": "86d-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0F0F0F"
     },
     "ios": {
       "bundleIdentifier": "com.my86d.app",
       "supportsTablet": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "This app uses the camera to scan barcodes on bottles.",
+        "NSCameraUsageDescription": "This app uses the camera to scan bottles for inventory.",
         "NSPhotoLibraryUsageDescription": "This app saves photos of bottles for inventory records."
       }
     },
     "android": {
       "package": "com.my86d.app",
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -41,7 +40,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan barcodes."
+          "cameraPermission": "Allow 86'd to access your camera to scan bottles."
         }
       ]
     ]
