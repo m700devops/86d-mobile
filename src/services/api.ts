@@ -274,9 +274,23 @@ class ApiService {
     category: string;
     liquidLevel: number;
     confidence: number;
+    levelReadable?: boolean;
   }> {
     const response = await this.client.post('/scans/analyze', {
       image: imageBase64,
+      mode: 'bottle',
+    });
+    return response.data;
+  }
+
+  // Pen detection analysis (second pass)
+  async analyzeBottleWithPen(imageBase64: string): Promise<{
+    liquidLevel: number;
+    confidence: number;
+  }> {
+    const response = await this.client.post('/scans/analyze', {
+      image: imageBase64,
+      mode: 'pen',
     });
     return response.data;
   }
