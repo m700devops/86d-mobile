@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS } from '../constants/colors';
-import { FONT_SIZES, FONT_WEIGHTS } from '../constants/typography';
+import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Camera, Zap, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -244,6 +244,9 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
               <View style={[styles.guideCorner, styles.guideCornerBottomLeft]} />
               <View style={[styles.guideCorner, styles.guideCornerBottomRight]} />
             </View>
+            
+            {/* Vignette Overlay */}
+            <View style={styles.vignetteOverlay} />
           </CameraView>
         ) : (
           <View style={[styles.camera, { backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center' }]}>
@@ -471,6 +474,15 @@ const styles = StyleSheet.create({
     borderRightWidth: 3,
     borderBottomWidth: 3,
   },
+  vignetteOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'transparent',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 150,
+    zIndex: 1,
+  },
   cameraPlaceholderText: {
     color: COLORS.textTertiary,
     fontSize: FONT_SIZES.lg,
@@ -490,6 +502,7 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES['4xl'],
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   statusRow: {
     flexDirection: 'row',
@@ -508,6 +521,11 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
   },
   counterText: {
     fontSize: FONT_SIZES['2xl'],
@@ -540,6 +558,7 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
     marginBottom: SPACING.md,
+    letterSpacing: LETTER_SPACING,
   },
   startDesc: {
     fontSize: FONT_SIZES.lg,
@@ -591,6 +610,7 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xl,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
   },
   secondaryButton: {
     height: 56,
@@ -663,6 +683,7 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xl,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
   },
   loadingText: {
     marginTop: SPACING.lg,

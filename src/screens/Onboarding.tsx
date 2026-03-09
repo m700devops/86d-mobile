@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
 import { COLORS } from '../constants/colors';
-import { FONT_SIZES, FONT_WEIGHTS } from '../constants/typography';
+import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Zap, Camera, ShieldCheck, BarChart3, ChevronRight } from 'lucide-react-native';
 
@@ -17,14 +17,14 @@ export default function Onboarding({ onComplete }: Props) {
           {/* Icon */}
           <View style={styles.iconContainer}>
             <View style={styles.iconBox}>
-              <Zap size={32} color={COLORS.accentPrimary} fill={COLORS.accentPrimary} />
+              <Zap size={32} color="#FFFFFF" fill="#FFFFFF" />
             </View>
           </View>
 
           {/* Headline */}
           <Text style={styles.headline}>
             Inventory at the{'\n'}
-            <Text style={{ color: COLORS.accentPrimary, fontSize: FONT_SIZES['7xl'] }}>speed of light.</Text>
+            <Text style={{ color: COLORS.accentPrimary, fontSize: FONT_SIZES['7xl'], letterSpacing: LETTER_SPACING }}>speed of light.</Text>
           </Text>
 
           {/* Subheadline */}
@@ -53,7 +53,7 @@ export default function Onboarding({ onComplete }: Props) {
 
           {/* CTA Button */}
           <TouchableOpacity
-            style={[styles.button, { backgroundColor: COLORS.accentPrimary }]}
+            style={styles.button}
             onPress={onComplete}
             activeOpacity={0.8}
           >
@@ -102,12 +102,15 @@ const styles = StyleSheet.create({
   iconBox: {
     width: 64,
     height: 64,
-    backgroundColor: `${COLORS.accentPrimary}1A`,
+    backgroundColor: '#FF6B35',
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: `${COLORS.accentPrimary}33`,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 30,
+    elevation: 10,
   },
   headline: {
     fontSize: FONT_SIZES['6xl'],
@@ -116,6 +119,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: SPACING.lg,
     lineHeight: 40,
+    letterSpacing: LETTER_SPACING,
   },
   subheadline: {
     fontSize: FONT_SIZES['2xl'],
@@ -152,6 +156,7 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.textPrimary,
     marginBottom: 4,
+    letterSpacing: LETTER_SPACING,
   },
   featureDesc: {
     fontSize: FONT_SIZES.xs,
@@ -160,17 +165,24 @@ const styles = StyleSheet.create({
   button: {
     width: '100%',
     height: 56,
+    backgroundColor: COLORS.accentPrimary,
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: SPACING.md,
+    gap: 8,
     marginBottom: SPACING.lg,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
   },
   buttonText: {
     fontSize: FONT_SIZES.xl,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
   },
   terms: {
     fontSize: FONT_SIZES.xs,

@@ -1,20 +1,22 @@
 export const FONT_SIZES = {
-  xs: 8,
-  sm: 10,
-  base: 12,
-  lg: 14,
-  xl: 16,
-  '2xl': 18,
-  '3xl': 20,
-  '4xl': 24,
-  '5xl': 28,
-  '6xl': 32,
+  xs: 10,
+  sm: 12,
+  base: 14,
+  lg: 16,
+  xl: 18,
+  '2xl': 20,
+  '3xl': 24,
+  '4xl': 28,
+  '5xl': 32,
+  '6xl': 36,
   '7xl': 48,
 };
 
 export const FONT_WEIGHTS = {
-  regular: 400,
-  medium: 500,
-  semibold: 600,
-  bold: 700,
+  regular: '400' as const,
+  medium: '500' as const,
+  semibold: '600' as const,
+  bold: '700' as const,
 };
+
+export const LETTER_SPACING = -0.5;
