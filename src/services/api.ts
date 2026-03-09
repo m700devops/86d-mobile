@@ -267,6 +267,20 @@ class ApiService {
     return response.data.distributor;
   }
 
+  // Bottle analysis via backend (calls Gemini)
+  async analyzeBottleImage(imageBase64: string): Promise<{
+    name: string;
+    brand: string;
+    category: string;
+    liquidLevel: number;
+    confidence: number;
+  }> {
+    const response = await this.client.post('/scans/analyze', {
+      image: imageBase64,
+    });
+    return response.data;
+  }
+
   // Health check
   async healthCheck(): Promise<boolean> {
     try {
