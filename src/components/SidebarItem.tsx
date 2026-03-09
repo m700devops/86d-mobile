@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 import { COLORS } from '../constants/colors';
-import { FONT_SIZES, FONT_WEIGHTS } from '../constants/typography';
+import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 
 interface Props {
@@ -21,7 +21,7 @@ export default function SidebarItem({ icon, label, active = false, onPress }: Pr
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <View style={styles.icon}>{icon}</View>
+      <View style={[styles.icon, active && styles.activeIcon]}>{icon}</View>
       <Text style={[styles.label, active && styles.activeLabel]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -34,22 +34,28 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,
-    borderRadius: 8,
+    borderRadius: 10,
     marginHorizontal: SPACING.md,
-    marginVertical: SPACING.sm,
+    marginVertical: SPACING.xs,
   },
   active: {
-    backgroundColor: `${COLORS.accentPrimary}1A`,
+    backgroundColor: `${COLORS.accentPrimary}10`,
   },
   icon: {
-    width: 18,
+    width: 20,
+    alignItems: 'center',
+  },
+  activeIcon: {
+    // Icon color handled by parent
   },
   label: {
-    fontSize: FONT_SIZES.lg,
+    fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.medium,
     color: COLORS.textSecondary,
+    letterSpacing: LETTER_SPACING,
   },
   activeLabel: {
     color: COLORS.accentPrimary,
+    fontWeight: FONT_WEIGHTS.semibold,
   },
 });
