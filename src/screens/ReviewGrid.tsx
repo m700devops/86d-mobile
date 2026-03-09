@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, FlatList, TextInput } from 'react-native';
 import { COLORS } from '../constants/colors';
-import { FONT_SIZES, FONT_WEIGHTS } from '../constants/typography';
+import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Search, Plus, ChevronRight, Trash2, Minus } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
@@ -23,33 +23,37 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual }: Props) {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Review & Par</Text>
-        </View>
+        <Text style={styles.headerTitle}>Review & Par</Text>
         <View style={styles.countBadge}>
           <Text style={styles.countBadgeText}>{filteredBottles.length} Items</Text>
         </View>
       </View>
 
+      {/* Search Row */}
       <View style={styles.searchContainer}>
-        <Search size={14} color={COLORS.textTertiary} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search..."
-          placeholderTextColor={COLORS.textTertiary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
+        <View style={styles.searchWrapper}>
+          <Search size={16} color={COLORS.textTertiary} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search bottles..."
+            placeholderTextColor={COLORS.textTertiary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
         <TouchableOpacity
-          style={[styles.addButton, { backgroundColor: COLORS.accentPrimary }]}
+          style={styles.addButton}
           onPress={onAddManual}
+          activeOpacity={0.8}
         >
-          <Plus size={18} color="#FFFFFF" />
+          <Plus size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
+      {/* Bottle List */}
       <FlatList
         data={filteredBottles}
         keyExtractor={item => item.id}
@@ -61,14 +65,18 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual }: Props) {
           />
         )}
         contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
       />
 
+      {/* Footer */}
       <View style={styles.footer}>
+        <View style={styles.footerGradient} />
         <TouchableOpacity
-          style={[styles.button, { backgroundColor: COLORS.accentPrimary }]}
+          style={styles.generateButton}
           onPress={onGenerateOrder}
+          activeOpacity={0.8}
         >
-          <Text style={styles.buttonText}>Generate Order Summary</Text>
+          <Text style={styles.generateButtonText}>Generate Order Summary</Text>
           <ChevronRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.footerText}>Finalize inventory and par levels</Text>
@@ -78,77 +86,96 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual }: Props) {
 }
 
 function BottleRow({ bottle, onUpdate, onRemove }: { bottle: Bottle; onUpdate: (updates: Partial<Bottle>) => void; onRemove: () => void }) {
+  const [isPressed, setIsPressed] = useState(false);
+
+  // Get 4 level options for display
+  const displayLevels = ['empty', 'half', '3/4', 'full'];
+
   return (
     <View style={styles.bottleRow}>
+      {/* Left: Bottle Info (50%) */}
       <View style={styles.bottleInfo}>
-        <Text style={styles.bottleName}>{bottle.name}</Text>
+        <Text style={styles.bottleName} numberOfLines={1}>
+          {bottle.name}
+        </Text>
         <Text style={styles.bottleBrand}>{bottle.brand}</Text>
       </View>
 
+      {/* Right: Controls (50%) */}
       <View style={styles.controls}>
-        {/* Liquid Level */}
-        <View style={styles.controlGroup}>
+        {/* Column 1: Level Selector */}
+        <View style={styles.controlColumn}>
           <View style={styles.levelButtons}>
-            {LEVELS.map(l => (
-              <TouchableOpacity
-                key={l.value}
-                style={[
-                  styles.levelButton,
-                  {
-                    backgroundColor: bottle.level === l.value ? COLORS.accentPrimary : `${COLORS.border}33`,
-                    borderColor: bottle.level === l.value ? COLORS.accentPrimary : `${COLORS.border}66`,
-                  },
-                ]}
-                onPress={() => onUpdate({ level: l.value as LiquidLevel })}
-              />
-            ))}
+            {displayLevels.map((levelValue) => {
+              const isSelected = bottle.level === levelValue;
+              const levelData = LEVELS.find(l => l.value === levelValue);
+              return (
+                <TouchableOpacity
+                  key={levelValue}
+                  style={[
+                    styles.levelButton,
+                    isSelected && styles.levelButtonSelected,
+                  ]}
+                  onPress={() => onUpdate({ level: levelValue as LiquidLevel })}
+                >
+                  {isSelected && (
+                    <View style={styles.levelIndicator} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
-          <Text style={styles.controlLabel}>{bottle.level || 'Empty'}</Text>
+          <Text style={styles.levelLabel}>{(bottle.level || 'EMPTY').toUpperCase()}</Text>
         </View>
 
-        {/* Current Stock */}
-        <View style={styles.controlGroup}>
-          <View style={styles.inputBox}>
+        {/* Column 2: Backup Stepper */}
+        <View style={styles.controlColumn}>
+          <View style={styles.stepperBox}>
             <TouchableOpacity
+              style={styles.stepperButton}
               onPress={() => onUpdate({ currentStock: Math.max(0, (bottle.currentStock || 0) - 1) })}
-              style={styles.inputButton}
             >
-              <Minus size={12} color={COLORS.textSecondary} />
+              <Minus size={10} color={COLORS.textSecondary} />
             </TouchableOpacity>
-            <Text style={styles.inputValue}>{bottle.currentStock || 0}</Text>
+            <Text style={styles.stepperValue}>{bottle.currentStock || 0}</Text>
             <TouchableOpacity
+              style={styles.stepperButton}
               onPress={() => onUpdate({ currentStock: (bottle.currentStock || 0) + 1 })}
-              style={styles.inputButton}
             >
-              <Plus size={12} color={COLORS.textSecondary} />
+              <Plus size={10} color={COLORS.textSecondary} />
             </TouchableOpacity>
           </View>
-          <Text style={styles.controlLabel}>Back up</Text>
+          <Text style={styles.stepperLabel}>BACKUP</Text>
         </View>
 
-        {/* Par Level */}
-        <View style={styles.controlGroup}>
-          <View style={[styles.inputBox, { backgroundColor: `${COLORS.accentPrimary}1A`, borderColor: `${COLORS.accentPrimary}4D` }]}>
+        {/* Column 3: Par Stepper */}
+        <View style={styles.controlColumn}>
+          <View style={[styles.stepperBox, styles.parStepperBox]}>
             <TouchableOpacity
+              style={styles.stepperButton}
               onPress={() => onUpdate({ parLevel: Math.max(0, bottle.parLevel - 1) })}
-              style={styles.inputButton}
             >
-              <Minus size={12} color={COLORS.accentPrimary} />
+              <Minus size={10} color={COLORS.accentPrimary} />
             </TouchableOpacity>
-            <Text style={[styles.inputValue, { color: COLORS.accentPrimary }]}>{bottle.parLevel}</Text>
+            <Text style={[styles.stepperValue, styles.parStepperValue]}>{bottle.parLevel}</Text>
             <TouchableOpacity
+              style={styles.stepperButton}
               onPress={() => onUpdate({ parLevel: bottle.parLevel + 1 })}
-              style={styles.inputButton}
             >
-              <Plus size={12} color={COLORS.accentPrimary} />
+              <Plus size={10} color={COLORS.accentPrimary} />
             </TouchableOpacity>
           </View>
-          <Text style={[styles.controlLabel, { color: COLORS.accentPrimary }]}>Par</Text>
+          <Text style={styles.parLabel}>PAR</Text>
         </View>
 
-        {/* Delete */}
-        <TouchableOpacity onPress={onRemove} style={styles.deleteButton}>
-          <Trash2 size={14} color={COLORS.textTertiary} />
+        {/* Delete Button */}
+        <TouchableOpacity 
+          style={styles.deleteButton}
+          onPress={onRemove}
+          onPressIn={() => setIsPressed(true)}
+          onPressOut={() => setIsPressed(false)}
+        >
+          <Trash2 size={14} color={isPressed ? COLORS.error : COLORS.textTertiary} />
         </TouchableOpacity>
       </View>
     </View>
@@ -164,138 +191,190 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.lg,
   },
   headerTitle: {
-    fontSize: FONT_SIZES['3xl'],
+    fontSize: FONT_SIZES['2xl'],
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   countBadge: {
-    backgroundColor: `${COLORS.surface}80`,
+    backgroundColor: `${COLORS.surface}50`,
     borderWidth: 1,
-    borderColor: `${COLORS.border}80`,
+    borderColor: `${COLORS.border}50`,
     paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    borderRadius: 8,
+    paddingVertical: SPACING.xs,
+    borderRadius: 6,
   },
   countBadgeText: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textTertiary,
-    letterSpacing: 0.5,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.lg,
     gap: SPACING.md,
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.lg,
+  },
+  searchWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${COLORS.surface}50`,
+    borderWidth: 1,
+    borderColor: `${COLORS.border}50`,
+    borderRadius: 10,
+    paddingHorizontal: SPACING.md,
   },
   searchIcon: {
-    marginLeft: SPACING.md,
+    marginRight: SPACING.sm,
   },
   searchInput: {
     flex: 1,
-    height: 40,
-    backgroundColor: `${COLORS.surface}80`,
-    borderWidth: 1,
-    borderColor: `${COLORS.border}80`,
-    borderRadius: 8,
-    paddingHorizontal: SPACING.md,
+    height: 44,
     color: COLORS.textPrimary,
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.base,
   },
   addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
+    width: 44,
+    height: 44,
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
   },
   listContent: {
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.lg,
     gap: SPACING.sm,
-    paddingBottom: 200,
+    paddingBottom: 160,
   },
   bottleRow: {
-    backgroundColor: `${COLORS.surface}4D`,
+    backgroundColor: `${COLORS.surface}30`,
     borderWidth: 1,
-    borderColor: `${COLORS.border}4D`,
+    borderColor: `${COLORS.border}30`,
     borderRadius: 8,
-    padding: SPACING.md,
+    padding: SPACING.sm,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.lg,
   },
   bottleInfo: {
-    width: '50%',
+    width: '40%',
+    paddingRight: SPACING.sm,
   },
   bottleName: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   bottleBrand: {
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
-    marginTop: SPACING.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 2,
   },
   controls: {
     flex: 1,
     flexDirection: 'row',
-    gap: SPACING.sm,
     alignItems: 'center',
+    gap: SPACING.sm,
   },
-  controlGroup: {
+  controlColumn: {
     flex: 1,
     alignItems: 'center',
   },
   levelButtons: {
     flexDirection: 'row',
-    gap: 2,
     width: '100%',
-    marginBottom: SPACING.sm,
+    height: 24,
+    gap: 2,
   },
   levelButton: {
     flex: 1,
-    height: 24,
-    borderRadius: 1,
+    backgroundColor: `${COLORS.border}20`,
     borderWidth: 1,
+    borderColor: `${COLORS.border}40`,
+    borderRadius: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  inputBox: {
+  levelButtonSelected: {
+    backgroundColor: COLORS.accentPrimary,
+    borderColor: COLORS.accentPrimary,
+  },
+  levelIndicator: {
+    width: 4,
+    height: 4,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 2,
+  },
+  levelLabel: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentSecondary,
+    letterSpacing: 1,
+    marginTop: 4,
+  },
+  stepperBox: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     height: 32,
-    backgroundColor: `${COLORS.textPrimary}0A`,
+    backgroundColor: `${COLORS.textPrimary}05`,
     borderWidth: 1,
-    borderColor: `${COLORS.textPrimary}1A`,
+    borderColor: `${COLORS.textPrimary}10`,
     borderRadius: 6,
-    paddingHorizontal: SPACING.sm,
-    marginBottom: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
     width: '100%',
   },
-  inputButton: {
+  parStepperBox: {
+    backgroundColor: `${COLORS.accentPrimary}10`,
+    borderColor: `${COLORS.accentPrimary}30`,
+  },
+  stepperButton: {
     width: 20,
     height: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  inputValue: {
-    fontSize: FONT_SIZES.xs,
+  stepperValue: {
+    fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
+    fontFamily: 'monospace',
   },
-  controlLabel: {
+  parStepperValue: {
+    color: COLORS.accentPrimary,
+  },
+  stepperLabel: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textTertiary,
-    letterSpacing: 0.5,
+    letterSpacing: 1,
+    marginTop: 4,
+  },
+  parLabel: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
+    letterSpacing: 1,
+    marginTop: 4,
   },
   deleteButton: {
     padding: SPACING.sm,
+    marginLeft: SPACING.xs,
   },
   footer: {
     position: 'absolute',
@@ -306,24 +385,38 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.lg,
     backgroundColor: COLORS.primaryDark,
   },
-  button: {
+  footerGradient: {
+    position: 'absolute',
+    top: -40,
+    left: 0,
+    right: 0,
+    height: 40,
+    backgroundColor: 'transparent',
+  },
+  generateButton: {
     height: 56,
+    backgroundColor: COLORS.accentPrimary,
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.md,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  buttonText: {
-    fontSize: FONT_SIZES.xl,
+  generateButtonText: {
+    fontSize: FONT_SIZES.lg,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
   },
   footerText: {
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
     textAlign: 'center',
     marginTop: SPACING.md,
-    letterSpacing: 0.5,
   },
 });
