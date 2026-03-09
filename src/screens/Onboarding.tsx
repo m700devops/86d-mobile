@@ -1,5 +1,13 @@
-import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import {
+  StyleSheet,
+  View,
+  Text,
+  TouchableOpacity,
+  SafeAreaView,
+  ScrollView,
+  Animated,
+} from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
@@ -10,21 +18,68 @@ interface Props {
 }
 
 export default function Onboarding({ onComplete }: Props) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    // Fade in and slide up animation
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Pulse animation for icon
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.content}>
-          {/* Icon */}
-          <View style={styles.iconContainer}>
+    <SafeAreaView style={styles.container}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent} 
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View 
+          style={[
+            styles.content,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
+        >
+          {/* Icon with pulse animation */}
+          <Animated.View style={[styles.iconContainer, { transform: [{ scale: pulseAnim }] }]}>
             <View style={styles.iconBox}>
               <Zap size={32} color="#FFFFFF" fill="#FFFFFF" />
             </View>
-          </View>
+          </Animated.View>
 
           {/* Headline */}
           <Text style={styles.headline}>
             Inventory at the{'\n'}
-            <Text style={{ color: COLORS.accentPrimary, fontSize: FONT_SIZES['7xl'], letterSpacing: LETTER_SPACING }}>speed of light.</Text>
+            <Text style={styles.headlineAccent}>speed of light.</Text>
           </Text>
 
           {/* Subheadline */}
@@ -51,7 +106,7 @@ export default function Onboarding({ onComplete }: Props) {
             />
           </View>
 
-          {/* CTA Button */}
+          {/* CTA Button with enhanced shadow */}
           <TouchableOpacity
             style={styles.button}
             onPress={onComplete}
@@ -63,7 +118,7 @@ export default function Onboarding({ onComplete }: Props) {
 
           {/* Terms */}
           <Text style={styles.terms}>By continuing, you agree to our Terms of Service.</Text>
-        </View>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -108,9 +163,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#FF6B35',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.4,
     shadowRadius: 30,
-    elevation: 10,
+    elevation: 12,
   },
   headline: {
     fontSize: FONT_SIZES['6xl'],
@@ -118,7 +173,12 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     textAlign: 'center',
     marginBottom: SPACING.lg,
-    lineHeight: 40,
+    lineHeight: 44,
+    letterSpacing: LETTER_SPACING,
+  },
+  headlineAccent: {
+    color: COLORS.accentPrimary,
+    fontSize: FONT_SIZES['7xl'],
     letterSpacing: LETTER_SPACING,
   },
   subheadline: {
@@ -126,7 +186,8 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     textAlign: 'center',
     marginBottom: SPACING['3xl'],
-    maxWidth: 280,
+    maxWidth: 300,
+    lineHeight: 28,
   },
   features: {
     width: '100%',
@@ -136,16 +197,22 @@ const styles = StyleSheet.create({
   featureItem: {
     flexDirection: 'row',
     gap: SPACING.md,
+    alignItems: 'center',
   },
   featureIcon: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     backgroundColor: COLORS.surface,
-    borderRadius: 8,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: COLORS.border,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   featureText: {
     flex: 1,
@@ -159,8 +226,9 @@ const styles = StyleSheet.create({
     letterSpacing: LETTER_SPACING,
   },
   featureDesc: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.sm,
     color: COLORS.textTertiary,
+    lineHeight: 18,
   },
   button: {
     width: '100%',
@@ -174,9 +242,9 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.lg,
     shadowColor: '#FF6B35',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
   },
   buttonText: {
     fontSize: FONT_SIZES.xl,
@@ -188,5 +256,6 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
     textAlign: 'center',
+    opacity: 0.8,
   },
 });
