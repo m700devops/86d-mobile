@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, Animated } from 'react-native';
 import { COLORS } from '../constants/colors';
-import { FONT_SIZES, FONT_WEIGHTS } from '../constants/typography';
+import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Mail, FileText, Printer, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
@@ -17,6 +17,7 @@ export default function OrderSummary({ onRestart }: Props) {
   const { distributors } = useDistributors();
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
+  const [checkAnim] = useState(new Animated.Value(0));
 
   const orderItems: OrderItem[] = bottles
     .map(b => {
@@ -50,58 +51,79 @@ export default function OrderSummary({ onRestart }: Props) {
     setTimeout(() => {
       setSentDistributors(groupedByDistributor.map(g => g.distributor.id));
       setIsSending(false);
+      // Animate checkmark
+      Animated.spring(checkAnim, {
+        toValue: 1,
+        friction: 5,
+        useNativeDriver: true,
+      }).start();
     }, 2000);
   };
 
+  // Empty state
   if (orderItems.length === 0) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIcon}>
-            <CheckCircle2 size={48} color={COLORS.success} />
+            <CheckCircle2 size={40} color={COLORS.success} />
           </View>
           <Text style={styles.emptyTitle}>All Stocked!</Text>
           <Text style={styles.emptyText}>
             Your current inventory matches all par levels. No orders needed right now.
           </Text>
           <TouchableOpacity
-            style={[styles.button, { backgroundColor: COLORS.accentPrimary }]}
+            style={styles.emptyButton}
             onPress={onRestart}
+            activeOpacity={0.8}
           >
-            <Text style={styles.buttonText}>Back to Dashboard</Text>
+            <Text style={styles.emptyButtonText}>Back to Dashboard</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
+  // Success state after sending
   if (sentDistributors.length > 0) {
+    const scale = checkAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.5, 1],
+    });
+
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.successContainer}>
-          <View style={styles.successIcon}>
-            <CheckCircle2 size={56} color={COLORS.success} />
-          </View>
+          <Animated.View style={[styles.successIcon, { transform: [{ scale }] }]}>
+            <CheckCircle2 size={48} color={COLORS.success} />
+          </Animated.View>
           <Text style={styles.successTitle}>Orders Sent!</Text>
 
           <View style={styles.distributorList}>
             {groupedByDistributor.map(group => (
               <View key={group.distributor.id} style={styles.sentDistributorCard}>
                 <View style={styles.distributorBadge}>
-                  <Text style={styles.distributorInitials}>{group.distributor.initials || 'D'}</Text>
+                  <Text style={styles.distributorInitials}>
+                    {group.distributor.initials || 'D'}
+                  </Text>
                 </View>
                 <View style={styles.distributorInfo}>
                   <Text style={styles.distributorName}>{group.distributor.name}</Text>
-                  <Text style={styles.distributorEmail}>{group.distributor.email || 'No email'}</Text>
+                  <Text style={styles.distributorEmail}>
+                    {group.distributor.email || 'No email'}
+                  </Text>
                 </View>
-                <Text style={styles.sentBadge}>SENT</Text>
+                <View style={styles.sentBadge}>
+                  <Text style={styles.sentBadgeText}>Sent</Text>
+                </View>
               </View>
             ))}
           </View>
 
           <TouchableOpacity
-            style={[styles.button, { backgroundColor: COLORS.accentPrimary, marginTop: SPACING.xl }]}
+            style={[styles.button, { marginTop: SPACING.xl }]}
             onPress={onRestart}
+            activeOpacity={0.8}
           >
             <Text style={styles.buttonText}>Return to Dashboard</Text>
           </TouchableOpacity>
@@ -111,57 +133,50 @@ export default function OrderSummary({ onRestart }: Props) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Order Summary</Text>
-          <View style={styles.headerSubtitle}>
-            <Text style={styles.subtitleText}>{orderItems.length} items to order</Text>
-            <View style={styles.dot} />
-            <Text style={styles.subtitleText}>Main Bar</Text>
-          </View>
-        </View>
+        <Text style={styles.headerTitle}>Order Summary</Text>
+        <Text style={styles.headerSubtitle}>
+          {orderItems.length} items to order • Main Bar
+        </Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.leftColumn}>
-          {['Spirits', 'Beer', 'Wine', 'Other'].map(cat => {
-            const catItems = orderItems.filter(i => i.category === cat);
-            if (catItems.length === 0) return null;
-
-            return (
-              <View key={cat}>
-                <Text style={styles.categoryHeader}>{cat}</Text>
-                {catItems.map(item => (
-                  <OrderItemRow key={item.bottleId} item={item} distributors={distributors} />
-                ))}
-              </View>
-            );
-          })}
-        </View>
-
-        <View style={styles.rightColumn}>
-          <Text style={styles.categoryHeader}>Distributor Breakdown</Text>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent} 
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Distributor Breakdown (Sidebar on desktop, top on mobile) */}
+        <View style={styles.distributorSection}>
+          <Text style={styles.sectionHeader}>Distributor Breakdown</Text>
           {groupedByDistributor.map((group, idx) => (
             <View
               key={group.distributor.id}
               style={[
                 styles.distributorCard,
-                {
-                  backgroundColor: idx % 3 === 0 ? `${COLORS.accentPrimary}0D` : idx % 3 === 1 ? '#0D47A11A' : '#0596691A',
-                  borderColor: idx % 3 === 0 ? `${COLORS.accentPrimary}33` : idx % 3 === 1 ? '#0D47A133' : '#05966933',
-                },
+                idx === 0 && styles.distributorCardOrange,
+                idx === 1 && styles.distributorCardBlue,
+                idx === 2 && styles.distributorCardGreen,
               ]}
             >
               <View style={styles.distributorCardHeader}>
                 <Text style={styles.distributorCardTitle}>{group.distributor.name}</Text>
-                <View style={styles.initialsTag}>
-                  <Text style={styles.initialsText}>{group.distributor.initials || 'D'}</Text>
+                <View style={[
+                  styles.initialsBadge,
+                  idx === 0 && styles.initialsBadgeOrange,
+                  idx === 1 && styles.initialsBadgeBlue,
+                  idx === 2 && styles.initialsBadgeGreen,
+                ]}>
+                  <Text style={styles.initialsText}>
+                    {group.distributor.initials || 'D'}
+                  </Text>
                 </View>
               </View>
               {group.items.map(item => (
                 <View key={item.bottleId} style={styles.distributorItem}>
-                  <Text style={styles.distributorItemName}>{item.name}</Text>
+                  <Text style={styles.distributorItemName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
                   <Text style={styles.distributorItemQty}>x{item.quantity}</Text>
                 </View>
               ))}
@@ -172,37 +187,68 @@ export default function OrderSummary({ onRestart }: Props) {
             <View style={styles.unassignedCard}>
               <View style={styles.unassignedHeader}>
                 <Text style={styles.unassignedTitle}>Unassigned</Text>
-                <AlertTriangle size={12} color={COLORS.warning} />
+                <AlertTriangle size={14} color={COLORS.warning} />
               </View>
               {unassignedItems.map(item => (
                 <View key={item.bottleId} style={styles.unassignedItem}>
-                  <Text style={styles.unassignedItemName}>{item.name}</Text>
+                  <Text style={styles.unassignedItemName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
                   <Text style={styles.unassignedItemQty}>x{item.quantity}</Text>
                 </View>
               ))}
             </View>
           )}
         </View>
+
+        {/* Items by Category */}
+        <View style={styles.itemsSection}>
+          {['Spirits', 'Beer', 'Wine', 'Other'].map(cat => {
+            const catItems = orderItems.filter(i => i.category === cat);
+            if (catItems.length === 0) return null;
+
+            return (
+              <View key={cat} style={styles.categorySection}>
+                <Text style={styles.categoryHeader}>{cat}</Text>
+                {catItems.map(item => (
+                  <OrderItemRow 
+                    key={item.bottleId} 
+                    item={item} 
+                    distributors={distributors} 
+                  />
+                ))}
+              </View>
+            );
+          })}
+        </View>
       </ScrollView>
 
+      {/* Footer */}
       <View style={styles.footer}>
+        {/* Export Buttons */}
         <View style={styles.exportButtons}>
           <ExportButton icon={<Mail size={20} />} label="Email" />
           <ExportButton icon={<FileText size={20} />} label="PDF" />
           <ExportButton icon={<Printer size={20} />} label="Print" />
           <ExportButton icon={<Copy size={20} />} label="Copy" />
         </View>
+
+        {/* Main Action Button */}
         <TouchableOpacity
           style={[
-            styles.button,
-            { backgroundColor: COLORS.accentPrimary },
-            (isSending || unassignedItems.length > 0) && { opacity: 0.5 },
+            styles.mainButton,
+            (isSending || unassignedItems.length > 0) && styles.mainButtonDisabled,
           ]}
           onPress={handleSendOrders}
           disabled={isSending || unassignedItems.length > 0}
+          activeOpacity={0.8}
         >
-          <Text style={styles.buttonText}>
-            {isSending ? 'Sending Emails...' : unassignedItems.length > 0 ? 'Assign All Distributors' : 'Confirm & Email Distributors'}
+          <Text style={styles.mainButtonText}>
+            {isSending 
+              ? 'Sending...' 
+              : unassignedItems.length > 0 
+                ? 'Assign All Distributors' 
+                : 'Confirm & Email Distributors'}
           </Text>
           {!isSending && <ChevronRight size={20} color="#FFFFFF" />}
         </TouchableOpacity>
@@ -216,32 +262,35 @@ function OrderItemRow({ item, distributors }: { item: OrderItem; distributors: D
 
   return (
     <View style={styles.orderItemRow}>
+      {/* Distributor Selector */}
       <View style={styles.distributorSelector}>
-        <View style={styles.selectorLabel}>
-          <Truck size={10} color={COLORS.textTertiary} />
-          <Text style={styles.selectorText}>Distributor:</Text>
-        </View>
         {distributors.map(dist => (
           <TouchableOpacity
             key={dist.id}
             style={[
               styles.distButton,
-              { backgroundColor: selectedDist === dist.id ? COLORS.accentPrimary : 'rgba(255,255,255,0.05)' },
+              selectedDist === dist.id && styles.distButtonSelected,
             ]}
             onPress={() => setSelectedDist(dist.id)}
           >
-            <Text style={[styles.distButtonText, { color: selectedDist === dist.id ? '#FFFFFF' : COLORS.textTertiary }]}>
+            <Text style={[
+              styles.distButtonText,
+              selectedDist === dist.id && styles.distButtonTextSelected,
+            ]}>
               {dist.initials || dist.name.charAt(0)}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
+      {/* Item Details */}
       <View style={styles.itemDetails}>
-        <Text style={styles.itemName}>{item.name}</Text>
+        <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
         <View style={styles.itemMeta}>
           {selectedDist && (
-            <Text style={styles.itemDistributor}>{distributors.find(d => d.id === selectedDist)?.initials || 'D'}</Text>
+            <Text style={styles.itemDistributor}>
+              {distributors.find(d => d.id === selectedDist)?.initials || 'D'}
+            </Text>
           )}
           <Text style={styles.itemQuantity}>x{item.quantity}</Text>
         </View>
@@ -252,7 +301,7 @@ function OrderItemRow({ item, distributors }: { item: OrderItem; distributors: D
 
 function ExportButton({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
-    <TouchableOpacity style={styles.exportButton}>
+    <TouchableOpacity style={styles.exportButton} activeOpacity={0.7}>
       {icon}
       <Text style={styles.exportLabel}>{label}</Text>
     </TouchableOpacity>
@@ -266,121 +315,52 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.xl,
+    paddingVertical: SPACING.lg,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
   headerTitle: {
-    fontSize: FONT_SIZES['5xl'],
+    fontSize: FONT_SIZES['3xl'],
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   headerSubtitle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.md,
-    marginTop: SPACING.md,
-  },
-  subtitleText: {
-    fontSize: FONT_SIZES.lg,
+    fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
-  },
-  dot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.border,
+    marginTop: SPACING.xs,
   },
   scrollContent: {
     paddingBottom: 280,
   },
-  leftColumn: {
-    flex: 1,
+  distributorSection: {
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.lg,
+    gap: SPACING.md,
   },
-  rightColumn: {
-    width: '100%',
-    backgroundColor: `${COLORS.primaryDark}33`,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.lg,
-    gap: SPACING.lg,
-  },
-  categoryHeader: {
+  sectionHeader: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textTertiary,
-    letterSpacing: 0.5,
-    marginBottom: SPACING.lg,
-  },
-  orderItemRow: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: `${COLORS.border}80`,
-    borderRadius: 12,
-    marginBottom: SPACING.lg,
-    overflow: 'hidden',
-  },
-  distributorSelector: {
-    backgroundColor: `${COLORS.primaryDark}33`,
-    borderBottomWidth: 1,
-    borderBottomColor: `${COLORS.border}4D`,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-  },
-  selectorLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-  },
-  selectorText: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textTertiary,
-  },
-  distButton: {
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    borderRadius: 6,
-    borderWidth: 0,
-  },
-  distButtonText: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-  },
-  itemDetails: {
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-  },
-  itemName: {
-    fontSize: FONT_SIZES.lg,
-    fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.textPrimary,
-  },
-  itemMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.lg,
-    marginTop: SPACING.sm,
-  },
-  itemDistributor: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
-    letterSpacing: 0.5,
-  },
-  itemQuantity: {
-    fontSize: FONT_SIZES['2xl'],
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
   distributorCard: {
     borderWidth: 1,
     borderRadius: 12,
     padding: SPACING.lg,
+  },
+  distributorCardOrange: {
+    backgroundColor: `${COLORS.accentPrimary}08`,
+    borderColor: `${COLORS.accentPrimary}20`,
+  },
+  distributorCardBlue: {
+    backgroundColor: '#3B82F608',
+    borderColor: '#3B82F620',
+  },
+  distributorCardGreen: {
+    backgroundColor: '#10B98108',
+    borderColor: '#10B98120',
   },
   distributorCardHeader: {
     flexDirection: 'row',
@@ -389,15 +369,26 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   distributorCardTitle: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
-  initialsTag: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs,
-    borderRadius: 4,
+  initialsBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  initialsBadgeOrange: {
+    backgroundColor: `${COLORS.accentPrimary}15`,
+  },
+  initialsBadgeBlue: {
+    backgroundColor: '#3B82F615',
+  },
+  initialsBadgeGreen: {
+    backgroundColor: '#10B98115',
   },
   initialsText: {
     fontSize: FONT_SIZES.xs,
@@ -410,22 +401,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    borderBottomColor: `${COLORS.border}30`,
   },
   distributorItemName: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
     flex: 1,
   },
   distributorItemQty: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.accentPrimary,
+    fontFamily: 'monospace',
   },
   unassignedCard: {
-    backgroundColor: `${COLORS.surface}4D`,
+    backgroundColor: `${COLORS.surface}50`,
     borderWidth: 1,
-    borderColor: `${COLORS.border}4D`,
+    borderColor: `${COLORS.border}50`,
     borderRadius: 12,
     padding: SPACING.lg,
   },
@@ -436,9 +428,9 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   unassignedTitle: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textTertiary,
+    color: COLORS.warning,
   },
   unassignedItem: {
     flexDirection: 'row',
@@ -446,102 +438,91 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
   },
   unassignedItemName: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.sm,
     color: COLORS.textTertiary,
     fontStyle: 'italic',
+    flex: 1,
   },
   unassignedItemQty: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textTertiary,
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  itemsSection: {
     paddingHorizontal: SPACING.lg,
   },
-  emptyIcon: {
-    width: 80,
-    height: 80,
-    backgroundColor: `${COLORS.success}33`,
-    borderRadius: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: SPACING.xl,
+  categorySection: {
+    marginBottom: SPACING.lg,
   },
-  emptyTitle: {
-    fontSize: FONT_SIZES['4xl'],
+  categoryHeader: {
+    fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textPrimary,
+    color: COLORS.textTertiary,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
     marginBottom: SPACING.md,
   },
-  emptyText: {
-    fontSize: FONT_SIZES.lg,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    marginBottom: SPACING.xl,
-  },
-  successContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-  },
-  successIcon: {
-    width: 96,
-    height: 96,
-    backgroundColor: `${COLORS.success}33`,
-    borderRadius: 48,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: SPACING.xl,
-  },
-  successTitle: {
-    fontSize: FONT_SIZES['5xl'],
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.xl,
-  },
-  distributorList: {
-    width: '100%',
-    gap: SPACING.md,
-  },
-  sentDistributorCard: {
+  orderItemRow: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 12,
-    padding: SPACING.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.lg,
+    marginBottom: SPACING.md,
+    overflow: 'hidden',
   },
-  distributorBadge: {
+  distributorSelector: {
+    flexDirection: 'row',
+    padding: SPACING.sm,
+    gap: SPACING.sm,
+    backgroundColor: `${COLORS.primaryDark}50`,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  distButton: {
     width: 32,
     height: 32,
-    backgroundColor: `${COLORS.accentPrimary}1A`,
     borderRadius: 8,
+    backgroundColor: `${COLORS.textPrimary}08`,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  distributorInfo: {
-    flex: 1,
+  distButtonSelected: {
+    backgroundColor: COLORS.accentPrimary,
   },
-  distributorName: {
+  distButtonText: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textPrimary,
-  },
-  distributorEmail: {
-    fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
   },
-  sentBadge: {
+  distButtonTextSelected: {
+    color: '#FFFFFF',
+  },
+  itemDetails: {
+    padding: SPACING.md,
+  },
+  itemName: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
+  },
+  itemMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    marginTop: SPACING.xs,
+  },
+  itemDistributor: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.success,
+    color: COLORS.accentPrimary,
     letterSpacing: 0.5,
+  },
+  itemQuantity: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
+    fontFamily: 'monospace',
   },
   footer: {
     position: 'absolute',
@@ -550,7 +531,7 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.lg,
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.primaryDark,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
   },
@@ -568,7 +549,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: SPACING.md,
+    gap: SPACING.sm,
   },
   exportLabel: {
     fontSize: FONT_SIZES.xs,
@@ -576,17 +557,165 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     letterSpacing: 0.5,
   },
-  button: {
+  mainButton: {
     height: 56,
+    backgroundColor: COLORS.accentPrimary,
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.md,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  buttonText: {
-    fontSize: FONT_SIZES.xl,
+  mainButtonDisabled: {
+    opacity: 0.5,
+  },
+  mainButtonText: {
+    fontSize: FONT_SIZES.lg,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+  },
+  emptyIcon: {
+    width: 80,
+    height: 80,
+    backgroundColor: `${COLORS.success}20`,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  emptyTitle: {
+    fontSize: FONT_SIZES['3xl'],
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.md,
+    letterSpacing: LETTER_SPACING,
+  },
+  emptyText: {
+    fontSize: FONT_SIZES.base,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+    maxWidth: 280,
+  },
+  emptyButton: {
+    height: 56,
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 12,
+    paddingHorizontal: SPACING.xl,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  emptyButtonText: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
+  },
+  successContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+  },
+  successIcon: {
+    width: 96,
+    height: 96,
+    backgroundColor: `${COLORS.success}20`,
+    borderRadius: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  successTitle: {
+    fontSize: FONT_SIZES['3xl'],
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.xl,
+    letterSpacing: LETTER_SPACING,
+  },
+  distributorList: {
+    width: '100%',
+    gap: SPACING.md,
+    marginBottom: SPACING.xl,
+  },
+  sentDistributorCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: SPACING.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+  },
+  distributorBadge: {
+    width: 40,
+    height: 40,
+    backgroundColor: `${COLORS.accentPrimary}15`,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  distributorInfo: {
+    flex: 1,
+  },
+  distributorName: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
+  },
+  distributorEmail: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: 2,
+  },
+  sentBadge: {
+    backgroundColor: `${COLORS.success}15`,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: 6,
+  },
+  sentBadgeText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.success,
+    letterSpacing: 0.5,
+  },
+  button: {
+    height: 56,
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 12,
+    paddingHorizontal: SPACING.xl,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  buttonText: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
   },
 });
