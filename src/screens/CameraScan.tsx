@@ -13,8 +13,9 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Camera, Zap, ChevronRight, Check } from 'lucide-react-native';
+import { Camera, Zap, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { analyzeBottleImage } from '../services/geminiVision';
 
 const { width, height } = Dimensions.get('window');
 
@@ -22,6 +23,8 @@ const { width, height } = Dimensions.get('window');
 interface ScannedBottle {
   id: string;
   name: string;
+  brand: string;
+  category: string;
   level: number; // 0-1 decimal
   timestamp: number;
   imageUri?: string;
@@ -41,15 +44,12 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
   const [isStabilizing, setIsStabilizing] = useState(false);
   const [stabilizeProgress, setStabilizeProgress] = useState(0);
   
-  const stabilizeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const cameraRef = useRef<CameraView>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (stabilizeTimerRef.current) {
-        clearTimeout(stabilizeTimerRef.current);
-      }
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
       }
@@ -90,65 +90,61 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
     ]).start();
   }, [flashAnim, borderColorAnim]);
 
-  // Simulate AI detection - in production this would use real ML model
-  const simulateDetection = useCallback(() => {
-    if (!isScanning || isStabilizing) return;
-    
-    // Simulate bottle detection (70% chance per check)
-    if (Math.random() > 0.3) {
-      setIsStabilizing(true);
-      setStabilizeProgress(0);
-      
-      // Progress animation
+  // Real AI detection using Gemini Vision
+  const captureAndAnalyze = useCallback(async () => {
+    if (!cameraRef.current || isStabilizing) return;
+
+    setIsStabilizing(true);
+    setStabilizeProgress(0);
+
+    try {
+      // Capture photo
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        base64: false,
+      });
+
+      if (!photo?.uri) {
+        setIsStabilizing(false);
+        return;
+      }
+
+      // Progress animation while AI analyzes
       let progress = 0;
       progressIntervalRef.current = setInterval(() => {
-        progress += 10;
-        setStabilizeProgress(progress);
-        if (progress >= 100) {
-          if (progressIntervalRef.current) {
-            clearInterval(progressIntervalRef.current);
-          }
-        }
+        progress += 5;
+        setStabilizeProgress(Math.min(progress, 90));
       }, 100);
-      
-      // Wait 1 second for stabilization
-      stabilizeTimerRef.current = setTimeout(() => {
+
+      // Send to Gemini
+      const result = await analyzeBottleImage(photo.uri);
+
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+      setStabilizeProgress(100);
+
+      if (result && result.confidence > 0.7) {
         const newBottle: ScannedBottle = {
           id: `bottle_${Date.now()}`,
-          name: getRandomBottleName(),
-          level: getRandomLevel(),
+          name: result.name,
+          brand: result.brand,
+          category: result.category,
+          level: result.liquidLevel,
           timestamp: Date.now(),
+          imageUri: photo.uri,
         };
-        
+
         setScannedBottles(prev => [...prev, newBottle]);
-        setIsStabilizing(false);
-        setStabilizeProgress(0);
         playCaptureFeedback();
-      }, 1000);
+      }
+    } catch (error) {
+      console.error('Capture error:', error);
+    } finally {
+      setIsStabilizing(false);
+      setStabilizeProgress(0);
     }
-  }, [isScanning, isStabilizing, playCaptureFeedback]);
-
-  // Detection loop
-  useEffect(() => {
-    if (!isScanning) return;
-    
-    const interval = setInterval(simulateDetection, 2000);
-    return () => clearInterval(interval);
-  }, [isScanning, simulateDetection]);
-
-  const getRandomBottleName = () => {
-    const names = [
-      'Grey Goose', 'Casamigos', 'Hendrick\'s', 'Jack Daniel\'s',
-      'Jameson', 'Patrón', 'Don Julio', 'Tanqueray',
-      'Bombay Sapphire', 'Belvedere', 'Cîroc', 'Ketel One'
-    ];
-    return names[Math.floor(Math.random() * names.length)];
-  };
-
-  const getRandomLevel = () => {
-    const levels = [1.0, 0.75, 0.5, 0.25, 0.1];
-    return levels[Math.floor(Math.random() * levels.length)];
-  };
+  }, [isStabilizing, playCaptureFeedback]);
 
   const handleStartScan = async () => {
     if (!permission?.granted) {
@@ -164,9 +160,6 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
 
   const handleDone = () => {
     setIsScanning(false);
-    if (stabilizeTimerRef.current) {
-      clearTimeout(stabilizeTimerRef.current);
-    }
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
     }
@@ -208,7 +201,11 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
       {/* Camera Feed */}
       <View style={styles.cameraContainer}>
         {isScanning ? (
-          <CameraView style={styles.camera} facing="back">
+          <CameraView 
+            ref={cameraRef}
+            style={styles.camera} 
+            facing="back"
+          >
             {/* Detection Overlay */}
             <Animated.View 
               style={[
@@ -236,7 +233,7 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
                     ]} 
                   />
                 </View>
-                <Text style={styles.stabilizingText}>Hold steady...</Text>
+                <Text style={styles.stabilizingText}>Analyzing with AI...</Text>
               </View>
             )}
             
@@ -267,7 +264,7 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
             <Text style={styles.statusText}>
               {isScanning 
                 ? `${scannedBottles.length} bottles scanned` 
-                : 'Auto-capture enabled'}
+                : 'AI-powered detection'}
             </Text>
           </View>
         </View>
@@ -286,20 +283,20 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
             <View style={styles.cameraIcon}>
               <Camera size={32} color={COLORS.accentPrimary} />
             </View>
-            <Text style={styles.startTitle}>Continuous Pen Scan</Text>
+            <Text style={styles.startTitle}>AI Bottle Scanner</Text>
             <Text style={styles.startDesc}>
-              Hold a pen at the liquid line. The camera will auto-capture when stable for 1 second.
+              Position a bottle with a pen at the liquid line. Tap capture to analyze with Gemini AI.
             </Text>
             <View style={styles.featureList}>
-              <FeatureItem icon="✓" text="No tapping required" />
-              <FeatureItem icon="✓" text="Auto-detects pen position" />
+              <FeatureItem icon="✓" text="Gemini Vision AI" />
+              <FeatureItem icon="✓" text="Pen level detection" />
               <FeatureItem icon="✓" text="Vibrate + flash on capture" />
             </View>
             <TouchableOpacity
               style={[styles.button, { backgroundColor: COLORS.accentPrimary }]}
               onPress={handleStartScan}
             >
-              <Text style={styles.buttonText}>Start Pen Scan</Text>
+              <Text style={styles.buttonText}>Start Scanning</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -342,6 +339,18 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
                 </View>
               </View>
             )}
+            
+            {/* Manual Capture Button */}
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: COLORS.accentPrimary }]}
+              onPress={captureAndAnalyze}
+              disabled={isStabilizing}
+            >
+              <Camera size={24} color="#FFFFFF" />
+              <Text style={styles.buttonText}>
+                {isStabilizing ? 'Analyzing...' : 'Capture Bottle'}
+              </Text>
+            </TouchableOpacity>
             
             {/* Done Button */}
             <TouchableOpacity

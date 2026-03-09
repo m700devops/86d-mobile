@@ -18,6 +18,8 @@ import * as Haptics from 'expo-haptics';
 interface ScannedBottle {
   id: string;
   name: string;
+  brand: string;
+  category: string;
   level: number; // 0-1 decimal
   timestamp: number;
   imageUri?: string;
