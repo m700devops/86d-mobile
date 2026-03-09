@@ -9,7 +9,7 @@ import {
   Animated,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
-import { FONT_SIZES, FONT_WEIGHTS } from '../constants/typography';
+import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { ArrowLeft, Check, Info, Camera } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -122,26 +122,24 @@ export default function PenDetection({ onBack, onComplete }: Props) {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <ArrowLeft size={24} color={COLORS.textSecondary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>How Pen Scan Works</Text>
+        <Text style={styles.headerTitle}>Pen Detection Guide</Text>
         <View style={styles.placeholder} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Visual Demo */}
+        {/* Visual Demo Card */}
         <View style={styles.mockupContainer}>
           <View style={styles.mockup}>
             {/* Scan line */}
             <Animated.View
               style={[
                 styles.scanLine,
-                {
-                  top: scanLineY,
-                },
+                { top: scanLineY },
               ]}
             />
 
@@ -149,9 +147,7 @@ export default function PenDetection({ onBack, onComplete }: Props) {
             <Animated.View
               style={[
                 styles.liquidLine,
-                {
-                  top: liquidLineY,
-                },
+                { top: liquidLineY },
               ]}
             />
 
@@ -159,10 +155,7 @@ export default function PenDetection({ onBack, onComplete }: Props) {
             <Animated.View
               style={[
                 styles.pen,
-                {
-                  left: penX,
-                  top: '58%',
-                },
+                { left: penX, top: '58%' },
               ]}
             >
               <View style={styles.penBar} />
@@ -182,7 +175,7 @@ export default function PenDetection({ onBack, onComplete }: Props) {
 
             {/* Status badge */}
             <View style={styles.statusBadge}>
-              <Text style={styles.statusText}>PEN DETECTED • HOLD STEADY</Text>
+              <Text style={styles.statusText}>LIQUID LINE DETECTED</Text>
             </View>
           </View>
         </View>
@@ -191,35 +184,19 @@ export default function PenDetection({ onBack, onComplete }: Props) {
         <View style={styles.stepsContainer}>
           <StepItem
             number="01"
-            title="Position the bottle"
-            desc="Point camera at a bottle. The AI looks for the bottle shape automatically."
+            title="Hold pen at liquid line"
+            desc="Align the tip of a pen or pencil with the top of the liquid."
           />
           <StepItem
             number="02"
-            title="Hold pen at liquid line"
-            desc="Place pen tip exactly where the liquid meets the air. This is your reference point."
+            title="Wait for gold pulse"
+            desc="Our AI uses the pen as a physical reference for 99.9% accuracy."
           />
           <StepItem
             number="03"
-            title="Hold steady for 1 second"
-            desc="Keep the pen still. The progress bar fills up, then auto-captures."
+            title="Confirm level"
+            desc="Tap the screen to lock in the precise volume."
           />
-          <StepItem
-            number="04"
-            title="Move to next bottle"
-            desc="You'll hear a beep and feel a vibration. No tapping needed — just move to the next bottle."
-          />
-        </View>
-
-        {/* Feedback explanation */}
-        <View style={styles.feedbackBox}>
-          <Text style={styles.feedbackTitle}>You'll know it worked when:</Text>
-          <View style={styles.feedbackItems}>
-            <FeedbackItem icon="🔊" text="Short beep sound" />
-            <FeedbackItem icon="📳" text="Phone vibrates" />
-            <FeedbackItem icon="✅" text="Green flash on screen" />
-            <FeedbackItem icon="📊" text="Counter goes up" />
-          </View>
         </View>
 
         {/* Pro Tip */}
@@ -228,20 +205,19 @@ export default function PenDetection({ onBack, onComplete }: Props) {
             <Info size={20} color={COLORS.accentSecondary} />
           </View>
           <Text style={styles.proTipText}>
-            <Text style={{ fontWeight: FONT_WEIGHTS.semibold, color: COLORS.textPrimary }}>
-              Pro Tip:{' '}
-            </Text>
-            Using a pen reduces error by 40% compared to eye-balling, especially in dark bar environments. Any pen or pencil works.
+            <Text style={styles.proTipHighlight}>Pro Tip:{' '}</Text>
+            Using a pen reduces error by 40% compared to eye-balling, especially in dark environments.
           </Text>
         </View>
 
         {/* Start Button */}
         <TouchableOpacity
-          style={[styles.button, { backgroundColor: COLORS.accentPrimary }]}
+          style={styles.button}
           onPress={handleComplete}
+          activeOpacity={0.8}
         >
-          <Camera size={20} color="#FFFFFF" />
-          <Text style={styles.buttonText}>Start Scanning</Text>
+          <Check size={20} color="#FFFFFF" />
+          <Text style={styles.buttonText}>Got it, let's scan</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -251,22 +227,11 @@ export default function PenDetection({ onBack, onComplete }: Props) {
 function StepItem({ number, title, desc }: { number: string; title: string; desc: string }) {
   return (
     <View style={styles.stepItem}>
-      <View style={styles.stepNumberContainer}>
-        <Text style={styles.stepNumber}>{number}</Text>
-      </View>
+      <Text style={styles.stepNumber}>{number}</Text>
       <View style={styles.stepContent}>
         <Text style={styles.stepTitle}>{title}</Text>
         <Text style={styles.stepDesc}>{desc}</Text>
       </View>
-    </View>
-  );
-}
-
-function FeedbackItem({ icon, text }: { icon: string; text: string }) {
-  return (
-    <View style={styles.feedbackItem}>
-      <Text style={styles.feedbackIcon}>{icon}</Text>
-      <Text style={styles.feedbackItemText}>{text}</Text>
     </View>
   );
 }
@@ -293,9 +258,10 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     flex: 1,
     textAlign: 'center',
+    letterSpacing: LETTER_SPACING,
   },
   placeholder: {
-    width: 40,
+    width: 48,
   },
   scrollContent: {
     paddingHorizontal: SPACING.lg,
@@ -314,9 +280,10 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.6,
+    shadowRadius: 40,
+    elevation: 20,
   },
   scanLine: {
     position: 'absolute',
@@ -324,22 +291,22 @@ const styles = StyleSheet.create({
     right: 0,
     height: 2,
     backgroundColor: COLORS.accentPrimary,
-    opacity: 0.6,
+    opacity: 0.5,
     shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
-    shadowRadius: 4,
+    shadowRadius: 6,
   },
   liquidLine: {
     position: 'absolute',
     left: 0,
     right: 0,
-    height: 2,
+    height: 3,
     backgroundColor: COLORS.accentSecondary,
     shadowColor: COLORS.accentSecondary,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 10,
+    shadowOpacity: 1,
+    shadowRadius: 15,
   },
   pen: {
     position: 'absolute',
@@ -349,44 +316,48 @@ const styles = StyleSheet.create({
   },
   penBar: {
     flex: 1,
-    backgroundColor: '#A0A0A0',
+    backgroundColor: '#C0C0C0',
     borderRadius: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
   penTip: {
     position: 'absolute',
     left: 0,
     width: 12,
     height: 12,
-    backgroundColor: '#000000',
+    backgroundColor: '#1A1A1A',
     borderRadius: 6,
   },
   pulse: {
     position: 'absolute',
     left: '40%',
     top: '58%',
-    width: 40,
-    height: 40,
-    marginLeft: -20,
-    marginTop: -20,
-    backgroundColor: COLORS.success,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    marginLeft: -24,
+    marginTop: -24,
+    backgroundColor: COLORS.accentSecondary,
+    borderRadius: 24,
   },
   statusBadge: {
     position: 'absolute',
-    bottom: SPACING.lg,
+    bottom: 0,
     left: 0,
     right: 0,
     alignItems: 'center',
-    backgroundColor: `${COLORS.accentSecondary}33`,
+    backgroundColor: `${COLORS.accentSecondary}20`,
     borderTopWidth: 1,
-    borderTopColor: `${COLORS.accentSecondary}66`,
-    paddingVertical: SPACING.sm,
+    borderTopColor: `${COLORS.accentSecondary}50`,
+    paddingVertical: SPACING.md,
   },
   statusText: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.accentSecondary,
-    letterSpacing: 1,
+    letterSpacing: 2,
   },
   stepsContainer: {
     gap: SPACING.lg,
@@ -397,18 +368,12 @@ const styles = StyleSheet.create({
     gap: SPACING.lg,
     alignItems: 'flex-start',
   },
-  stepNumberContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: `${COLORS.accentPrimary}20`,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   stepNumber: {
     fontSize: FONT_SIZES.lg,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.accentPrimary,
+    fontFamily: 'monospace',
+    width: 32,
   },
   stepContent: {
     flex: 1,
@@ -418,60 +383,28 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
     marginBottom: SPACING.xs,
+    letterSpacing: LETTER_SPACING,
   },
   stepDesc: {
     fontSize: FONT_SIZES.sm,
     color: COLORS.textTertiary,
     lineHeight: 20,
   },
-  feedbackBox: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    padding: SPACING.lg,
-    marginBottom: SPACING.xl,
-  },
-  feedbackTitle: {
-    fontSize: FONT_SIZES.lg,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.md,
-  },
-  feedbackItems: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.md,
-  },
-  feedbackItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    backgroundColor: `${COLORS.primaryDark}80`,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    borderRadius: 8,
-  },
-  feedbackIcon: {
-    fontSize: FONT_SIZES.lg,
-  },
-  feedbackItemText: {
-    fontSize: FONT_SIZES.sm,
-    color: COLORS.textSecondary,
-  },
   proTipBox: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: SPACING.lg,
     flexDirection: 'row',
     gap: SPACING.lg,
     marginBottom: SPACING.xl,
   },
   proTipIcon: {
-    width: 40,
-    height: 40,
-    backgroundColor: `${COLORS.accentSecondary}1A`,
-    borderRadius: 8,
+    width: 44,
+    height: 44,
+    backgroundColor: `${COLORS.accentSecondary}15`,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -479,19 +412,30 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
-    lineHeight: 20,
+    lineHeight: 22,
+  },
+  proTipHighlight: {
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
   },
   button: {
     height: 56,
+    backgroundColor: COLORS.accentPrimary,
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.md,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
   },
   buttonText: {
-    fontSize: FONT_SIZES.xl,
+    fontSize: FONT_SIZES.lg,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
   },
 });
