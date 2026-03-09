@@ -21,8 +21,9 @@
       "bundleIdentifier": "com.my86d.app",
       "supportsTablet": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "This app uses the camera to scan bottles for inventory.",
-        "NSPhotoLibraryUsageDescription": "This app saves photos of bottles for inventory records."
+        "NSCameraUsageDescription": "This app uses the camera to scan bottles for inventory using pen detection.",
+        "NSPhotoLibraryUsageDescription": "This app saves photos of bottles for inventory records.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
