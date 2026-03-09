@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Switch } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated } from 'react-native';
 import { COLORS } from '../constants/colors';
-import { FONT_SIZES, FONT_WEIGHTS } from '../constants/typography';
+import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Plus, X, Trash2, User, Mail, Hash } from 'lucide-react-native';
+import { Plus, X, Trash2, User, Mail, Hash, Check } from 'lucide-react-native';
 import { useDistributors } from '../context/DistributorContext';
 
 interface Props {
@@ -18,6 +18,21 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
   const [name, setName] = useState('');
   const [initials, setInitials] = useState('');
   const [email, setEmail] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  
+  const modalAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isModalOpen) {
+      Animated.timing(modalAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      modalAnim.setValue(0);
+    }
+  }, [isModalOpen, modalAnim]);
 
   const openModal = (dist?: any) => {
     if (dist) {
@@ -59,22 +74,39 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
     setEditingId(null);
   };
 
+  const handleDelete = (id: string) => {
+    setDeletingId(id);
+    setTimeout(() => {
+      removeDistributor(id);
+      setDeletingId(null);
+    }, 200);
+  };
+
+  const modalScale = modalAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.9, 1],
+  });
+
+  const modalOpacity = modalAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Settings</Text>
-          <Text style={styles.headerSubtitle}>Manage your bar's configuration</Text>
-        </View>
+        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.headerSubtitle}>Manage your bar's configuration</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Distributors Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Distributors</Text>
-            <TouchableOpacity onPress={() => openModal()} style={styles.addNewButton}>
-              <Plus size={12} color={COLORS.accentPrimary} />
+            <Text style={styles.sectionTitle}>DISTRIBUTORS</Text>
+            <TouchableOpacity onPress={() => openModal()} style={styles.addNewButton} activeOpacity={0.7}>
+              <Plus size={14} color={COLORS.accentPrimary} />
               <Text style={styles.addNewText}>Add New</Text>
             </TouchableOpacity>
           </View>
@@ -83,9 +115,12 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
             {distributors.map(dist => (
               <TouchableOpacity
                 key={dist.id}
-                style={styles.distributorCard}
+                style={[
+                  styles.distributorCard,
+                  deletingId === dist.id && styles.distributorCardDeleting,
+                ]}
                 onPress={() => openModal(dist)}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
                 <View style={styles.distributorLeft}>
                   <View style={styles.distributorBadge}>
@@ -99,11 +134,12 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
                 <TouchableOpacity
                   onPress={(e) => {
                     e.stopPropagation();
-                    removeDistributor(dist.id);
+                    handleDelete(dist.id);
                   }}
                   style={styles.deleteButton}
+                  activeOpacity={0.7}
                 >
-                  <Trash2 size={16} color={COLORS.textTertiary} />
+                  <Trash2 size={16} color={deletingId === dist.id ? COLORS.error : COLORS.textTertiary} />
                 </TouchableOpacity>
               </TouchableOpacity>
             ))}
@@ -112,28 +148,37 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
 
         {/* General Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>General</Text>
+          <Text style={styles.sectionTitle}>GENERAL</Text>
           <View style={styles.settingCard}>
             <Text style={styles.settingLabel}>Dark Mode</Text>
-            <Switch
-              value={isDarkMode}
-              onValueChange={onToggleDarkMode}
-              trackColor={{ false: COLORS.border, true: COLORS.accentPrimary }}
-              thumbColor="#FFFFFF"
-            />
+            <TouchableOpacity 
+              style={[styles.toggle, isDarkMode && styles.toggleActive]}
+              onPress={onToggleDarkMode}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.toggleKnob, isDarkMode && styles.toggleKnobActive]} />
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
 
       {/* Add/Edit Modal */}
-      <Modal transparent animationType="fade" visible={isModalOpen} onRequestClose={() => setIsModalOpen(false)}>
+      <Modal transparent visible={isModalOpen} onRequestClose={() => setIsModalOpen(false)} animationType="none">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <Animated.View 
+            style={[
+              styles.modalContent,
+              { 
+                transform: [{ scale: modalScale }],
+                opacity: modalOpacity,
+              }
+            ]}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
                 {editingId ? 'Edit Distributor' : 'New Distributor'}
               </Text>
-              <TouchableOpacity onPress={() => setIsModalOpen(false)}>
+              <TouchableOpacity onPress={() => setIsModalOpen(false)} activeOpacity={0.7}>
                 <X size={20} color={COLORS.textSecondary} />
               </TouchableOpacity>
             </View>
@@ -141,7 +186,7 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
             <View style={styles.modalForm}>
               {/* Name */}
               <View style={styles.formGroup}>
-                <Text style={styles.fieldLabel}>Name</Text>
+                <Text style={styles.fieldLabel}>NAME</Text>
                 <View style={styles.inputWithIcon}>
                   <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
                   <TextInput
@@ -157,7 +202,7 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
               {/* Initials & Email */}
               <View style={styles.twoColumnRow}>
                 <View style={[styles.formGroup, { flex: 1 }]}>
-                  <Text style={styles.fieldLabel}>Initials</Text>
+                  <Text style={styles.fieldLabel}>INITIALS</Text>
                   <View style={styles.inputWithIcon}>
                     <Hash size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
                     <TextInput
@@ -172,7 +217,7 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
                 </View>
 
                 <View style={[styles.formGroup, { flex: 2 }]}>
-                  <Text style={styles.fieldLabel}>Email</Text>
+                  <Text style={styles.fieldLabel}>EMAIL</Text>
                   <View style={styles.inputWithIcon}>
                     <Mail size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
                     <TextInput
@@ -190,18 +235,19 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
 
             <TouchableOpacity
               style={[
-                styles.button,
-                { backgroundColor: COLORS.accentPrimary },
-                (!name.trim() || !initials.trim() || !email.trim()) && { opacity: 0.5 },
+                styles.saveButton,
+                (!name.trim() || !initials.trim() || !email.trim()) && styles.saveButtonDisabled,
               ]}
               onPress={handleSave}
               disabled={!name.trim() || !initials.trim() || !email.trim()}
+              activeOpacity={0.8}
             >
-              <Text style={styles.buttonText}>
-                {editingId ? 'Update Distributor' : 'Save Distributor'}
+              <Check size={18} color="#FFFFFF" />
+              <Text style={styles.saveButtonText}>
+                {editingId ? 'Update' : 'Save'}
               </Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -215,47 +261,48 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.xl,
+    paddingVertical: SPACING.lg,
   },
   headerTitle: {
-    fontSize: FONT_SIZES['3xl'],
+    fontSize: FONT_SIZES['2xl'],
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   headerSubtitle: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: FONT_SIZES.sm,
     color: COLORS.textTertiary,
-    marginTop: SPACING.sm,
+    marginTop: SPACING.xs,
   },
   scrollContent: {
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING['3xl'],
   },
   section: {
-    marginBottom: SPACING['3xl'],
+    marginBottom: SPACING['2xl'],
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.md,
   },
   sectionTitle: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textTertiary,
-    letterSpacing: 0.5,
+    letterSpacing: 2,
   },
   addNewButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.sm,
+    gap: SPACING.xs,
   },
   addNewText: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.accentPrimary,
-    letterSpacing: 0.5,
+    letterSpacing: LETTER_SPACING,
   },
   distributorsList: {
     gap: SPACING.md,
@@ -263,12 +310,15 @@ const styles = StyleSheet.create({
   distributorCard: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: `${COLORS.border}80`,
-    borderRadius: 12,
+    borderColor: COLORS.border,
+    borderRadius: 16,
     padding: SPACING.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  distributorCardDeleting: {
+    opacity: 0.5,
   },
   distributorLeft: {
     flex: 1,
@@ -277,12 +327,12 @@ const styles = StyleSheet.create({
     gap: SPACING.lg,
   },
   distributorBadge: {
-    width: 40,
-    height: 40,
-    backgroundColor: `${COLORS.accentPrimary}1A`,
+    width: 44,
+    height: 44,
+    backgroundColor: `${COLORS.accentPrimary}10`,
     borderWidth: 1,
-    borderColor: `${COLORS.accentPrimary}33`,
-    borderRadius: 8,
+    borderColor: `${COLORS.accentPrimary}20`,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -292,14 +342,15 @@ const styles = StyleSheet.create({
     color: COLORS.accentPrimary,
   },
   distributorName: {
-    fontSize: FONT_SIZES.lg,
+    fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   distributorEmail: {
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
-    marginTop: SPACING.xs,
+    marginTop: 2,
   },
   deleteButton: {
     padding: SPACING.md,
@@ -307,17 +358,38 @@ const styles = StyleSheet.create({
   settingCard: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: `${COLORS.border}80`,
-    borderRadius: 12,
+    borderColor: COLORS.border,
+    borderRadius: 16,
     padding: SPACING.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   settingLabel: {
-    fontSize: FONT_SIZES.lg,
+    fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.medium,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
+  },
+  toggle: {
+    width: 48,
+    height: 24,
+    backgroundColor: COLORS.border,
+    borderRadius: 12,
+    padding: 2,
+  },
+  toggleActive: {
+    backgroundColor: COLORS.accentPrimary,
+  },
+  toggleKnob: {
+    width: 20,
+    height: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    transform: [{ translateX: 0 }],
+  },
+  toggleKnobActive: {
+    transform: [{ translateX: 24 }],
   },
   modalOverlay: {
     flex: 1,
@@ -334,6 +406,11 @@ const styles = StyleSheet.create({
     padding: SPACING.xl,
     width: '100%',
     maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.5,
+    shadowRadius: 40,
+    elevation: 20,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -345,30 +422,30 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES['2xl'],
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   modalForm: {
     gap: SPACING.lg,
     marginBottom: SPACING.xl,
   },
   formGroup: {
-    gap: SPACING.md,
+    gap: SPACING.sm,
   },
   fieldLabel: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textTertiary,
-    letterSpacing: 0.5,
-    paddingLeft: SPACING.md,
+    letterSpacing: 1,
   },
   inputWithIcon: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: `${COLORS.primaryDark}33`,
+    backgroundColor: `${COLORS.primaryDark}50`,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 12,
     paddingHorizontal: SPACING.md,
-    height: 48,
+    height: 52,
   },
   inputIcon: {
     marginRight: SPACING.md,
@@ -376,21 +453,33 @@ const styles = StyleSheet.create({
   modalInput: {
     flex: 1,
     color: COLORS.textPrimary,
-    fontSize: FONT_SIZES.lg,
+    fontSize: FONT_SIZES.base,
   },
   twoColumnRow: {
     flexDirection: 'row',
-    gap: SPACING.lg,
+    gap: SPACING.md,
   },
-  button: {
-    height: 48,
+  saveButton: {
+    height: 52,
+    backgroundColor: COLORS.accentPrimary,
     borderRadius: 12,
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    gap: SPACING.sm,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  buttonText: {
+  saveButtonDisabled: {
+    opacity: 0.5,
+  },
+  saveButtonText: {
     fontSize: FONT_SIZES.lg,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
   },
 });
