@@ -13,9 +13,8 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Camera, Zap, ChevronRight, Square, Check } from 'lucide-react-native';
+import { Camera, Zap, ChevronRight, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { Audio } from 'expo-av';
 
 const { width, height } = Dimensions.get('window');
 
@@ -39,21 +38,15 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
   const [scannedBottles, setScannedBottles] = useState<ScannedBottle[]>([]);
   const [flashAnim] = useState(new Animated.Value(0));
   const [borderColorAnim] = useState(new Animated.Value(0));
-  const [lastDetectionTime, setLastDetectionTime] = useState(0);
   const [isStabilizing, setIsStabilizing] = useState(false);
   const [stabilizeProgress, setStabilizeProgress] = useState(0);
   
-  const soundRef = useRef<Audio.Sound | null>(null);
   const stabilizeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load beep sound on mount
+  // Cleanup on unmount
   useEffect(() => {
-    loadSound();
     return () => {
-      if (soundRef.current) {
-        soundRef.current.unloadAsync();
-      }
       if (stabilizeTimerRef.current) {
         clearTimeout(stabilizeTimerRef.current);
       }
@@ -63,33 +56,10 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
     };
   }, []);
 
-  const loadSound = async () => {
-    try {
-      // Try to load the beep sound - falls back to haptic only if file doesn't exist
-      const { sound } = await Audio.Sound.createAsync(
-        require('../../assets/beep.mp3'),
-        { shouldPlay: false }
-      );
-      soundRef.current = sound;
-    } catch (error) {
-      // Sound file not found - haptic feedback will still work
-      console.log('Audio: Using haptic feedback only (beep.mp3 not found)');
-    }
-  };
-
-  // Play beep and vibrate
+  // Play haptic feedback and flash animation on capture
   const playCaptureFeedback = useCallback(async () => {
-    // Haptic feedback
+    // Haptic feedback - strong vibration
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    
-    // Sound feedback
-    if (soundRef.current) {
-      try {
-        await soundRef.current.replayAsync();
-      } catch (error) {
-        // Ignore sound errors
-      }
-    }
     
     // Green flash animation
     Animated.sequence([
@@ -151,7 +121,6 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
         };
         
         setScannedBottles(prev => [...prev, newBottle]);
-        setLastDetectionTime(Date.now());
         setIsStabilizing(false);
         setStabilizeProgress(0);
         playCaptureFeedback();
@@ -324,7 +293,7 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
             <View style={styles.featureList}>
               <FeatureItem icon="✓" text="No tapping required" />
               <FeatureItem icon="✓" text="Auto-detects pen position" />
-              <FeatureItem icon="✓" text="Beep + vibrate on capture" />
+              <FeatureItem icon="✓" text="Vibrate + flash on capture" />
             </View>
             <TouchableOpacity
               style={[styles.button, { backgroundColor: COLORS.accentPrimary }]}

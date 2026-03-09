@@ -13,7 +13,6 @@
     "axios": "^1.6.0",
     "expo": "~55.0.5",
     "expo-asset": "~55.0.8",
-    "expo-av": "^16.0.8",
     "expo-camera": "~55.0.9",
     "expo-haptics": "^55.0.8",
     "expo-media-library": "~55.0.9",
