@@ -13,7 +13,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Camera, Zap, Check } from 'lucide-react-native';
+import { Camera, Zap, Check, Sparkles } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { analyzeBottleImage } from '../services/geminiVision';
 
@@ -25,7 +25,7 @@ interface ScannedBottle {
   name: string;
   brand: string;
   category: string;
-  level: number; // 0-1 decimal
+  level: number;
   timestamp: number;
   imageUri?: string;
 }
@@ -43,9 +43,32 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
   const [borderColorAnim] = useState(new Animated.Value(0));
   const [isStabilizing, setIsStabilizing] = useState(false);
   const [stabilizeProgress, setStabilizeProgress] = useState(0);
+  const [pulseAnim] = useState(new Animated.Value(1));
   
   const cameraRef = useRef<CameraView>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Pulse animation for capture button
+  useEffect(() => {
+    if (isScanning && !isStabilizing) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.05,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isScanning, isStabilizing, pulseAnim]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -58,10 +81,8 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
 
   // Play haptic feedback and flash animation on capture
   const playCaptureFeedback = useCallback(async () => {
-    // Haptic feedback - strong vibration
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     
-    // Green flash animation
     Animated.sequence([
       Animated.timing(flashAnim, {
         toValue: 1,
@@ -75,7 +96,6 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
       }),
     ]).start();
     
-    // Border flash animation
     Animated.sequence([
       Animated.timing(borderColorAnim, {
         toValue: 1,
@@ -98,7 +118,6 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
     setStabilizeProgress(0);
 
     try {
-      // Capture photo
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
         base64: false,
@@ -109,14 +128,12 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
         return;
       }
 
-      // Progress animation while AI analyzes
       let progress = 0;
       progressIntervalRef.current = setInterval(() => {
         progress += 5;
         setStabilizeProgress(Math.min(progress, 90));
       }, 100);
 
-      // Send to Gemini
       const result = await analyzeBottleImage(photo.uri);
 
       if (progressIntervalRef.current) {
@@ -173,13 +190,11 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
     return '#F44336';
   };
 
-  // Animated border color
   const borderColor = borderColorAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [COLORS.accentPrimary, COLORS.success],
   });
 
-  // Flash overlay opacity
   const flashOpacity = flashAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 0.3],
@@ -187,7 +202,7 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
 
   if (!permission) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color={COLORS.accentPrimary} />
           <Text style={styles.loadingText}>Requesting camera permission...</Text>
@@ -197,7 +212,7 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+    <SafeAreaView style={styles.container}>
       {/* Camera Feed */}
       <View style={styles.cameraContainer}>
         {isScanning ? (
@@ -206,7 +221,6 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
             style={styles.camera} 
             facing="back"
           >
-            {/* Detection Overlay */}
             <Animated.View 
               style={[
                 styles.detectionOverlay,
@@ -214,15 +228,13 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
               ]} 
             />
             
-            {/* Flash Effect */}
             <Animated.View 
               style={[
                 styles.flashOverlay,
-                { opacity: flashOpacity, backgroundColor: COLORS.success }
+                { opacity: flashOpacity }
               ]} 
             />
             
-            {/* Stabilizing Indicator */}
             {isStabilizing && (
               <View style={styles.stabilizingContainer}>
                 <View style={styles.stabilizingBar}>
@@ -237,7 +249,6 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
               </View>
             )}
             
-            {/* Detection Guide */}
             <View style={styles.guideContainer}>
               <View style={styles.guideCorner} />
               <View style={[styles.guideCorner, styles.guideCornerTopRight]} />
@@ -245,12 +256,13 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
               <View style={[styles.guideCorner, styles.guideCornerBottomRight]} />
             </View>
             
-            {/* Vignette Overlay */}
             <View style={styles.vignetteOverlay} />
           </CameraView>
         ) : (
-          <View style={[styles.camera, { backgroundColor: COLORS.surface, justifyContent: 'center', alignItems: 'center' }]}>
-            <Camera size={64} color={COLORS.textTertiary} />
+          <View style={styles.cameraPlaceholder}>
+            <View style={styles.cameraIconLarge}>
+              <Camera size={48} color={COLORS.accentPrimary} />
+            </View>
             <Text style={styles.cameraPlaceholderText}>Camera Preview</Text>
           </View>
         )}
@@ -260,14 +272,14 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>
-            {isScanning ? 'Scanning...' : 'Pen Scan Mode'}
+            {isScanning ? 'Scanning...' : 'AI Scanner'}
           </Text>
           <View style={styles.statusRow}>
-            <Zap size={14} color={COLORS.accentPrimary} />
+            <Sparkles size={14} color={COLORS.accentSecondary} />
             <Text style={styles.statusText}>
               {isScanning 
                 ? `${scannedBottles.length} bottles scanned` 
-                : 'AI-powered detection'}
+                : 'Gemini Vision powered'}
             </Text>
           </View>
         </View>
@@ -283,23 +295,25 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
       {!isScanning && (
         <View style={styles.centerContent}>
           <View style={styles.startContainer}>
-            <View style={styles.cameraIcon}>
-              <Camera size={32} color={COLORS.accentPrimary} />
+            <View style={styles.iconBox}>
+              <Camera size={32} color="#FFFFFF" />
             </View>
             <Text style={styles.startTitle}>AI Bottle Scanner</Text>
             <Text style={styles.startDesc}>
-              Position a bottle with a pen at the liquid line. Tap capture to analyze with Gemini AI.
+              Position a bottle with a pen at the liquid line. Tap capture to analyze.
             </Text>
             <View style={styles.featureList}>
               <FeatureItem icon="✓" text="Gemini Vision AI" />
               <FeatureItem icon="✓" text="Pen level detection" />
-              <FeatureItem icon="✓" text="Vibrate + flash on capture" />
+              <FeatureItem icon="✓" text="One-tap capture" />
             </View>
             <TouchableOpacity
-              style={[styles.button, { backgroundColor: COLORS.accentPrimary }]}
+              style={styles.startButton}
               onPress={handleStartScan}
+              activeOpacity={0.8}
             >
-              <Text style={styles.buttonText}>Start Scanning</Text>
+              <Text style={styles.startButtonText}>Start Scanning</Text>
+              <Zap size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
         </View>
@@ -309,30 +323,25 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
       <View style={styles.bottomControls}>
         {!isScanning ? (
           <TouchableOpacity
-            style={[styles.secondaryButton, { borderColor: COLORS.border }]}
+            style={styles.penGuideButton}
             onPress={onPenDetect}
           >
-            <Text style={styles.secondaryButtonText}>View Pen Guide</Text>
+            <Text style={styles.penGuideText}>View Pen Guide</Text>
           </TouchableOpacity>
         ) : (
           <View style={styles.scanningControls}>
-            {/* Live Counter */}
             <View style={styles.liveCounter}>
               <Text style={styles.liveCounterNumber}>{scannedBottles.length}</Text>
               <Text style={styles.liveCounterLabel}>bottles scanned</Text>
             </View>
             
-            {/* Recent Scans Preview */}
             {scannedBottles.length > 0 && (
-              <View style={styles.recentScans}>
-                <Text style={styles.recentScansTitle}>Last captured:</Text>
-                <View style={styles.recentScanItem}>
-                  <Text style={styles.recentScanName}>
-                    {scannedBottles[scannedBottles.length - 1].name}
-                  </Text>
+              <View style={styles.recentScan}>
+                <Text style={styles.recentScanLabel}>Last: {scannedBottles[scannedBottles.length - 1].name}</Text>
+                <View style={styles.levelBar}>
                   <View 
                     style={[
-                      styles.levelIndicator,
+                      styles.levelFill,
                       { 
                         backgroundColor: getLevelColor(scannedBottles[scannedBottles.length - 1].level),
                         width: `${scannedBottles[scannedBottles.length - 1].level * 100}%`
@@ -343,22 +352,24 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
               </View>
             )}
             
-            {/* Manual Capture Button */}
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: COLORS.accentPrimary }]}
-              onPress={captureAndAnalyze}
-              disabled={isStabilizing}
-            >
-              <Camera size={24} color="#FFFFFF" />
-              <Text style={styles.buttonText}>
-                {isStabilizing ? 'Analyzing...' : 'Capture Bottle'}
-              </Text>
-            </TouchableOpacity>
+            <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+              <TouchableOpacity
+                style={styles.captureButton}
+                onPress={captureAndAnalyze}
+                disabled={isStabilizing}
+                activeOpacity={0.8}
+              >
+                <Camera size={24} color="#FFFFFF" />
+                <Text style={styles.captureButtonText}>
+                  {isStabilizing ? 'Analyzing...' : 'Capture'}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
             
-            {/* Done Button */}
             <TouchableOpacity
-              style={[styles.doneButton, { backgroundColor: COLORS.success }]}
+              style={styles.doneButton}
               onPress={handleDone}
+              activeOpacity={0.8}
             >
               <Check size={20} color="#FFFFFF" />
               <Text style={styles.doneButtonText}>Done</Text>
@@ -379,10 +390,9 @@ function FeatureItem({ icon, text }: { icon: string; text: string }) {
   );
 }
 
-// ActivityIndicator component for loading state
 function ActivityIndicator({ size, color }: { size: 'large' | 'small'; color: string }) {
   return (
-    <View style={[styles.activityIndicator, { borderColor: color }]}>
+    <View style={[styles.spinnerContainer, { borderColor: color }]}>
       <View style={[styles.spinner, { borderColor: color }]} />
     </View>
   );
@@ -402,28 +412,32 @@ const styles = StyleSheet.create({
   },
   detectionOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderWidth: 4,
+    borderWidth: 3,
     borderColor: COLORS.accentPrimary,
-    margin: SPACING.md,
-    borderRadius: 16,
+    margin: SPACING.lg,
+    borderRadius: 24,
     zIndex: 10,
   },
   flashOverlay: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: COLORS.success,
     zIndex: 20,
   },
   stabilizingContainer: {
     position: 'absolute',
-    bottom: height * 0.3,
-    left: SPACING.lg,
-    right: SPACING.lg,
+    bottom: height * 0.35,
+    left: SPACING.xl,
+    right: SPACING.xl,
     alignItems: 'center',
     zIndex: 30,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 12,
+    padding: SPACING.lg,
   },
   stabilizingBar: {
     width: '100%',
     height: 4,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 2,
     overflow: 'hidden',
   },
@@ -433,9 +447,10 @@ const styles = StyleSheet.create({
   },
   stabilizingText: {
     color: COLORS.textPrimary,
-    fontSize: FONT_SIZES.lg,
-    fontWeight: FONT_WEIGHTS.semibold,
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.medium,
     marginTop: SPACING.md,
+    letterSpacing: LETTER_SPACING,
   },
   guideContainer: {
     ...StyleSheet.absoluteFillObject,
@@ -448,7 +463,7 @@ const styles = StyleSheet.create({
     height: 40,
     borderLeftWidth: 3,
     borderTopWidth: 3,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderColor: 'rgba(255,255,255,0.6)',
     top: 0,
     left: 0,
   },
@@ -479,14 +494,28 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 150,
+    shadowOpacity: 0.9,
+    shadowRadius: 120,
     zIndex: 1,
+  },
+  cameraPlaceholder: {
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cameraIconLarge: {
+    width: 96,
+    height: 96,
+    backgroundColor: `${COLORS.accentPrimary}20`,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
   },
   cameraPlaceholderText: {
     color: COLORS.textTertiary,
     fontSize: FONT_SIZES.lg,
-    marginTop: SPACING.md,
   },
   header: {
     position: 'absolute',
@@ -499,7 +528,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   headerTitle: {
-    fontSize: FONT_SIZES['4xl'],
+    fontSize: FONT_SIZES['3xl'],
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
     letterSpacing: LETTER_SPACING,
@@ -511,24 +540,24 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   statusText: {
-    fontSize: FONT_SIZES.lg,
+    fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
   },
   counterBadge: {
     backgroundColor: COLORS.accentPrimary,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#FF6B35',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
   },
   counterText: {
-    fontSize: FONT_SIZES['2xl'],
+    fontSize: FONT_SIZES.xl,
     fontWeight: FONT_WEIGHTS.bold,
     color: '#FFFFFF',
   },
@@ -542,30 +571,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
   },
-  cameraIcon: {
-    width: 80,
-    height: 80,
-    backgroundColor: `${COLORS.accentPrimary}1A`,
-    borderWidth: 1,
-    borderColor: `${COLORS.accentPrimary}33`,
-    borderRadius: 16,
+  iconBox: {
+    width: 72,
+    height: 72,
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: SPACING.xl,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 30,
+    elevation: 12,
   },
   startTitle: {
-    fontSize: FONT_SIZES['2xl'],
+    fontSize: FONT_SIZES['3xl'],
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
     marginBottom: SPACING.md,
     letterSpacing: LETTER_SPACING,
   },
   startDesc: {
-    fontSize: FONT_SIZES.lg,
+    fontSize: FONT_SIZES.base,
     color: COLORS.textSecondary,
     textAlign: 'center',
     marginBottom: SPACING.xl,
-    maxWidth: 300,
+    maxWidth: 280,
+    lineHeight: 22,
   },
   featureList: {
     alignSelf: 'stretch',
@@ -584,7 +617,28 @@ const styles = StyleSheet.create({
   },
   featureText: {
     color: COLORS.textSecondary,
+    fontSize: FONT_SIZES.base,
+  },
+  startButton: {
+    width: '100%',
+    height: 56,
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  startButtonText: {
     fontSize: FONT_SIZES.lg,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
   },
   bottomControls: {
     position: 'absolute',
@@ -597,38 +651,24 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryDark,
     zIndex: 100,
   },
-  button: {
-    height: 56,
-    borderRadius: 12,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: SPACING.md,
-    paddingHorizontal: SPACING.xl,
-  },
-  buttonText: {
-    fontSize: FONT_SIZES.xl,
-    fontWeight: FONT_WEIGHTS.semibold,
-    color: '#FFFFFF',
-    letterSpacing: LETTER_SPACING,
-  },
-  secondaryButton: {
+  penGuideButton: {
     height: 56,
     borderRadius: 12,
     borderWidth: 1,
+    borderColor: COLORS.border,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: SPACING.md,
-    backgroundColor: `${COLORS.surface}CC`,
+    backgroundColor: COLORS.surface,
   },
-  secondaryButtonText: {
-    fontSize: FONT_SIZES.lg,
+  penGuideText: {
+    fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   scanningControls: {
-    gap: SPACING.lg,
+    gap: SPACING.md,
   },
   liveCounter: {
     alignItems: 'center',
@@ -639,62 +679,77 @@ const styles = StyleSheet.create({
     color: COLORS.accentPrimary,
   },
   liveCounterLabel: {
-    fontSize: FONT_SIZES.lg,
+    fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
+    marginTop: 2,
   },
-  recentScans: {
+  recentScan: {
     backgroundColor: COLORS.surface,
     borderRadius: 12,
-    padding: SPACING.lg,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  recentScansTitle: {
+  recentScanLabel: {
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
     marginBottom: SPACING.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
   },
-  recentScanItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: SPACING.md,
+  levelBar: {
+    height: 6,
+    backgroundColor: `${COLORS.textPrimary}10`,
+    borderRadius: 3,
+    overflow: 'hidden',
   },
-  recentScanName: {
-    fontSize: FONT_SIZES.lg,
-    color: COLORS.textPrimary,
-    fontWeight: FONT_WEIGHTS.semibold,
-    flex: 1,
+  levelFill: {
+    height: '100%',
+    borderRadius: 3,
   },
-  levelIndicator: {
-    height: 8,
-    borderRadius: 4,
-    width: 60,
-  },
-  doneButton: {
+  captureButton: {
     height: 56,
+    backgroundColor: COLORS.accentPrimary,
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: SPACING.md,
+    gap: 8,
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  captureButtonText: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
+  },
+  doneButton: {
+    height: 48,
+    backgroundColor: COLORS.success,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
   },
   doneButtonText: {
-    fontSize: FONT_SIZES.xl,
+    fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
     letterSpacing: LETTER_SPACING,
   },
   loadingText: {
     marginTop: SPACING.lg,
-    fontSize: FONT_SIZES.lg,
+    fontSize: FONT_SIZES.base,
     color: COLORS.textSecondary,
   },
-  activityIndicator: {
+  spinnerContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 4,
+    borderWidth: 3,
     borderTopColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
@@ -703,7 +758,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    borderWidth: 3,
+    borderWidth: 2,
     borderTopColor: 'transparent',
   },
 });
