@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import { COLORS } from './constants/colors';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { LocationProvider } from './context/LocationContext';
 import { InventoryProvider } from './context/InventoryContext';
 import { DistributorProvider } from './context/DistributorContext';
 import { AppScreen } from './types';
+import { LoginScreen } from './screens/LoginScreen';
+import { RegisterScreen } from './screens/RegisterScreen';
 import Onboarding from './screens/Onboarding';
 import CameraScan from './screens/CameraScan';
 import PenDetection from './screens/PenDetection';
@@ -14,17 +17,50 @@ import SettingsScreen from './screens/SettingsScreen';
 import ManualAdd from './components/ManualAdd';
 import Sidebar from './components/Sidebar';
 
-export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>('onboarding');
+// Auth-aware app content
+function AppContent() {
+  const { isAuthenticated, isLoading } = useAuth();
+  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
 
-  const navigate = (screen: AppScreen) => {
+  const navigate = (screen: AppScreen | 'login' | 'register') => {
     setCurrentScreen(screen);
   };
 
+  // Show loading state while checking auth
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        {/* Could add a loading spinner here */}
+      </View>
+    );
+  }
+
   const renderScreen = () => {
+    // If not authenticated, show login/register
+    if (!isAuthenticated) {
+      switch (currentScreen) {
+        case 'register':
+          return (
+            <RegisterScreen
+              onNavigateToLogin={() => navigate('login')}
+              onRegisterSuccess={() => navigate('onboarding')}
+            />
+          );
+        case 'login':
+        default:
+          return (
+            <LoginScreen
+              onNavigateToRegister={() => navigate('register')}
+              onLoginSuccess={() => navigate('onboarding')}
+            />
+          );
+      }
+    }
+
+    // Authenticated - show normal app flow
     switch (currentScreen) {
       case 'onboarding':
         return <Onboarding onComplete={() => navigate('camera')} />;
@@ -71,31 +107,32 @@ export default function App() {
             {/* Main Screen */}
             {renderScreen()}
 
-            {/* Sidebar Navigation */}
-            <Sidebar
-              isOpen={isSidebarOpen}
-              onClose={() => setIsSidebarOpen(false)}
-              currentScreen={currentScreen}
-              onNavigate={(screen) => navigate(screen as AppScreen)}
-              onSignOut={() => {
-                setCurrentScreen('onboarding');
-                setIsSidebarOpen(false);
-              }}
-            />
+            {/* Sidebar Navigation - only show when authenticated */}
+            {isAuthenticated && (
+              <Sidebar
+                isOpen={isSidebarOpen}
+                onClose={() => setIsSidebarOpen(false)}
+                currentScreen={currentScreen as AppScreen}
+                onNavigate={(screen) => navigate(screen as AppScreen)}
+                onSignOut={() => {
+                  setCurrentScreen('login');
+                  setIsSidebarOpen(false);
+                }}
+              />
+            )}
 
             {/* Manual Add Modal */}
             {isManualAddOpen && (
               <ManualAdd
                 onClose={() => setIsManualAddOpen(false)}
                 onAdd={(bottle) => {
-                  // Handle adding bottle
                   setIsManualAddOpen(false);
                 }}
               />
             )}
 
-            {/* Hamburger Menu Button (visible on all screens except onboarding) */}
-            {currentScreen !== 'onboarding' && currentScreen !== 'camera' && (
+            {/* Hamburger Menu Button - only when authenticated and not on onboarding/camera */}
+            {isAuthenticated && currentScreen !== 'onboarding' && currentScreen !== 'camera' && (
               <TouchableOpacity
                 style={styles.hamburgerButton}
                 onPress={() => setIsSidebarOpen(true)}
@@ -112,9 +149,22 @@ export default function App() {
   );
 }
 
+// Main App with AuthProvider wrapper
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   hamburgerButton: {
     position: 'absolute',
