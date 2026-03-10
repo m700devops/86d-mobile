@@ -16,6 +16,7 @@ import { SPACING } from '../constants/spacing';
 import { Check, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { analyzeBottleImage } from '../services/geminiVision';
+import { apiService } from '../services/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -265,11 +266,21 @@ export default function CameraScan({ onReview }: Props) {
         setCurrentTag('Point at bottle');
       }, 2000);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Scan error:', error);
       setScanState('idle');
       setBorderForState('idle');
-      setCurrentTag('Point at bottle');
+      // Show actual error to user
+      const errorMsg = error.message || 'Scan failed';
+      setCurrentTag(errorMsg.length > 30 ? errorMsg.substring(0, 30) + '...' : errorMsg);
+      
+      // Alert for critical errors (only every 5 seconds to avoid spam)
+      if (!scanTimeoutRef.current) {
+        Alert.alert('Scan Error', errorMsg, [{ text: 'OK' }]);
+        scanTimeoutRef.current = setTimeout(() => {
+          scanTimeoutRef.current = null;
+        }, 5000);
+      }
     }
   };
 
@@ -281,6 +292,14 @@ export default function CameraScan({ onReview }: Props) {
         return;
       }
     }
+    
+    // Check if user is authenticated
+    const token = await apiService.getAccessToken();
+    if (!token) {
+      Alert.alert('Login Required', 'Please log in to use the scanning feature.');
+      return;
+    }
+    
     setIsScanning(true);
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };

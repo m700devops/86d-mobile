@@ -46,8 +46,18 @@ export async function analyzeBottleImage(
       ...response,
       levelReadable: response.levelReadable !== false && response.confidence > 0.6,
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Bottle analysis error:', error);
-    return null;
+    // Re-throw with details so UI can show proper error
+    if (error.response) {
+      // API returned error response
+      throw new Error(`API Error: ${error.response.status} - ${error.response.data?.message || error.response.data?.error || 'Unknown error'}`);
+    } else if (error.request) {
+      // Request made but no response (network issue)
+      throw new Error('Network error: Cannot reach server. Check connection.');
+    } else {
+      // Something else
+      throw new Error(`Error: ${error.message || 'Unknown error'}`);
+    }
   }
 }
