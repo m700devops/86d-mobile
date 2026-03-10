@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Text, ActivityIndicator } from 'react-native';
 import { COLORS } from './constants/colors';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LocationProvider } from './context/LocationContext';
@@ -32,8 +32,11 @@ function AppContent() {
   // Show loading state while checking auth
   if (isLoading) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        {/* Could add a loading spinner here */}
+      <View style={[styles.container, styles.centered, { backgroundColor: COLORS.primaryDark }]}>
+        <View style={styles.loadingBox}>
+          <View style={styles.loadingDot} />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
       </View>
     );
   }
@@ -61,6 +64,11 @@ function AppContent() {
     }
 
     // Authenticated - show normal app flow
+    // If coming from login/register, redirect to onboarding
+    if (currentScreen === 'login' || currentScreen === 'register') {
+      return <Onboarding onComplete={() => navigate('camera')} />;
+    }
+
     switch (currentScreen) {
       case 'onboarding':
         return <Onboarding onComplete={() => navigate('camera')} />;
@@ -165,6 +173,20 @@ const styles = StyleSheet.create({
   centered: {
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingBox: {
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: COLORS.accentPrimary,
+  },
+  loadingText: {
+    color: COLORS.textSecondary,
+    fontSize: 16,
   },
   hamburgerButton: {
     position: 'absolute',
