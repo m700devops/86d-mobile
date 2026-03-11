@@ -268,6 +268,7 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
       }, 2000);
 
     } catch (error: any) {
+      setIsScanning(false);
       console.error('Scan error:', error);
       setScanState('idle');
       setBorderForState('idle');
