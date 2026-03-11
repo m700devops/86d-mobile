@@ -143,7 +143,7 @@ export default function CameraScan({ onReview }: Props) {
   }, [isScanning, scanState]);
 
   const performScan = async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || !isScanning) return;
 
     setScanState('detecting');
     setBorderForState('detecting');
@@ -152,11 +152,11 @@ export default function CameraScan({ onReview }: Props) {
     try {
       // Capture photo
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
-        base64: false,
+        quality: 0.5,
+        base64: true,
       });
 
-      if (!photo?.uri) {
+      if (!photo?.base64) {
         setScanState('idle');
         setBorderForState('idle');
         setCurrentTag('Point at bottle');
@@ -166,7 +166,7 @@ export default function CameraScan({ onReview }: Props) {
       setScanState('analyzing');
 
       // First pass - analyze bottle
-      const result = await analyzeBottleImage(photo.uri);
+      const result = await analyzeBottleImage(photo.base64);
 
       if (!result) {
         setScanState('idle');
@@ -206,7 +206,7 @@ export default function CameraScan({ onReview }: Props) {
             setCurrentTag('Reading pen...');
             
             // Second pass with pen
-            const penResult = await analyzeBottleImage(photo.uri, true);
+            const penResult = await analyzeBottleImage(photo.base64, true);
             
             if (penResult) {
               const newBottle: ScannedBottle = {
@@ -308,6 +308,7 @@ export default function CameraScan({ onReview }: Props) {
     setIsScanning(false);
     if (scanTimeoutRef.current) {
       clearTimeout(scanTimeoutRef.current);
+      scanTimeoutRef.current = null;
     }
     onReview(scannedBottles);
   };

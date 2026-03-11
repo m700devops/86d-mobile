@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Image } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { X, Camera, Check, Barcode } from 'lucide-react-native';
 import { CATEGORIES } from '../constants';
+import * as ImagePicker from 'expo-image-picker';
 
 interface Props {
   onClose: () => void;
@@ -16,7 +17,8 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
   const [brand, setBrand] = useState('');
   const [category, setCategory] = useState('Spirits');
   const [isVisible, setIsVisible] = useState(false);
-  
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
   const slideAnim = useRef(new Animated.Value(500)).current;
 
   useEffect(() => {
@@ -41,8 +43,18 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
 
   const handleSubmit = () => {
     if (!name.trim() || !brand.trim()) return;
-    onAdd({ name, brand, category });
+    onAdd({ name, brand, category, imageUri: selectedImage });
     handleClose();
+  };
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.7,
+    });
+    if (!result.canceled) {
+      setSelectedImage(result.assets[0].uri);
+    }
   };
 
   if (!isVisible) return null;
@@ -68,11 +80,17 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             {/* Photo Upload */}
             <View style={styles.photoSection}>
-              <TouchableOpacity style={styles.photoButton} activeOpacity={0.8}>
-                <View style={styles.photoIconBox}>
-                  <Camera size={32} color={COLORS.accentPrimary} />
-                </View>
-                <Text style={styles.photoButtonText}>ADD PHOTO</Text>
+              <TouchableOpacity style={styles.photoButton} onPress={pickImage} activeOpacity={0.8}>
+                {selectedImage ? (
+                  <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
+                ) : (
+                  <>
+                    <View style={styles.photoIconBox}>
+                      <Camera size={32} color={COLORS.accentPrimary} />
+                    </View>
+                    <Text style={styles.photoButtonText}>ADD PHOTO</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -223,6 +241,12 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textTertiary,
     letterSpacing: 1,
+  },
+  selectedImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 14,
+    resizeMode: 'cover',
   },
   formContainer: {
     gap: SPACING.xl,

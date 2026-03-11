@@ -56,13 +56,13 @@ export default function Onboarding({ onComplete }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Animated.View 
+        <Animated.View
           style={[
-            styles.content,
+            styles.card,
             {
               opacity: fadeAnim,
               transform: [{ translateY: slideAnim }],
@@ -72,15 +72,18 @@ export default function Onboarding({ onComplete }: Props) {
           {/* Icon with pulse animation */}
           <Animated.View style={[styles.iconContainer, { transform: [{ scale: pulseAnim }] }]}>
             <View style={styles.iconBox}>
-              <Zap size={32} color="#FFFFFF" fill="#FFFFFF" />
+              <View style={styles.iconBackground}>
+                <View style={styles.verticalLine1} />
+                <View style={styles.verticalLine2} />
+                <View style={styles.verticalLine3} />
+              </View>
+              <Zap size={28} color="#FFFFFF" fill="#FFFFFF" style={styles.iconZap} />
             </View>
           </Animated.View>
 
           {/* Headline */}
-          <Text style={styles.headline}>
-            Inventory at the{'\n'}
-            <Text style={styles.headlineAccent}>speed of light.</Text>
-          </Text>
+          <Text style={styles.headlineLine1}>Inventory at the</Text>
+          <Text style={styles.headlineLine2}>speed of light.</Text>
 
           {/* Subheadline */}
           <Text style={styles.subheadline}>
@@ -90,30 +93,30 @@ export default function Onboarding({ onComplete }: Props) {
           {/* Features */}
           <View style={styles.features}>
             <FeatureItem
-              icon={<Camera size={20} color={COLORS.accentPrimary} />}
+              icon={<Camera size={18} color="#FF6B35" />}
               title="Visual Scanning"
               desc="Point your camera, detect bottles instantly."
             />
             <FeatureItem
-              icon={<ShieldCheck size={20} color={COLORS.accentSecondary} />}
+              icon={<ShieldCheck size={18} color="#FFB800" />}
               title="Liquid Detection"
               desc="AI-powered level estimation with pen guide."
             />
             <FeatureItem
-              icon={<BarChart3 size={20} color={COLORS.success} />}
+              icon={<BarChart3 size={18} color="#4CAF50" />}
               title="Smart Ordering"
               desc="Automatic par level comparison and export."
             />
           </View>
 
-          {/* CTA Button with enhanced shadow */}
+          {/* CTA Button */}
           <TouchableOpacity
             style={styles.button}
             onPress={onComplete}
             activeOpacity={0.8}
           >
             <Text style={styles.buttonText}>Get Started</Text>
-            <ChevronRight size={20} color="#FFFFFF" />
+            <ChevronRight size={18} color="#1A1A1A" />
           </TouchableOpacity>
 
           {/* Terms */}
@@ -139,123 +142,141 @@ function FeatureItem({ icon, title, desc }: { icon: React.ReactNode; title: stri
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.primaryDark,
+    backgroundColor: '#0D0D0D',
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING['3xl'],
+    padding: 20,
   },
-  content: {
-    alignItems: 'center',
+  card: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 24,
+    padding: 32,
+    margin: 0,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   iconContainer: {
     alignItems: 'center',
-    marginBottom: SPACING.xl,
+    marginBottom: 24,
   },
   iconBox: {
-    width: 64,
-    height: 64,
-    backgroundColor: '#FF6B35',
-    borderRadius: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FF6B35',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 30,
-    elevation: 12,
+    overflow: 'hidden',
+    position: 'relative',
   },
-  headline: {
-    fontSize: FONT_SIZES['6xl'],
+  iconBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#FF4444',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  verticalLine1: {
+    width: 2,
+    height: '60%',
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    marginHorizontal: 3,
+  },
+  verticalLine2: {
+    width: 2,
+    height: '80%',
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    marginHorizontal: 3,
+  },
+  verticalLine3: {
+    width: 2,
+    height: '50%',
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    marginHorizontal: 3,
+  },
+  iconZap: {
+    zIndex: 1,
+  },
+  headlineLine1: {
+    fontSize: 28,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
     textAlign: 'center',
-    marginBottom: SPACING.lg,
-    lineHeight: 44,
     letterSpacing: LETTER_SPACING,
+    lineHeight: 34,
   },
-  headlineAccent: {
-    color: COLORS.accentPrimary,
-    fontSize: FONT_SIZES['7xl'],
+  headlineLine2: {
+    fontSize: 36,
+    fontWeight: FONT_WEIGHTS.bold,
+    textAlign: 'center',
     letterSpacing: LETTER_SPACING,
+    lineHeight: 42,
+    marginBottom: 16,
+    color: '#FF6B35',
   },
   subheadline: {
-    fontSize: FONT_SIZES['2xl'],
+    fontSize: 15,
     color: COLORS.textSecondary,
     textAlign: 'center',
-    marginBottom: SPACING['3xl'],
-    maxWidth: 300,
-    lineHeight: 28,
+    marginBottom: 28,
+    lineHeight: 22,
   },
   features: {
     width: '100%',
-    gap: SPACING.lg,
-    marginBottom: SPACING['3xl'],
+    gap: 16,
+    marginBottom: 28,
   },
   featureItem: {
     flexDirection: 'row',
-    gap: SPACING.md,
+    gap: 12,
     alignItems: 'center',
   },
   featureIcon: {
-    width: 44,
-    height: 44,
-    backgroundColor: COLORS.surface,
+    width: 40,
+    height: 40,
+    backgroundColor: '#2D2D2D',
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   featureText: {
     flex: 1,
     justifyContent: 'center',
   },
   featureTitle: {
-    fontSize: FONT_SIZES.lg,
+    fontSize: 15,
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.textPrimary,
-    marginBottom: 4,
+    marginBottom: 2,
     letterSpacing: LETTER_SPACING,
   },
   featureDesc: {
-    fontSize: FONT_SIZES.sm,
+    fontSize: 13,
     color: COLORS.textTertiary,
     lineHeight: 18,
   },
   button: {
     width: '100%',
-    height: 56,
-    backgroundColor: COLORS.accentPrimary,
+    height: 52,
+    backgroundColor: '#F5DEB3',
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: SPACING.lg,
-    shadowColor: '#FF6B35',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 10,
+    gap: 6,
+    marginBottom: 16,
   },
   buttonText: {
-    fontSize: FONT_SIZES.xl,
+    fontSize: 17,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: '#FFFFFF',
+    color: '#1A1A1A',
     letterSpacing: LETTER_SPACING,
   },
   terms: {
-    fontSize: FONT_SIZES.xs,
+    fontSize: 12,
     color: COLORS.textTertiary,
     textAlign: 'center',
-    opacity: 0.8,
+    opacity: 0.7,
   },
 });
