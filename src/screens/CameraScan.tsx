@@ -43,12 +43,13 @@ interface ScanResult {
 
 interface Props {
   onReview: (bottles: ScannedBottle[]) => void;
+  onPenDetect?: () => void;
 }
 
 // Scanning states
 type ScanState = 'idle' | 'detecting' | 'analyzing' | 'success' | 'needs_pen' | 'pen_analyzing';
 
-export default function CameraScan({ onReview }: Props) {
+export default function CameraScan({ onReview, onPenDetect }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(false);
   const [scannedBottles, setScannedBottles] = useState<ScannedBottle[]>([]);
