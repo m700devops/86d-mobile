@@ -10,17 +10,18 @@ import {
   Alert,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Audio } from 'expo-av';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Check, ChevronRight } from 'lucide-react-native';
+import { Check, ChevronLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { analyzeBottleImage } from '../services/geminiVision';
 import { apiService } from '../services/api';
 
 const { width, height } = Dimensions.get('window');
 
-// Types for scanned bottles
+// --- Types ---
+
 interface ScannedBottle {
   id: string;
   name: string;
@@ -32,60 +33,104 @@ interface ScannedBottle {
   usedPen: boolean;
 }
 
-interface ScanResult {
-  name: string;
-  brand: string;
-  category: string;
-  liquidLevel: number;
-  confidence: number;
-  levelReadable?: boolean;
-}
-
 interface Props {
   onReview: (bottles: ScannedBottle[]) => void;
-  onPenDetect?: () => void;
+  onBack?: () => void;
 }
 
-// Scanning states
-type ScanState = 'idle' | 'detecting' | 'analyzing' | 'success' | 'needs_pen' | 'pen_analyzing';
+// Simplified state machine: no more needs_pen
+type ScanState = 'idle' | 'stabilizing' | 'capturing' | 'success';
 
-export default function CameraScan({ onReview, onPenDetect }: Props) {
+// --- Stability detection helpers (pure functions, no API calls) ---
+
+/**
+ * Samples N evenly-spaced char codes from the middle 80% of a base64 string.
+ * Skips JPEG header/footer bytes that don't change between frames.
+ */
+function sampleBase64(base64: string, sampleCount = 100): number[] {
+  const startOffset = Math.floor(base64.length * 0.1);
+  const endOffset = Math.floor(base64.length * 0.9);
+  const range = endOffset - startOffset;
+  const step = Math.max(1, Math.floor(range / sampleCount));
+  const samples: number[] = [];
+  for (let i = 0; i < sampleCount; i++) {
+    const idx = startOffset + i * step;
+    if (idx >= base64.length) break;
+    samples.push(base64.charCodeAt(idx));
+  }
+  return samples;
+}
+
+/**
+ * Returns a normalized difference (0–1) between two frame samples.
+ * Base64 chars are ASCII 43–122, range ≈ 80. We normalize by 128 for safety.
+ */
+function frameDifference(hash1: number[], hash2: number[]): number {
+  const len = Math.min(hash1.length, hash2.length);
+  if (len === 0) return 1;
+  let totalDiff = 0;
+  for (let i = 0; i < len; i++) {
+    totalDiff += Math.abs(hash1[i] - hash2[i]);
+  }
+  return totalDiff / (len * 128);
+}
+
+// --- Constants ---
+
+const STABILITY_THRESHOLD = 0.05; // 5% pixel difference — stable if below this
+const FRAMES_NEEDED = 3;          // 3 consecutive stable frames ≈ 1.5 seconds
+const FRAME_INTERVAL_MS = 500;    // Sample every 500ms
+const CAPTURE_COOLDOWN_MS = 2000; // Minimum 2s between captures (debounce)
+const SUCCESS_DISPLAY_MS = 2000;  // How long to show success state
+
+// --- Component ---
+
+export default function CameraScan({ onReview, onBack }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(false);
   const [scannedBottles, setScannedBottles] = useState<ScannedBottle[]>([]);
   const [scanState, setScanState] = useState<ScanState>('idle');
-  const [currentTag, setCurrentTag] = useState<string>('Point at bottle');
+  const [statusText, setStatusText] = useState('Hold pen at liquid line');
+  const [stabilityProgress, setStabilityProgress] = useState(0); // 0–1 fill bar
+
+  // Animations
   const [borderColorAnim] = useState(new Animated.Value(0));
   const [flashAnim] = useState(new Animated.Value(0));
-  const [lastScannedName, setLastScannedName] = useState<string>('');
-  
-  const cameraRef = useRef<CameraView>(null);
-  const scanTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const dedupeSetRef = useRef<Set<string>>(new Set());
 
-  // Border color interpolation
+  // Refs — use refs for values read inside the interval to avoid stale closures
+  const cameraRef = useRef<CameraView>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const previousHashRef = useRef<number[] | null>(null);
+  const stableFrameCountRef = useRef(0);
+  const isFrameProcessingRef = useRef(false); // prevents overlapping frame grabs
+  const isCapturingRef = useRef(false);       // prevents overlapping API calls
+  const lastCaptureTimeRef = useRef(0);
+  const stabilityIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const errorAlertCooldownRef = useRef<NodeJS.Timeout | null>(null);
+  const scannedBottlesRef = useRef<ScannedBottle[]>([]); // mirror of state for interval reads
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    scannedBottlesRef.current = scannedBottles;
+  }, [scannedBottles]);
+
+  // --- Border color interpolation ---
   const borderColor = borderColorAnim.interpolate({
-    inputRange: [0, 1, 2, 3],
+    inputRange: [0, 1, 2],
     outputRange: [
-      `${COLORS.textTertiary}30`, // Gray (idle)
-      COLORS.accentPrimary,        // Orange (detecting/analyzing)
-      COLORS.success,              // Green (success)
-      COLORS.error,                // Red (needs pen)
+      `${COLORS.textTertiary}30`, // 0 = idle (dim gray)
+      COLORS.accentPrimary,       // 1 = stabilizing (orange)
+      COLORS.success,             // 2 = success (green)
     ],
   });
 
-  // Flash animation on capture
   const flashOpacity = flashAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 0.4],
+    outputRange: [0, 0.35],
   });
 
-  // Set border color based on state
-  const setBorderForState = useCallback((state: ScanState) => {
-    const value = state === 'idle' ? 0 : 
-                  state === 'detecting' || state === 'analyzing' || state === 'pen_analyzing' ? 1 :
-                  state === 'success' ? 2 : 3;
-    
+  const setBorderValue = useCallback((value: number) => {
     Animated.timing(borderColorAnim, {
       toValue: value,
       duration: 200,
@@ -93,155 +138,109 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
     }).start();
   }, [borderColorAnim]);
 
-  // Play haptic feedback
-  const playHaptic = useCallback(async (type: 'success' | 'error' | 'light') => {
-    if (type === 'success') {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else if (type === 'error') {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } else {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  // --- Sound ---
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSound() {
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          require('../../assets/sounds/beep.mp3')
+        );
+        if (mounted) {
+          soundRef.current = sound;
+        } else {
+          sound.unloadAsync();
+        }
+      } catch (err) {
+        // expo-av not installed, or beep.mp3 missing — degrade gracefully to haptics only
+        console.warn('CameraScan: could not load beep sound:', err);
+      }
     }
+
+    loadSound();
+
+    return () => {
+      mounted = false;
+      soundRef.current?.unloadAsync();
+      soundRef.current = null;
+    };
   }, []);
 
-  // Flash green on success
-  const flashSuccess = useCallback(() => {
+  async function playBeep() {
+    try {
+      await soundRef.current?.replayAsync();
+    } catch {
+      // Sound unavailable — haptic already handles feedback
+    }
+  }
+
+  // --- Flash animation ---
+  const flashGreen = useCallback(() => {
     Animated.sequence([
       Animated.timing(flashAnim, {
         toValue: 1,
-        duration: 150,
+        duration: 100,
         useNativeDriver: true,
       }),
       Animated.timing(flashAnim, {
         toValue: 0,
-        duration: 150,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start();
   }, [flashAnim]);
 
-  // Check if bottle already scanned (deduplication)
-  const isDuplicate = useCallback((name: string): boolean => {
-    const normalized = name.toLowerCase().trim();
-    if (dedupeSetRef.current.has(normalized)) {
-      return true;
-    }
-    dedupeSetRef.current.add(normalized);
-    return false;
+  // --- Reset stability tracking ---
+  const resetStability = useCallback(() => {
+    previousHashRef.current = null;
+    stableFrameCountRef.current = 0;
+    setStabilityProgress(0);
   }, []);
 
-  // Main scanning loop
-  useEffect(() => {
-    if (!isScanning) return;
+  // --- Success feedback: beep + haptic + flash (all simultaneously) ---
+  const triggerSuccessFeedback = useCallback(async () => {
+    await Promise.all([
+      playBeep(),
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+      Promise.resolve(flashGreen()),
+    ]);
+  }, [flashGreen]);
 
-    const scanInterval = setInterval(async () => {
-      if (scanState !== 'idle' && scanState !== 'detecting') return;
-      
-      await performScan();
-    }, 1500); // Scan every 1.5 seconds
+  // --- API capture: called once scene is stable ---
+  const triggerCapture = useCallback(async () => {
+    if (!cameraRef.current) return;
 
-    return () => clearInterval(scanInterval);
-  }, [isScanning, scanState]);
-
-  const performScan = async () => {
-    if (!cameraRef.current || !isScanning) return;
-
-    setScanState('detecting');
-    setBorderForState('detecting');
-    setCurrentTag('Scanning...');
+    setScanState('capturing');
+    setBorderValue(1);
+    setStatusText('Analyzing...');
 
     try {
-      // Capture photo
+      // Full-quality capture for API
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.5,
+        quality: 0.7,
         base64: true,
       });
 
       if (!photo?.base64) {
         setScanState('idle');
-        setBorderForState('idle');
-        setCurrentTag('Point at bottle');
+        setBorderValue(0);
+        setStatusText('Hold pen at liquid line');
+        isCapturingRef.current = false;
         return;
       }
 
-      setScanState('analyzing');
-
-      // First pass - analyze bottle
-      const result = await analyzeBottleImage(photo.base64);
+      const result = await apiService.analyzeBottleImage(photo.base64);
 
       if (!result) {
         setScanState('idle');
-        setBorderForState('idle');
-        setCurrentTag('Point at bottle');
+        setBorderValue(0);
+        setStatusText('Point at bottle');
+        isCapturingRef.current = false;
         return;
       }
 
-      // Check for duplicates
-      if (isDuplicate(result.name)) {
-        setScanState('success');
-        setBorderForState('success');
-        setCurrentTag(`${result.name} — ${Math.round(result.liquidLevel * 100)}% ✓${scannedBottles.length}`);
-        flashSuccess();
-        playHaptic('light');
-        
-        setTimeout(() => {
-          setScanState('idle');
-          setBorderForState('idle');
-          setCurrentTag('Point at bottle');
-        }, 1500);
-        return;
-      }
-
-      // Check if level is readable
-      if (result.levelReadable === false || result.confidence < 0.6) {
-        // Need pen fallback
-        setScanState('needs_pen');
-        setBorderForState('needs_pen');
-        setCurrentTag('Hold pen at line ✏️');
-        playHaptic('error');
-        
-        // Wait for pen detection (simplified - in real app would do second scan)
-        scanTimeoutRef.current = setTimeout(async () => {
-          if (scanState === 'needs_pen') {
-            setScanState('pen_analyzing');
-            setCurrentTag('Reading pen...');
-            
-            // Second pass with pen
-            const penResult = await analyzeBottleImage(photo.base64, true);
-            
-            if (penResult) {
-              const newBottle: ScannedBottle = {
-                id: `bottle_${Date.now()}`,
-                name: result.name,
-                brand: result.brand,
-                category: result.category,
-                level: penResult.liquidLevel,
-                timestamp: Date.now(),
-                imageUri: photo.uri,
-                usedPen: true,
-              };
-
-              setScannedBottles(prev => [...prev, newBottle]);
-              setLastScannedName(result.name);
-              setScanState('success');
-              setBorderForState('success');
-              setCurrentTag(`${result.name} — ${Math.round(penResult.liquidLevel * 100)}% ✓${scannedBottles.length + 1}`);
-              flashSuccess();
-              playHaptic('success');
-              
-              setTimeout(() => {
-                setScanState('idle');
-                setBorderForState('idle');
-                setCurrentTag('Point at bottle');
-              }, 2000);
-            }
-          }
-        }, 2000);
-        
-        return;
-      }
-
-      // Success with direct reading
+      // Success
       const newBottle: ScannedBottle = {
         id: `bottle_${Date.now()}`,
         name: result.name,
@@ -250,82 +249,187 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
         level: result.liquidLevel,
         timestamp: Date.now(),
         imageUri: photo.uri,
-        usedPen: false,
+        usedPen: true, // pen is always primary in this mode
       };
 
+      lastCaptureTimeRef.current = Date.now();
       setScannedBottles(prev => [...prev, newBottle]);
-      setLastScannedName(result.name);
       setScanState('success');
-      setBorderForState('success');
-      setCurrentTag(`${result.name} — ${Math.round(result.liquidLevel * 100)}% ✓${scannedBottles.length + 1}`);
-      flashSuccess();
-      playHaptic('success');
-      
-      setTimeout(() => {
+      setBorderValue(2);
+      setStatusText(`${result.name} — ${Math.round(result.liquidLevel * 100)}%`);
+      setStabilityProgress(0);
+
+      await triggerSuccessFeedback();
+
+      successTimeoutRef.current = setTimeout(() => {
         setScanState('idle');
-        setBorderForState('idle');
-        setCurrentTag('Point at bottle');
-      }, 2000);
+        setBorderValue(0);
+        setStatusText('Hold pen at liquid line');
+        isCapturingRef.current = false;
+      }, SUCCESS_DISPLAY_MS);
 
     } catch (error: any) {
-      console.error('Scan error:', error);
+      console.error('CameraScan capture error:', error);
       setScanState('idle');
-      setBorderForState('idle');
-      // Show actual error to user
-      const errorMsg = error.message || 'Scan failed';
-      setCurrentTag(errorMsg.length > 30 ? errorMsg.substring(0, 30) + '...' : errorMsg);
-      
-      // Alert for critical errors (only every 5 seconds to avoid spam)
-      if (!scanTimeoutRef.current) {
-        Alert.alert('Scan Error', errorMsg, [{ text: 'OK' }]);
-        scanTimeoutRef.current = setTimeout(() => {
-          scanTimeoutRef.current = null;
+      setBorderValue(0);
+      setStatusText('Hold pen at liquid line');
+      isCapturingRef.current = false;
+
+      // Throttled error alert — only once per 5s to avoid spam
+      if (!errorAlertCooldownRef.current) {
+        const msg = error?.message || 'Scan failed. Point at bottle and try again.';
+        Alert.alert('Scan Error', msg, [{ text: 'OK' }]);
+        errorAlertCooldownRef.current = setTimeout(() => {
+          errorAlertCooldownRef.current = null;
         }, 5000);
       }
     }
-  };
+  }, [setBorderValue, triggerSuccessFeedback]);
 
+  // --- Stability detection loop ---
+  useEffect(() => {
+    if (!isScanning) {
+      if (stabilityIntervalRef.current) {
+        clearInterval(stabilityIntervalRef.current);
+        stabilityIntervalRef.current = null;
+      }
+      resetStability();
+      return;
+    }
+
+    stabilityIntervalRef.current = setInterval(async () => {
+      // Skip if we're already processing a frame or doing an API capture
+      if (isFrameProcessingRef.current || isCapturingRef.current) return;
+      if (!cameraRef.current) return;
+
+      // Enforce cooldown after a successful capture
+      if (Date.now() - lastCaptureTimeRef.current < CAPTURE_COOLDOWN_MS) return;
+
+      isFrameProcessingRef.current = true;
+
+      try {
+        // Tiny low-quality snapshot — client-side ONLY, never sent to API
+        const frame = await cameraRef.current.takePictureAsync({
+          quality: 0.05,
+          base64: true,
+        });
+
+        if (!frame?.base64) {
+          isFrameProcessingRef.current = false;
+          return;
+        }
+
+        const currentHash = sampleBase64(frame.base64);
+
+        if (previousHashRef.current) {
+          const diff = frameDifference(previousHashRef.current, currentHash);
+
+          if (diff < STABILITY_THRESHOLD) {
+            // Scene is stable — increment counter
+            stableFrameCountRef.current = Math.min(
+              stableFrameCountRef.current + 1,
+              FRAMES_NEEDED
+            );
+
+            const progress = stableFrameCountRef.current / FRAMES_NEEDED;
+            setStabilityProgress(progress);
+            setScanState('stabilizing');
+            setBorderValue(1);
+            setStatusText(
+              stableFrameCountRef.current < FRAMES_NEEDED
+                ? 'Hold steady...'
+                : 'Capturing...'
+            );
+
+            if (stableFrameCountRef.current >= FRAMES_NEEDED) {
+              // Lock and trigger API capture
+              isCapturingRef.current = true;
+              stableFrameCountRef.current = 0;
+              previousHashRef.current = null;
+              isFrameProcessingRef.current = false;
+              triggerCapture();
+              return;
+            }
+          } else {
+            // Scene moved — reset
+            stableFrameCountRef.current = 0;
+            setStabilityProgress(0);
+            setScanState('idle');
+            setBorderValue(0);
+            setStatusText('Hold pen at liquid line');
+          }
+        }
+
+        previousHashRef.current = currentHash;
+      } catch {
+        // Camera not ready or other transient error — ignore and retry next tick
+        stableFrameCountRef.current = 0;
+      }
+
+      isFrameProcessingRef.current = false;
+    }, FRAME_INTERVAL_MS);
+
+    return () => {
+      if (stabilityIntervalRef.current) {
+        clearInterval(stabilityIntervalRef.current);
+        stabilityIntervalRef.current = null;
+      }
+    };
+  }, [isScanning, triggerCapture, resetStability, setBorderValue]);
+
+  // --- Cleanup on unmount ---
+  useEffect(() => {
+    return () => {
+      if (stabilityIntervalRef.current) clearInterval(stabilityIntervalRef.current);
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+      if (errorAlertCooldownRef.current) clearTimeout(errorAlertCooldownRef.current);
+    };
+  }, []);
+
+  // --- Handlers ---
   const handleStartScan = async () => {
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        Alert.alert('Camera Permission Required', 'Please enable camera access to scan bottles.');
+        Alert.alert(
+          'Camera Permission Required',
+          'Please enable camera access to scan bottles.'
+        );
         return;
       }
     }
-    
-    // Check if user is authenticated
+
     const token = await apiService.getAccessToken();
     if (!token) {
       Alert.alert('Login Required', 'Please log in to use the scanning feature.');
       return;
     }
-    
+
+    resetStability();
+    isCapturingRef.current = false;
+    isFrameProcessingRef.current = false;
+    lastCaptureTimeRef.current = 0;
+    setScanState('idle');
+    setBorderValue(0);
+    setStatusText('Hold pen at liquid line');
     setIsScanning(true);
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   const handleDone = () => {
+    if (stabilityIntervalRef.current) {
+      clearInterval(stabilityIntervalRef.current);
+      stabilityIntervalRef.current = null;
+    }
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+      successTimeoutRef.current = null;
+    }
     setIsScanning(false);
-    if (scanTimeoutRef.current) {
-      clearTimeout(scanTimeoutRef.current);
-      scanTimeoutRef.current = null;
-    }
-    onReview(scannedBottles);
+    onReview(scannedBottlesRef.current);
   };
 
-  // Get tag color based on state
-  const getTagColor = () => {
-    switch (scanState) {
-      case 'success': return COLORS.success;
-      case 'needs_pen': return COLORS.error;
-      case 'detecting':
-      case 'analyzing':
-      case 'pen_analyzing': return COLORS.accentPrimary;
-      default: return COLORS.textTertiary;
-    }
-  };
-
+  // --- Permission loading state ---
   if (!permission) {
     return (
       <SafeAreaView style={styles.container}>
@@ -336,94 +440,171 @@ export default function CameraScan({ onReview, onPenDetect }: Props) {
     );
   }
 
+  const bottleCount = scannedBottles.length;
+
+  // --- Render ---
   return (
     <SafeAreaView style={styles.container}>
-      {/* Camera Feed */}
+
+      {/* ── Header (always visible) ── */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={onBack ?? handleDone}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <ChevronLeft size={24} color={COLORS.textPrimary} />
+        </TouchableOpacity>
+
+        <Text style={styles.counterText}>
+          {bottleCount > 0
+            ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
+            : 'Pen Scan'}
+        </Text>
+      </View>
+
+      {/* ── Camera / Start area ── */}
       <View style={styles.cameraContainer}>
         {isScanning ? (
-          <CameraView 
+          <CameraView
             ref={cameraRef}
-            style={styles.camera} 
+            style={styles.camera}
             facing="back"
           >
-            {/* Animated Border */}
-            <Animated.View 
-              style={[
-                styles.borderOverlay,
-                { borderColor: borderColor }
-              ]} 
+            {/* Animated border overlay */}
+            <Animated.View
+              style={[styles.borderOverlay, { borderColor }]}
             />
-            
-            {/* Success Flash */}
-            <Animated.View 
-              style={[
-                styles.flashOverlay,
-                { opacity: flashOpacity }
-              ]} 
+
+            {/* Green flash overlay on capture */}
+            <Animated.View
+              style={[styles.flashOverlay, { opacity: flashOpacity }]}
             />
-            
-            {/* Center Zone Guide */}
+
+            {/* Corner bracket guides */}
             <View style={styles.centerZone}>
               <View style={styles.cornerTL} />
               <View style={styles.cornerTR} />
               <View style={styles.cornerBL} />
               <View style={styles.cornerBR} />
             </View>
+
+            {/* Success indicator (shown briefly after capture) */}
+            {scanState === 'success' && (
+              <View style={styles.successBadge}>
+                <Check size={20} color={COLORS.primaryDark} />
+                <Text style={styles.successBadgeText}>{statusText}</Text>
+              </View>
+            )}
           </CameraView>
         ) : (
           <View style={styles.startScreen}>
             <View style={styles.startContent}>
-              <Text style={styles.startTitle}>Center-Zone Scanning</Text>
+              <Text style={styles.startTitle}>Pen Scan Mode</Text>
               <Text style={styles.startDesc}>
-                Hold phone vertical. Point at one bottle at a time. AI auto-detects and captures.
+                Point at a bottle, hold your pen at the liquid line, and stay
+                steady. The app auto-captures when stable — no tapping needed.
               </Text>
               <View style={styles.featureList}>
-                <Text style={styles.featureItem}>• Center bottle in frame</Text>
-                <Text style={styles.featureItem}>• Auto-captures when detected</Text>
-                <Text style={styles.featureItem}>• Pen fallback for dark bottles</Text>
+                <Text style={styles.featureItem}>• Hold pen at liquid line</Text>
+                <Text style={styles.featureItem}>• Stay steady for ~1.5 seconds</Text>
+                <Text style={styles.featureItem}>• Beep + vibrate = captured</Text>
+                <Text style={styles.featureItem}>• Move to next bottle and repeat</Text>
               </View>
               <TouchableOpacity
                 style={styles.startButton}
                 onPress={handleStartScan}
                 activeOpacity={0.8}
               >
-                <Text style={styles.startButtonText}>Start Scanning</Text>
+                <Text style={styles.startButtonText}>Start Pen Scan</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
       </View>
 
-      {/* Bottom Bar */}
+      {/* ── Bottom bar (only while scanning) ── */}
       {isScanning && (
         <View style={styles.bottomBar}>
-          <View style={styles.tagContainer}>
-            <Text style={[styles.tagText, { color: getTagColor() }]}>
-              {currentTag}
-            </Text>
-            {scanState === 'success' && (
-              <Check size={16} color={COLORS.success} style={styles.tagIcon} />
-            )}
+          {/* Stability progress bar */}
+          <View style={styles.stabilityTrack}>
+            <Animated.View
+              style={[
+                styles.stabilityFill,
+                {
+                  width: `${stabilityProgress * 100}%`,
+                  backgroundColor:
+                    scanState === 'success' ? COLORS.success : COLORS.accentPrimary,
+                },
+              ]}
+            />
           </View>
-          
-          <TouchableOpacity
-            style={styles.doneButton}
-            onPress={handleDone}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.doneButtonText}>Done</Text>
-            <Text style={styles.doneButtonCount}>({scannedBottles.length})</Text>
-          </TouchableOpacity>
+
+          <View style={styles.bottomContent}>
+            <View style={styles.instructionBlock}>
+              <Text style={[
+                styles.instructionPrimary,
+                scanState === 'success' && { color: COLORS.success },
+                scanState === 'stabilizing' && { color: COLORS.accentPrimary },
+              ]}>
+                {statusText}
+              </Text>
+              <Text style={styles.instructionSub}>
+                {scanState === 'success'
+                  ? 'Move to next bottle after beep'
+                  : 'Hold pen at liquid line'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.doneButton}
+              onPress={handleDone}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.doneButtonText}>Done</Text>
+              {bottleCount > 0 && (
+                <Text style={styles.doneButtonCount}>({bottleCount})</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       )}
     </SafeAreaView>
   );
 }
 
+// --- Styles ---
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.primaryDark,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    backgroundColor: COLORS.primaryDark,
+    borderBottomWidth: 1,
+    borderBottomColor: `${COLORS.border}60`,
+    zIndex: 10,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    backgroundColor: COLORS.surface,
+  },
+  counterText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   cameraContainer: {
     flex: 1,
@@ -433,8 +614,7 @@ const styles = StyleSheet.create({
   },
   borderOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderWidth: 6,
-    margin: 0,
+    borderWidth: 5,
     zIndex: 10,
   },
   flashOverlay: {
@@ -444,10 +624,10 @@ const styles = StyleSheet.create({
   },
   centerZone: {
     position: 'absolute',
-    top: '20%',
-    left: '20%',
-    right: '20%',
-    bottom: '30%',
+    top: '15%',
+    left: '15%',
+    right: '15%',
+    bottom: '25%',
     zIndex: 5,
   },
   cornerTL: {
@@ -458,7 +638,7 @@ const styles = StyleSheet.create({
     height: 40,
     borderLeftWidth: 3,
     borderTopWidth: 3,
-    borderColor: 'rgba(255,255,255,0.4)',
+    borderColor: 'rgba(255,255,255,0.5)',
   },
   cornerTR: {
     position: 'absolute',
@@ -468,7 +648,7 @@ const styles = StyleSheet.create({
     height: 40,
     borderRightWidth: 3,
     borderTopWidth: 3,
-    borderColor: 'rgba(255,255,255,0.4)',
+    borderColor: 'rgba(255,255,255,0.5)',
   },
   cornerBL: {
     position: 'absolute',
@@ -478,7 +658,7 @@ const styles = StyleSheet.create({
     height: 40,
     borderLeftWidth: 3,
     borderBottomWidth: 3,
-    borderColor: 'rgba(255,255,255,0.4)',
+    borderColor: 'rgba(255,255,255,0.5)',
   },
   cornerBR: {
     position: 'absolute',
@@ -488,7 +668,26 @@ const styles = StyleSheet.create({
     height: 40,
     borderRightWidth: 3,
     borderBottomWidth: 3,
-    borderColor: 'rgba(255,255,255,0.4)',
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  successBadge: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    backgroundColor: COLORS.success,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: 24,
+    zIndex: 30,
+  },
+  successBadgeText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.primaryDark,
+    letterSpacing: LETTER_SPACING,
   },
   startScreen: {
     flex: 1,
@@ -545,32 +744,41 @@ const styles = StyleSheet.create({
     letterSpacing: LETTER_SPACING,
   },
   bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    borderTopWidth: 1,
+    borderTopColor: `${COLORS.border}50`,
+  },
+  stabilityTrack: {
+    height: 3,
+    backgroundColor: `${COLORS.border}80`,
+    width: '100%',
+  },
+  stabilityFill: {
+    height: 3,
+  },
+  bottomContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.lg,
     paddingBottom: SPACING.xl,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    borderTopWidth: 1,
-    borderTopColor: `${COLORS.border}50`,
   },
-  tagContainer: {
+  instructionBlock: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    marginRight: SPACING.md,
   },
-  tagText: {
+  instructionPrimary: {
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
     letterSpacing: LETTER_SPACING,
+    marginBottom: 2,
   },
-  tagIcon: {
-    marginLeft: SPACING.sm,
+  instructionSub: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textTertiary,
+    letterSpacing: LETTER_SPACING,
   },
   doneButton: {
     flexDirection: 'row',
