@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
@@ -99,7 +99,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
   // Refs — use refs for values read inside the interval to avoid stale closures
   const cameraRef = useRef<CameraView>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const soundRef = useRef<AudioPlayer | null>(null);
   const previousHashRef = useRef<number[] | null>(null);
   const stableFrameCountRef = useRef(0);
   const isFrameProcessingRef = useRef(false); // prevents overlapping frame grabs
@@ -142,34 +142,32 @@ export default function CameraScan({ onReview, onBack }: Props) {
   useEffect(() => {
     let mounted = true;
 
-    async function loadSound() {
-      try {
-        const { sound } = await Audio.Sound.createAsync(
-          require('../../assets/sounds/beep.mp3')
-        );
-        if (mounted) {
-          soundRef.current = sound;
-        } else {
-          sound.unloadAsync();
-        }
-      } catch (err) {
-        // expo-av not installed, or beep.mp3 missing — degrade gracefully to haptics only
-        console.warn('CameraScan: could not load beep sound:', err);
+    try {
+      const player = createAudioPlayer(require('../../assets/sounds/beep.mp3'));
+      if (mounted) {
+        soundRef.current = player;
+      } else {
+        player.remove();
       }
+    } catch (err) {
+      // expo-audio not available, or beep.mp3 missing — degrade gracefully to haptics only
+      console.warn('CameraScan: could not load beep sound:', err);
     }
-
-    loadSound();
 
     return () => {
       mounted = false;
-      soundRef.current?.unloadAsync();
+      soundRef.current?.remove();
       soundRef.current = null;
     };
   }, []);
 
   async function playBeep() {
     try {
-      await soundRef.current?.replayAsync();
+      const player = soundRef.current;
+      if (player) {
+        player.seekTo(0);
+        player.play();
+      }
     } catch {
       // Sound unavailable — haptic already handles feedback
     }
