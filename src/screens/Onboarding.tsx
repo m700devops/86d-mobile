@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   },
   iconBackground: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#FF4444',
+    backgroundColor: '#FF6B35',
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
   button: {
     width: '100%',
     height: 52,
-    backgroundColor: '#F5DEB3',
+    backgroundColor: '#FF6B35',
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -270,7 +270,7 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 17,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: '#1A1A1A',
+    color: '#FFFFFF',
     letterSpacing: LETTER_SPACING,
   },
   terms: {

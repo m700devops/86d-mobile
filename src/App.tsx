@@ -76,7 +76,6 @@ function AppContent() {
         return (
           <CameraScan
             onReview={() => navigate('review')}
-            onPenDetect={() => navigate('pen-detection')}
           />
         );
       case 'pen-detection':
