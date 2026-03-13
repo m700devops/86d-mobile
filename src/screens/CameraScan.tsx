@@ -12,7 +12,7 @@ import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Check, ChevronLeft } from 'lucide-react-native';
+import { Check, ChevronLeft, Zap, Camera } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { useInventory } from '../context/InventoryContext';
@@ -83,6 +83,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const { addBottle } = useInventory();
 
+  const [showStartScreen, setShowStartScreen] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [bottleCount, setBottleCount] = useState(0);
   const [scanState, setScanState] = useState<ScanState>('idle');
@@ -131,19 +132,21 @@ export default function CameraScan({ onReview, onBack }: Props) {
     }).start();
   }, [borderColorAnim]);
 
-  // --- Auto-start camera when permission is ready ---
+  // --- Start scanning (called when user taps "Start Scanning") ---
 
-  useEffect(() => {
-    if (!permission) return;
-    if (permission.granted) {
+  const handleStartScanning = useCallback(async () => {
+    setShowStartScreen(false);
+    if (!permission) {
+      const { granted } = await requestPermission();
+      if (granted) initScanning();
+    } else if (permission.granted) {
       initScanning();
     } else {
-      requestPermission().then(({ granted }) => {
-        if (granted) initScanning();
-      });
+      const { granted } = await requestPermission();
+      if (granted) initScanning();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [permission?.granted]);
+  }, [permission]);
 
   async function initScanning() {
     const token = await apiService.getAccessToken();
@@ -417,6 +420,70 @@ export default function CameraScan({ onReview, onBack }: Props) {
     setIsScanning(false);
     onReview();
   };
+
+  // --- Start screen ---
+
+  if (showStartScreen) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.startScreenHeader}>
+          {onBack && (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={onBack}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <ChevronLeft size={24} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.startScreenContent}>
+          <Animated.View style={styles.startCard}>
+            {/* Icon */}
+            <View style={styles.startIconContainer}>
+              <View style={styles.startIconBox}>
+                <Camera size={32} color="#FFFFFF" />
+              </View>
+            </View>
+
+            {/* Headline */}
+            <Text style={styles.startHeadline}>Scan Your Inventory</Text>
+            <Text style={styles.startSubheadline}>
+              Point at any bottle to instantly detect it. AI reads the label and liquid level automatically.
+            </Text>
+
+            {/* How it works */}
+            <View style={styles.startTips}>
+              <View style={styles.startTip}>
+                <View style={styles.startTipDot} />
+                <Text style={styles.startTipText}>Hold steady — auto-captures when stable</Text>
+              </View>
+              <View style={styles.startTip}>
+                <View style={styles.startTipDot} />
+                <Text style={styles.startTipText}>Tap Done when finished to review</Text>
+              </View>
+              <View style={styles.startTip}>
+                <View style={styles.startTipDot} />
+                <Text style={styles.startTipText}>Use a pen at the liquid line if level is unclear</Text>
+              </View>
+            </View>
+
+            {/* Start button */}
+            <TouchableOpacity
+              style={styles.startButton}
+              onPress={handleStartScanning}
+              activeOpacity={0.8}
+            >
+              <Zap size={20} color="#FFFFFF" fill="#FFFFFF" />
+              <Text style={styles.startButtonText}>Start Scanning</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // --- Permission states ---
 
@@ -790,5 +857,98 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.accentPrimary,
     fontFamily: 'monospace',
+  },
+  // --- Start screen ---
+  startScreenHeader: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    minHeight: 56,
+    justifyContent: 'center',
+  },
+  startScreenContent: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING['2xl'],
+  },
+  startCard: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 24,
+    padding: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  startIconContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  startIconBox: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    backgroundColor: COLORS.accentPrimary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: COLORS.accentPrimary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  startHeadline: {
+    fontSize: 28,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+    letterSpacing: LETTER_SPACING,
+    marginBottom: 12,
+  },
+  startSubheadline: {
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 28,
+  },
+  startTips: {
+    gap: 12,
+    marginBottom: 32,
+  },
+  startTip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  startTipDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.accentPrimary,
+  },
+  startTipText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    flex: 1,
+    lineHeight: 20,
+  },
+  startButton: {
+    height: 56,
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 14,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    shadowColor: COLORS.accentPrimary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  startButtonText: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
   },
 });

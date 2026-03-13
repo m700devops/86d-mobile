@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, Tex
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Plus, X, Trash2, User, Mail, Hash, Check } from 'lucide-react-native';
+import { Plus, X, Trash2, User, Mail, Hash, Check, Phone } from 'lucide-react-native';
 import { useDistributors } from '../context/DistributorContext';
 
 interface Props {
@@ -18,6 +18,8 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
   const [name, setName] = useState('');
   const [initials, setInitials] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [repName, setRepName] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   
   const modalAnim = useRef(new Animated.Value(0)).current;
@@ -40,11 +42,15 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
       setName(dist.name);
       setInitials(dist.initials || '');
       setEmail(dist.email || '');
+      setPhone(dist.phone || '');
+      setRepName(dist.repName || '');
     } else {
       setEditingId(null);
       setName('');
       setInitials('');
       setEmail('');
+      setPhone('');
+      setRepName('');
     }
     setIsModalOpen(true);
   };
@@ -57,6 +63,8 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
         name,
         initials: initials.toUpperCase(),
         email,
+        phone,
+        repName,
       });
     } else {
       addDistributor({
@@ -64,6 +72,8 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
         name,
         initials: initials.toUpperCase(),
         email,
+        phone,
+        repName,
       });
     }
 
@@ -71,6 +81,8 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
     setName('');
     setInitials('');
     setEmail('');
+    setPhone('');
+    setRepName('');
     setEditingId(null);
   };
 
@@ -129,6 +141,9 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
                   <View>
                     <Text style={styles.distributorName}>{dist.name}</Text>
                     <Text style={styles.distributorEmail}>{dist.email || 'No email'}</Text>
+                    {dist.repName ? (
+                      <Text style={styles.distributorRep}>Rep: {dist.repName}</Text>
+                    ) : null}
                   </View>
                 </View>
                 <TouchableOpacity
@@ -199,7 +214,7 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
                 </View>
               </View>
 
-              {/* Initials & Email */}
+              {/* Initials & Rep Name */}
               <View style={styles.twoColumnRow}>
                 <View style={[styles.formGroup, { flex: 1 }]}>
                   <Text style={styles.fieldLabel}>INITIALS</Text>
@@ -217,18 +232,50 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
                 </View>
 
                 <View style={[styles.formGroup, { flex: 2 }]}>
-                  <Text style={styles.fieldLabel}>EMAIL</Text>
+                  <Text style={styles.fieldLabel}>REP NAME</Text>
                   <View style={styles.inputWithIcon}>
-                    <Mail size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                    <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
                     <TextInput
                       style={styles.modalInput}
-                      placeholder="orders@example.com"
+                      placeholder="John Smith"
                       placeholderTextColor={COLORS.textTertiary}
-                      value={email}
-                      onChangeText={setEmail}
-                      keyboardType="email-address"
+                      value={repName}
+                      onChangeText={setRepName}
                     />
                   </View>
+                </View>
+              </View>
+
+              {/* Email */}
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>EMAIL</Text>
+                <View style={styles.inputWithIcon}>
+                  <Mail size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="orders@example.com"
+                    placeholderTextColor={COLORS.textTertiary}
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+
+              {/* Phone */}
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>PHONE</Text>
+                <View style={styles.inputWithIcon}>
+                  <Phone size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="(555) 000-0000"
+                    placeholderTextColor={COLORS.textTertiary}
+                    value={phone}
+                    onChangeText={setPhone}
+                    keyboardType="phone-pad"
+                  />
                 </View>
               </View>
             </View>
@@ -351,6 +398,12 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
     marginTop: 2,
+  },
+  distributorRep: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.accentPrimary,
+    marginTop: 1,
+    opacity: 0.8,
   },
   deleteButton: {
     padding: SPACING.md,
