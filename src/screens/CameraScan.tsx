@@ -71,9 +71,9 @@ function levelToEnum(level: number): LiquidLevel {
 
 // --- Constants ---
 
-const STABILITY_THRESHOLD = 0.05;
-const FRAMES_NEEDED = 3;
-const FRAME_INTERVAL_MS = 500;
+const STABILITY_THRESHOLD = 0.12;
+const FRAMES_NEEDED = 2;
+const FRAME_INTERVAL_MS = 400;
 const CAPTURE_COOLDOWN_MS = 2000;
 const SUCCESS_DISPLAY_MS = 1500;
 
@@ -331,7 +331,15 @@ export default function CameraScan({ onReview, onBack }: Props) {
       const penMode = needsPenRef.current;
       setScanState(penMode ? 'needs_pen' : 'idle');
       setBorderValue(0);
-      setStatusText(penMode ? 'Use pen for reference' : 'Point camera at a bottle');
+      // Show a brief error message so the user knows something was attempted
+      const isNetworkError = error?.message?.includes('Network') || error?.response?.status >= 500;
+      setStatusText(
+        penMode
+          ? 'Use pen for reference'
+          : isNetworkError
+          ? 'Connection error — tap camera to retry'
+          : 'Could not identify — tap camera or move closer'
+      );
       isCapturingRef.current = false;
     }
   }, [addBottle, setBorderValue, triggerSuccessFeedback]);
@@ -420,6 +428,15 @@ export default function CameraScan({ onReview, onBack }: Props) {
     setIsScanning(false);
     onReview();
   };
+
+  const handleTapCapture = useCallback(() => {
+    if (isCapturingRef.current) return;
+    if (scanState === 'success') return;
+    isCapturingRef.current = true;
+    stableFrameCountRef.current = 0;
+    previousHashRef.current = null;
+    triggerCapture();
+  }, [scanState, triggerCapture]);
 
   // --- Start screen ---
 
@@ -546,6 +563,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
             {/* Green flash on capture */}
             <Animated.View style={[styles.flashOverlay, { opacity: flashOpacity }]} />
 
+            {/* Tap-to-capture overlay */}
+            <TouchableOpacity
+              style={styles.tapOverlay}
+              onPress={handleTapCapture}
+              activeOpacity={1}
+            />
+
             {/* Corner guides */}
             <View style={styles.centerZone}>
               <View style={styles.cornerTL} />
@@ -553,6 +577,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
               <View style={styles.cornerBL} />
               <View style={styles.cornerBR} />
             </View>
+
+            {/* Tap hint */}
+            {(scanState === 'idle' || scanState === 'stabilizing') && (
+              <View style={styles.tapHint}>
+                <Text style={styles.tapHintText}>Tap to scan</Text>
+              </View>
+            )}
 
             {/* Success badge: "Grey Goose — Half full" */}
             {scanState === 'success' && (
@@ -612,7 +643,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
                   ? 'Move to next bottle'
                   : scanState === 'needs_pen'
                   ? 'Hold pen at liquid line'
-                  : 'Auto-captures when steady'}
+                  : 'Tap camera or hold steady to auto-capture'}
               </Text>
             </View>
 
@@ -715,6 +746,25 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     borderWidth: 5,
     zIndex: 10,
+  },
+  tapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 4,
+  },
+  tapHint: {
+    position: 'absolute',
+    top: 16,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    zIndex: 15,
+  },
+  tapHintText: {
+    fontSize: FONT_SIZES.sm,
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: LETTER_SPACING,
   },
   flashOverlay: {
     ...StyleSheet.absoluteFillObject,
