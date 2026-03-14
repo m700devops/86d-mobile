@@ -240,7 +240,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
     }, CAPTURE_WATCHDOG_MS);
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7, base64: true });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.4, base64: true });
 
       if (!photo?.base64) {
         isCapturingRef.current = false;
