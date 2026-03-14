@@ -71,11 +71,13 @@ function levelToEnum(level: number): LiquidLevel {
 
 // --- Constants ---
 
-const STABILITY_THRESHOLD = 0.12;
-const FRAMES_NEEDED = 2;
-const FRAME_INTERVAL_MS = 400;
-const CAPTURE_COOLDOWN_MS = 2000;
-const SUCCESS_DISPLAY_MS = 1500;
+const STABILITY_THRESHOLD = 0.30;   // was 0.12 — iOS auto-focus killed the old threshold
+const FRAMES_NEEDED = 1;             // one stable pair is enough
+const FRAME_INTERVAL_MS = 200;       // faster loop = faster auto-capture
+const CAPTURE_COOLDOWN_MS = 1500;    // time between captures
+const SUCCESS_DISPLAY_MS = 1200;
+const AUTO_CAPTURE_TIMEOUT_MS = 3500; // if camera sees activity for 3.5s without stabilising, capture anyway
+const CAPTURE_WATCHDOG_MS = 18000;   // reset stuck isCapturing after 18s (API hang guard)
 
 // --- Component ---
 
@@ -87,7 +89,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const [isScanning, setIsScanning] = useState(false);
   const [bottleCount, setBottleCount] = useState(0);
   const [scanState, setScanState] = useState<ScanState>('idle');
-  const [statusText, setStatusText] = useState('Point camera at a bottle');
+  const [statusText, setStatusText] = useState('Hold steady to scan');
   const [stabilityProgress, setStabilityProgress] = useState(0);
 
   // Border: 0 = orange (scanning), 1 = green (success)
@@ -103,6 +105,8 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const lastCaptureTimeRef = useRef(0);
   const stabilityIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const captureWatchdogRef = useRef<NodeJS.Timeout | null>(null);
+  const firstFrameTimeRef = useRef<number>(0); // when we first got a frame in this scan window
   // Pen-reference state (refs so stability loop reads fresh values)
   const needsPenRef = useRef(false);
   const pendingBottleDataRef = useRef<{
@@ -162,10 +166,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
     isFrameProcessingRef.current = false;
     needsPenRef.current = false;
     pendingBottleDataRef.current = null;
+    firstFrameTimeRef.current = 0;
+    if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
     setStabilityProgress(0);
     setScanState('idle');
     setBorderValue(0);
-    setStatusText('Point camera at a bottle');
+    setStatusText('Hold steady to scan');
   }
 
   // --- Sound ---
@@ -218,6 +224,20 @@ export default function CameraScan({ onReview, onBack }: Props) {
     if (!cameraRef.current) return;
     setScanState('capturing');
     setStatusText('Analyzing...');
+    firstFrameTimeRef.current = 0; // reset so the auto-timeout doesn't double-fire
+
+    // Watchdog: if the API call hangs (Render cold start etc.), un-stick after 18s
+    if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
+    captureWatchdogRef.current = setTimeout(() => {
+      if (isCapturingRef.current) {
+        isCapturingRef.current = false;
+        isFrameProcessingRef.current = false;
+        setScanState(needsPenRef.current ? 'needs_pen' : 'idle');
+        setBorderValue(0);
+        setStatusText(needsPenRef.current ? 'Use pen for reference' : 'Hold steady to scan');
+      }
+      captureWatchdogRef.current = null;
+    }, CAPTURE_WATCHDOG_MS);
 
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.7, base64: true });
@@ -226,7 +246,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
         isCapturingRef.current = false;
         setScanState(needsPenRef.current ? 'needs_pen' : 'idle');
         setBorderValue(0);
-        setStatusText(needsPenRef.current ? 'Use pen for reference' : 'Point camera at a bottle');
+        setStatusText(needsPenRef.current ? 'Use pen for reference' : 'Hold steady to scan');
         return;
       }
 
@@ -257,12 +277,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
         setStabilityProgress(0);
         await triggerSuccessFeedback();
 
+        if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
         successTimeoutRef.current = setTimeout(() => {
           needsPenRef.current = false;
           pendingBottleDataRef.current = null;
           setScanState('idle');
           setBorderValue(0);
-          setStatusText('Point camera at a bottle');
+          setStatusText('Hold steady to scan');
           isCapturingRef.current = false;
         }, SUCCESS_DISPLAY_MS);
 
@@ -274,7 +295,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
           // No bottle detected
           setScanState('idle');
           setBorderValue(0);
-          setStatusText('Point camera at a bottle');
+          setStatusText('Hold steady to scan');
           isCapturingRef.current = false;
           return;
         }
@@ -318,27 +339,29 @@ export default function CameraScan({ onReview, onBack }: Props) {
         setStabilityProgress(0);
         await triggerSuccessFeedback();
 
+        if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
         successTimeoutRef.current = setTimeout(() => {
+          firstFrameTimeRef.current = 0;
           setScanState('idle');
           setBorderValue(0);
-          setStatusText('Point camera at a bottle');
+          setStatusText('Hold steady to scan');
           isCapturingRef.current = false;
         }, SUCCESS_DISPLAY_MS);
       }
 
     } catch (error: any) {
       console.error('CameraScan capture error:', error);
+      if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
       const penMode = needsPenRef.current;
       setScanState(penMode ? 'needs_pen' : 'idle');
       setBorderValue(0);
-      // Show a brief error message so the user knows something was attempted
       const isNetworkError = error?.message?.includes('Network') || error?.response?.status >= 500;
       setStatusText(
         penMode
           ? 'Use pen for reference'
           : isNetworkError
-          ? 'Connection error — tap camera to retry'
-          : 'Could not identify — tap camera or move closer'
+          ? 'Connection error — hold steady to retry'
+          : 'Move closer and hold steady'
       );
       isCapturingRef.current = false;
     }
@@ -366,6 +389,10 @@ export default function CameraScan({ onReview, onBack }: Props) {
         const frame = await cameraRef.current.takePictureAsync({ quality: 0.05, base64: true });
         if (!frame?.base64) { isFrameProcessingRef.current = false; return; }
 
+        const now = Date.now();
+        // Track first frame of this scan window (resets after each capture)
+        if (firstFrameTimeRef.current === 0) firstFrameTimeRef.current = now;
+
         const currentHash = sampleBase64(frame.base64);
 
         if (previousHashRef.current) {
@@ -375,7 +402,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
             stableFrameCountRef.current = Math.min(stableFrameCountRef.current + 1, FRAMES_NEEDED);
             setStabilityProgress(stableFrameCountRef.current / FRAMES_NEEDED);
             if (!needsPenRef.current) setScanState('stabilizing');
-            setStatusText(stableFrameCountRef.current < FRAMES_NEEDED ? 'Hold steady...' : 'Capturing...');
+            setStatusText('Hold steady...');
 
             if (stableFrameCountRef.current >= FRAMES_NEEDED) {
               isCapturingRef.current = true;
@@ -386,13 +413,24 @@ export default function CameraScan({ onReview, onBack }: Props) {
               return;
             }
           } else {
-            stableFrameCountRef.current = 0;
-            setStabilityProgress(0);
-            if (!needsPenRef.current) {
-              setScanState('idle');
-              setStatusText('Point camera at a bottle');
-            } else {
-              setStatusText('Use pen for reference');
+            // Frames differ — show partial progress so user sees the app is active
+            const elapsed = now - firstFrameTimeRef.current;
+            const timeProgress = Math.min(elapsed / AUTO_CAPTURE_TIMEOUT_MS, 0.9);
+            setStabilityProgress(timeProgress);
+
+            if (!needsPenRef.current) setScanState('stabilizing');
+            setStatusText('Hold steady...');
+
+            // Auto-capture fallback: if we've been receiving frames long enough
+            // without ever stabilising (camera moves too much), just go for it.
+            if (elapsed > AUTO_CAPTURE_TIMEOUT_MS) {
+              isCapturingRef.current = true;
+              stableFrameCountRef.current = 0;
+              previousHashRef.current = null;
+              firstFrameTimeRef.current = 0;
+              isFrameProcessingRef.current = false;
+              triggerCapture();
+              return;
             }
           }
         }
@@ -419,6 +457,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
     return () => {
       if (stabilityIntervalRef.current) clearInterval(stabilityIntervalRef.current);
       if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+      if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
     };
   }, []);
 
@@ -475,7 +514,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
             <View style={styles.startTips}>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Hold steady — auto-captures when stable</Text>
+                <Text style={styles.startTipText}>Just hold the camera at the bottle — auto-captures instantly</Text>
               </View>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
@@ -578,10 +617,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
               <View style={styles.cornerBR} />
             </View>
 
-            {/* Tap hint */}
+            {/* Scanning indicator — pulses while the stability loop is running */}
             {(scanState === 'idle' || scanState === 'stabilizing') && (
               <View style={styles.tapHint}>
-                <Text style={styles.tapHintText}>Tap to scan</Text>
+                <Text style={styles.tapHintText}>
+                  {scanState === 'stabilizing' ? 'Hold steady...' : 'Scanning...'}
+                </Text>
               </View>
             )}
 
@@ -643,7 +684,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
                   ? 'Move to next bottle'
                   : scanState === 'needs_pen'
                   ? 'Hold pen at liquid line'
-                  : 'Tap camera or hold steady to auto-capture'}
+                  : 'Auto-captures when steady — tap to force'}
               </Text>
             </View>
 
