@@ -86,7 +86,16 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
       });
       onRegisterSuccess();
     } catch (error: any) {
-      const message = error.response?.data?.message || 'Registration failed. Please try again.';
+      const detail = error.response?.data?.detail;
+      const errorCode = detail?.error || error.response?.data?.error;
+      const message = detail?.message || error.response?.data?.message || 'Registration failed. Please try again.';
+      if (errorCode === 'email_exists') {
+        Alert.alert('Account Exists', message + '\n\nPlease sign in instead.', [
+          { text: 'Sign In', onPress: onNavigateToLogin },
+          { text: 'OK', style: 'cancel' },
+        ]);
+        return;
+      }
       Alert.alert('Registration Error', message);
     } finally {
       setIsLoading(false);

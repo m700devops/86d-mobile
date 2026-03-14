@@ -26,7 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const checkAuthStatus = async () => {
     try {
       setIsLoading(true);
-      
+
       // Check if we have tokens
       const token = await apiService.getAccessToken();
       if (!token) {
@@ -34,13 +34,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Try to get current user
+      // Try to get current user from the server
       const userData = await apiService.getCurrentUser();
       setUser(userData);
-    } catch (error) {
-      // Token invalid or expired, clear it
-      await apiService.logout();
-      setUser(null);
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 401) {
+        // Token is definitively invalid — clear everything and force re-login
+        await apiService.logout();
+        setUser(null);
+      } else {
+        // Network error, server down, timeout, etc.
+        // Don't wipe tokens — fall back to locally cached user data so the
+        // user stays logged in when Render cold-starts or the connection is weak.
+        const cached = await apiService.getUserData();
+        if (cached) {
+          setUser(cached);
+        } else {
+          setUser(null);
+        }
+      }
     } finally {
       setIsLoading(false);
     }

@@ -53,7 +53,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
       await login({ email: email.trim(), password });
       onLoginSuccess();
     } catch (error: any) {
-      const message = error.response?.data?.message || 'Login failed. Please try again.';
+      const message = error.response?.data?.detail?.message || error.response?.data?.message || 'Login failed. Please try again.';
       Alert.alert('Login Error', message);
     } finally {
       setIsLoading(false);
