@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Animated,
+  Alert,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { createAudioPlayer, AudioPlayer } from 'expo-audio';
@@ -15,6 +16,7 @@ import { SPACING } from '../constants/spacing';
 import { Check, ChevronLeft, Zap, Camera } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
+import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { useInventory } from '../context/InventoryContext';
 import { Bottle, LiquidLevel } from '../types';
 
@@ -107,6 +109,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const captureWatchdogRef = useRef<NodeJS.Timeout | null>(null);
   const firstFrameTimeRef = useRef<number>(0); // when we first got a frame in this scan window
+  const errorAlertCooldownRef = useRef<NodeJS.Timeout | null>(null);
   // Pen-reference state (refs so stability loop reads fresh values)
   const needsPenRef = useRef(false);
   const pendingBottleDataRef = useRef<{
@@ -222,6 +225,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
   const triggerCapture = useCallback(async () => {
     if (!cameraRef.current) return;
+    const startTime = Date.now();
+    let imageSizeKb = 0;
+
     setScanState('capturing');
     setStatusText('Analyzing...');
     firstFrameTimeRef.current = 0; // reset so the auto-timeout doesn't double-fire
@@ -240,7 +246,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
     }, CAPTURE_WATCHDOG_MS);
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.4, base64: true });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7, base64: true });
 
       if (!photo?.base64) {
         isCapturingRef.current = false;
@@ -250,10 +256,22 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
 
+      imageSizeKb = Math.round((photo.base64.length * 0.75) / 1024);
+
       if (needsPenRef.current && pendingBottleDataRef.current) {
         // ── Second pass: pen reference to determine level ──
         const penResult = await apiService.analyzeBottleWithPen(photo.base64);
         const pending = pendingBottleDataRef.current;
+
+        await scanDiagnostics.logScan({
+          timestamp: new Date().toISOString(),
+          success: true,
+          errorType: null,
+          errorMessage: null,
+          httpStatus: 200,
+          responseTimeMs: Date.now() - startTime,
+          imageSizeKb,
+        });
 
         const newBottle: Bottle = {
           id: `bottle_${Date.now()}`,
@@ -293,6 +311,15 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
         if (!result) {
           // No bottle detected
+          await scanDiagnostics.logScan({
+            timestamp: new Date().toISOString(),
+            success: false,
+            errorType: 'parse_error',
+            errorMessage: 'API returned null — no bottle detected',
+            httpStatus: 200,
+            responseTimeMs: Date.now() - startTime,
+            imageSizeKb,
+          });
           setScanState('idle');
           setBorderValue(0);
           setStatusText('Hold steady to scan');
@@ -315,6 +342,16 @@ export default function CameraScan({ onReview, onBack }: Props) {
           isCapturingRef.current = false;
           return;
         }
+
+        await scanDiagnostics.logScan({
+          timestamp: new Date().toISOString(),
+          success: true,
+          errorType: null,
+          errorMessage: null,
+          httpStatus: 200,
+          responseTimeMs: Date.now() - startTime,
+          imageSizeKb,
+        });
 
         // Level readable — record immediately
         const newBottle: Bottle = {
@@ -350,28 +387,52 @@ export default function CameraScan({ onReview, onBack }: Props) {
       }
 
     } catch (error: any) {
-      console.error('CameraScan capture error:', error?.response?.data ?? error?.message ?? error);
+      // --- Classify error ---
+      let errorType: ScanLogEntry['errorType'] = 'unknown';
+      let httpStatus: number | null = null;
+      let errorMessage = error?.message || 'Unknown error';
+
+      if (error?.response) {
+        httpStatus = error.response.status;
+        errorMessage = error.response.data?.message || error.response.data?.error || errorMessage;
+        if (httpStatus === 401 || httpStatus === 403) {
+          errorType = 'auth_error';
+        } else {
+          errorType = 'api_error';
+        }
+      } else if (error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
+        errorType = 'timeout';
+      } else if (error?.request || error?.message?.includes('Network')) {
+        errorType = 'network';
+      }
+
+      console.error('CameraScan capture error:', { errorType, httpStatus, errorMessage });
+
+      await scanDiagnostics.logScan({
+        timestamp: new Date().toISOString(),
+        success: false,
+        errorType,
+        errorMessage,
+        httpStatus,
+        responseTimeMs: Date.now() - startTime,
+        imageSizeKb,
+      });
+
       if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
+
       const penMode = needsPenRef.current;
       setScanState(penMode ? 'needs_pen' : 'idle');
       setBorderValue(0);
-
-      const status = error?.response?.status;
-      const serverMsg = error?.response?.data?.message || error?.response?.data?.detail?.message;
-      let errorText: string;
-      if (penMode) {
-        errorText = 'Use pen for reference';
-      } else if (status === 503) {
-        errorText = 'Server config error — contact support';
-      } else if (status >= 500) {
-        errorText = serverMsg ? `Error: ${serverMsg}` : 'Server error — retrying';
-      } else if (!error?.response) {
-        errorText = 'No connection — check internet';
-      } else {
-        errorText = 'Move closer and hold steady';
-      }
-      setStatusText(errorText);
+      setStatusText(penMode ? 'Use pen for reference' : 'Hold steady to scan');
       isCapturingRef.current = false;
+
+      // Throttled error alert so we don't spam the user
+      if (!errorAlertCooldownRef.current) {
+        Alert.alert('Scan Error', errorMessage, [{ text: 'OK' }]);
+        errorAlertCooldownRef.current = setTimeout(() => {
+          errorAlertCooldownRef.current = null;
+        }, 5000);
+      }
     }
   }, [addBottle, setBorderValue, triggerSuccessFeedback]);
 
@@ -466,6 +527,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
       if (stabilityIntervalRef.current) clearInterval(stabilityIntervalRef.current);
       if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
       if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
+      if (errorAlertCooldownRef.current) clearTimeout(errorAlertCooldownRef.current);
     };
   }, []);
 
