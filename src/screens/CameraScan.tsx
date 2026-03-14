@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { useInventory } from '../context/InventoryContext';
+import { useAuth } from '../context/AuthContext';
 import { Bottle, LiquidLevel } from '../types';
 
 // --- Types ---
@@ -86,6 +87,7 @@ const CAPTURE_WATCHDOG_MS = 18000;   // reset stuck isCapturing after 18s (API h
 export default function CameraScan({ onReview, onBack }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const { addBottle } = useInventory();
+  const { logout } = useAuth();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
@@ -420,6 +422,17 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
       if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
 
+      // Auth error: stop scanning and force re-login
+      if (errorType === 'auth_error') {
+        setIsScanning(false);
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please sign in again.',
+          [{ text: 'OK', onPress: () => logout() }]
+        );
+        return;
+      }
+
       const penMode = needsPenRef.current;
       setScanState(penMode ? 'needs_pen' : 'idle');
       setBorderValue(0);
@@ -434,7 +447,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
         }, 5000);
       }
     }
-  }, [addBottle, setBorderValue, triggerSuccessFeedback]);
+  }, [addBottle, setBorderValue, triggerSuccessFeedback, logout]);
 
   // --- Stability detection loop ---
 
