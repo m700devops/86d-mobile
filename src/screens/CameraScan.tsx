@@ -350,19 +350,27 @@ export default function CameraScan({ onReview, onBack }: Props) {
       }
 
     } catch (error: any) {
-      console.error('CameraScan capture error:', error);
+      console.error('CameraScan capture error:', error?.response?.data ?? error?.message ?? error);
       if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
       const penMode = needsPenRef.current;
       setScanState(penMode ? 'needs_pen' : 'idle');
       setBorderValue(0);
-      const isNetworkError = error?.message?.includes('Network') || error?.response?.status >= 500;
-      setStatusText(
-        penMode
-          ? 'Use pen for reference'
-          : isNetworkError
-          ? 'Connection error — hold steady to retry'
-          : 'Move closer and hold steady'
-      );
+
+      const status = error?.response?.status;
+      const serverMsg = error?.response?.data?.message || error?.response?.data?.detail?.message;
+      let errorText: string;
+      if (penMode) {
+        errorText = 'Use pen for reference';
+      } else if (status === 503) {
+        errorText = 'Server config error — contact support';
+      } else if (status >= 500) {
+        errorText = serverMsg ? `Error: ${serverMsg}` : 'Server error — retrying';
+      } else if (!error?.response) {
+        errorText = 'No connection — check internet';
+      } else {
+        errorText = 'Move closer and hold steady';
+      }
+      setStatusText(errorText);
       isCapturingRef.current = false;
     }
   }, [addBottle, setBorderValue, triggerSuccessFeedback]);
