@@ -94,11 +94,13 @@ export default function PenScanReview({ bottles, onBack, onComplete, onEdit }: P
     onComplete(scannedBottles);
   };
 
+  // Thresholds align with backend boundaries + conservative deadband so the
+  // label shown here matches what gets stored (same logic as levelToEnum).
   const getLevelLabel = (level: number): string => {
-    if (level >= 0.9) return 'Full';
-    if (level >= 0.75) return '3/4';
-    if (level >= 0.5) return 'Half';
-    if (level >= 0.25) return '1/4';
+    if (level >= 0.905) return 'Full';
+    if (level >= 0.655) return '3/4';
+    if (level >= 0.405) return 'Half';
+    if (level >= 0.155) return '1/4';
     return 'Empty';
   };
 

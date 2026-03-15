@@ -57,18 +57,25 @@ function frameDifference(hash1: number[], hash2: number[]): number {
 }
 
 function levelToReadable(level: number): string {
+  // Thresholds mirror levelToEnum — display text stays consistent with stored level.
   if (level >= 0.875) return 'Full';
-  if (level >= 0.65) return 'Three quarters';
-  if (level >= 0.375) return 'Half full';
-  if (level >= 0.15) return 'Quarter full';
+  if (level >= 0.655) return 'Three quarters';
+  if (level >= 0.405) return 'Half full';
+  if (level >= 0.155) return 'Quarter full';
   return 'Almost empty';
 }
 
+// Conservative deadband: readings within ±0.03 of a boundary map to the LOWER
+// bucket.  This biases toward "less full" which triggers more ordering —
+// the safer outcome for bar inventory.  Thresholds are aligned with the backend
+// decimal_to_level() boundaries (0.875 / 0.625 / 0.375 / 0.125) plus deadband.
+const LEVEL_DEADBAND = 0.03;
+
 function levelToEnum(level: number): LiquidLevel {
-  if (level >= 0.875) return 'full';
-  if (level >= 0.65) return '3/4';
-  if (level >= 0.375) return 'half';
-  if (level >= 0.15) return '1/4';
+  if (level >= 0.875 + LEVEL_DEADBAND) return 'full';
+  if (level >= 0.625 + LEVEL_DEADBAND) return '3/4';
+  if (level >= 0.375 + LEVEL_DEADBAND) return 'half';
+  if (level >= 0.125 + LEVEL_DEADBAND) return '1/4';
   return 'empty';
 }
 
