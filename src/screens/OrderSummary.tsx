@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, Animated } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Mail, FileText, Printer, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle } from 'lucide-react-native';
+import { Mail, FileText, Printer, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { OrderItem, Distributor } from '../types';
@@ -13,11 +13,12 @@ interface Props {
 }
 
 export default function OrderSummary({ onRestart }: Props) {
-  const { bottles } = useInventory();
+  const { bottles, updateBottle } = useInventory();
   const { distributors } = useDistributors();
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
   const [checkAnim] = useState(new Animated.Value(0));
+  const [assigningItem, setAssigningItem] = useState<OrderItem | null>(null);
 
   const orderItems: OrderItem[] = bottles
     .map(b => {
@@ -186,19 +187,81 @@ export default function OrderSummary({ onRestart }: Props) {
           {unassignedItems.length > 0 && (
             <View style={styles.unassignedCard}>
               <View style={styles.unassignedHeader}>
-                <Text style={styles.unassignedTitle}>Unassigned</Text>
                 <AlertTriangle size={14} color={COLORS.warning} />
+                <Text style={styles.unassignedTitle}>Unassigned</Text>
+                <Text style={styles.unassignedHint}>Tap to assign</Text>
               </View>
               {unassignedItems.map(item => (
-                <View key={item.bottleId} style={styles.unassignedItem}>
+                <TouchableOpacity
+                  key={item.bottleId}
+                  style={styles.unassignedItem}
+                  onPress={() => setAssigningItem(item)}
+                  activeOpacity={0.7}
+                >
                   <Text style={styles.unassignedItemName} numberOfLines={1}>
                     {item.name}
                   </Text>
-                  <Text style={styles.unassignedItemQty}>x{item.quantity}</Text>
-                </View>
+                  <View style={styles.assignChip}>
+                    <Text style={styles.assignChipText}>Assign →</Text>
+                  </View>
+                </TouchableOpacity>
               ))}
             </View>
           )}
+
+          {/* Assign Distributor Modal */}
+          <Modal
+            visible={assigningItem !== null}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setAssigningItem(null)}
+          >
+            <TouchableOpacity
+              style={styles.modalOverlay}
+              activeOpacity={1}
+              onPress={() => setAssigningItem(null)}
+            >
+              <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
+                <View style={styles.modalHandle} />
+                <View style={styles.modalHeader}>
+                  <View>
+                    <Text style={styles.modalTitle}>Assign Distributor</Text>
+                    <Text style={styles.modalSubtitle} numberOfLines={1}>
+                      {assigningItem?.name}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setAssigningItem(null)}>
+                    <X size={20} color={COLORS.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+                {distributors.length === 0 ? (
+                  <Text style={styles.modalEmpty}>No distributors added yet.</Text>
+                ) : (
+                  distributors.map(dist => (
+                    <TouchableOpacity
+                      key={dist.id}
+                      style={styles.modalDistRow}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        if (assigningItem) {
+                          updateBottle(assigningItem.bottleId, { distributorId: dist.id });
+                          setAssigningItem(null);
+                        }
+                      }}
+                    >
+                      <View style={styles.modalDistBadge}>
+                        <Text style={styles.modalDistInitials}>
+                          {dist.initials || dist.name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <Text style={styles.modalDistName}>{dist.name}</Text>
+                      <ChevronRight size={16} color={COLORS.textTertiary} />
+                    </TouchableOpacity>
+                  ))
+                )}
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
         </View>
 
         {/* Items by Category */}
@@ -258,6 +321,7 @@ export default function OrderSummary({ onRestart }: Props) {
 }
 
 function OrderItemRow({ item, distributors }: { item: OrderItem; distributors: Distributor[] }) {
+  const { updateBottle } = useInventory();
   const [selectedDist, setSelectedDist] = useState(item.distributorId);
 
   return (
@@ -271,7 +335,10 @@ function OrderItemRow({ item, distributors }: { item: OrderItem; distributors: D
               styles.distButton,
               selectedDist === dist.id && styles.distButtonSelected,
             ]}
-            onPress={() => setSelectedDist(dist.id)}
+            onPress={() => {
+              setSelectedDist(dist.id);
+              updateBottle(item.bottleId, { distributorId: dist.id });
+            }}
           >
             <Text style={[
               styles.distButtonText,
@@ -431,10 +498,17 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.warning,
+    flex: 1,
+  },
+  unassignedHint: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    fontStyle: 'italic',
   },
   unassignedItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: SPACING.sm,
   },
   unassignedItemName: {
@@ -447,6 +521,94 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textTertiary,
+  },
+  assignChip: {
+    backgroundColor: `${COLORS.accentPrimary}15`,
+    borderWidth: 1,
+    borderColor: `${COLORS.accentPrimary}30`,
+    borderRadius: 6,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+  },
+  assignChipText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 40,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: COLORS.border,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  modalTitle: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
+  },
+  modalSubtitle: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textTertiary,
+    marginTop: 2,
+  },
+  modalEmpty: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textTertiary,
+    textAlign: 'center',
+    padding: SPACING.xl,
+  },
+  modalDistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: `${COLORS.border}50`,
+    gap: SPACING.md,
+  },
+  modalDistBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: `${COLORS.accentPrimary}15`,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalDistInitials: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
+  },
+  modalDistName: {
+    flex: 1,
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
   },
   itemsSection: {
     paddingHorizontal: SPACING.lg,
