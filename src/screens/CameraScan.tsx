@@ -276,6 +276,15 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
 
+      // If no pen was detected in the frame, reject the scan silently and wait
+      if (result.levelReadable === false) {
+        setScanState('idle');
+        setBorderValue(0);
+        setStatusText('No pen detected — hold pen at liquid line');
+        isCapturingRef.current = false;
+        return;
+      }
+
       await scanDiagnostics.logScan({
         timestamp: new Date().toISOString(),
         success: true,
