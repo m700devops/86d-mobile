@@ -93,7 +93,7 @@ const CAPTURE_WATCHDOG_MS = 18000;   // reset stuck isCapturing after 18s (API h
 
 export default function CameraScan({ onReview, onBack }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
-  const { addBottle } = useInventory();
+  const { addBottle, removeBottle } = useInventory();
   const { logout } = useAuth();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
@@ -102,6 +102,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [statusText, setStatusText] = useState('Pen at liquid line');
   const [stabilityProgress, setStabilityProgress] = useState(0);
+  const [lastBottleId, setLastBottleId] = useState<string | null>(null);
 
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
@@ -229,6 +230,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
     setScanState('capturing');
     setStatusText('Analyzing...');
+    setLastBottleId(null);
     firstFrameTimeRef.current = 0; // reset so the auto-timeout doesn't double-fire
 
     // Watchdog: if the API call hangs (Render cold start etc.), un-stick after 18s
@@ -302,6 +304,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
       lastCaptureTimeRef.current = Date.now();
       addBottle(newBottle);
+      setLastBottleId(newBottle.id);
       setBottleCount(prev => prev + 1);
       setScanState('success');
       setBorderValue(1);
@@ -479,6 +482,14 @@ export default function CameraScan({ onReview, onBack }: Props) {
     setIsScanning(false);
     onReview();
   };
+
+  const handleUndo = useCallback(() => {
+    if (!lastBottleId) return;
+    removeBottle(lastBottleId);
+    setLastBottleId(null);
+    setBottleCount(prev => Math.max(0, prev - 1));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, [lastBottleId, removeBottle]);
 
   const handleTapCapture = useCallback(() => {
     if (isCapturingRef.current) return;
@@ -686,16 +697,27 @@ export default function CameraScan({ onReview, onBack }: Props) {
               </Text>
             </View>
 
-            <TouchableOpacity
-              style={styles.doneButton}
-              onPress={handleDone}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.doneButtonText}>Done</Text>
-              {bottleCount > 0 && (
-                <Text style={styles.doneButtonCount}>({bottleCount})</Text>
+            <View style={styles.bottomActions}>
+              {lastBottleId && (
+                <TouchableOpacity
+                  style={styles.undoButton}
+                  onPress={handleUndo}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.undoButtonText}>Undo</Text>
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.doneButton}
+                onPress={handleDone}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.doneButtonText}>Done</Text>
+                {bottleCount > 0 && (
+                  <Text style={styles.doneButtonCount}>({bottleCount})</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       )}
@@ -922,6 +944,25 @@ const styles = StyleSheet.create({
   instructionSub: {
     fontSize: FONT_SIZES.sm,
     color: COLORS.textTertiary,
+    letterSpacing: LETTER_SPACING,
+  },
+  bottomActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  undoButton: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  undoButtonText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
     letterSpacing: LETTER_SPACING,
   },
   doneButton: {
