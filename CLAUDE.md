@@ -19,13 +19,18 @@ Primary scan mode: user holds a physical pen at the liquid line — the app dete
 - src/screens/CameraScan.tsx — main scanning screen (pen-first flow)
 - src/screens/PenDetection.tsx — pen tip detection logic
 - src/screens/PenScanReview.tsx — review/confirm after pen scan
-- src/screens/ReviewGrid.tsx — multi-bottle review grid
-- src/screens/OrderSummary.tsx — generated order summary
+- src/screens/ReviewGrid.tsx — multi-bottle review grid (uses distributors)
+- src/screens/OrderSummary.tsx — generated order summary (uses distributors)
+- src/screens/SettingsScreen.tsx — manage distributors (add/edit/remove)
+- src/screens/LoginScreen.tsx — login
+- src/screens/RegisterScreen.tsx — registration
+- src/screens/Onboarding.tsx — first-run onboarding flow
 - src/services/api.ts — all backend API calls (axios, auto token refresh)
 - src/services/geminiVision.ts — client-side image → API bridge
 - src/context/AuthContext.tsx — auth state
 - src/context/InventoryContext.tsx — active inventory session state
 - src/context/LocationContext.tsx — bar location selection
+- src/context/DistributorContext.tsx — distributor list state (used by Settings, ReviewGrid, OrderSummary)
 - src/config/api.ts — API_URL = https://eight6d-api.onrender.com/v1
 
 ## Build Rules
