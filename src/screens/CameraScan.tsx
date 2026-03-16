@@ -23,7 +23,7 @@ import { Bottle, LiquidLevel } from '../types';
 
 // --- Types ---
 
-type ScanState = 'idle' | 'stabilizing' | 'capturing' | 'needs_pen' | 'success';
+type ScanState = 'idle' | 'stabilizing' | 'capturing' | 'success';
 
 interface Props {
   onReview: () => void;
@@ -100,7 +100,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const [isScanning, setIsScanning] = useState(false);
   const [bottleCount, setBottleCount] = useState(0);
   const [scanState, setScanState] = useState<ScanState>('idle');
-  const [statusText, setStatusText] = useState('Hold steady to scan');
+  const [statusText, setStatusText] = useState('Pen at liquid line');
   const [stabilityProgress, setStabilityProgress] = useState(0);
 
   // Border: 0 = orange (scanning), 1 = green (success)
@@ -119,14 +119,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const captureWatchdogRef = useRef<NodeJS.Timeout | null>(null);
   const firstFrameTimeRef = useRef<number>(0); // when we first got a frame in this scan window
   const errorAlertCooldownRef = useRef<NodeJS.Timeout | null>(null);
-  // Pen-reference state (refs so stability loop reads fresh values)
-  const needsPenRef = useRef(false);
-  const pendingBottleDataRef = useRef<{
-    name: string;
-    brand: string;
-    category: string;
-    distributorId?: string;
-  } | null>(null);
 
   // --- Border / flash animations ---
 
@@ -176,14 +168,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
     stableFrameCountRef.current = 0;
     isCapturingRef.current = false;
     isFrameProcessingRef.current = false;
-    needsPenRef.current = false;
-    pendingBottleDataRef.current = null;
     firstFrameTimeRef.current = 0;
     if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
     setStabilityProgress(0);
     setScanState('idle');
     setBorderValue(0);
-    setStatusText('Hold steady to scan');
+    setStatusText('Pen at liquid line');
   }
 
   // --- Sound ---
@@ -247,9 +237,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
       if (isCapturingRef.current) {
         isCapturingRef.current = false;
         isFrameProcessingRef.current = false;
-        setScanState(needsPenRef.current ? 'needs_pen' : 'idle');
+        setScanState('idle');
         setBorderValue(0);
-        setStatusText(needsPenRef.current ? 'Use pen for reference' : 'Hold steady to scan');
+        setStatusText('Pen at liquid line');
       }
       captureWatchdogRef.current = null;
     }, CAPTURE_WATCHDOG_MS);
@@ -259,141 +249,74 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
       if (!photo?.base64) {
         isCapturingRef.current = false;
-        setScanState(needsPenRef.current ? 'needs_pen' : 'idle');
+        setScanState('idle');
         setBorderValue(0);
-        setStatusText(needsPenRef.current ? 'Use pen for reference' : 'Hold steady to scan');
+        setStatusText('Pen at liquid line');
         return;
       }
 
       imageSizeKb = Math.round((photo.base64.length * 0.75) / 1024);
 
-      if (needsPenRef.current && pendingBottleDataRef.current) {
-        // ── Second pass: pen reference to determine level ──
-        const penResult = await apiService.analyzeBottleWithPen(photo.base64);
-        const pending = pendingBottleDataRef.current;
+      // Single pass: identify bottle + read level from pen tip
+      const result = await apiService.analyzeBottleWithPenId(photo.base64);
 
+      if (!result) {
         await scanDiagnostics.logScan({
           timestamp: new Date().toISOString(),
-          success: true,
-          errorType: null,
-          errorMessage: null,
+          success: false,
+          errorType: 'parse_error',
+          errorMessage: 'API returned null — no bottle detected',
           httpStatus: 200,
           responseTimeMs: Date.now() - startTime,
           imageSizeKb,
         });
-
-        const newBottle: Bottle = {
-          id: `bottle_${Date.now()}`,
-          name: pending.name,
-          brand: pending.brand,
-          category: pending.category,
-          size: '',
-          currentLevel: penResult.liquidLevel,
-          parLevel: 1,
-          level: levelToEnum(penResult.liquidLevel),
-          imageUrl: photo.uri,
-          distributorId: pending.distributorId,
-        };
-
-        lastCaptureTimeRef.current = Date.now();
-        addBottle(newBottle);
-        setBottleCount(prev => prev + 1);
-        setScanState('success');
-        setBorderValue(1);
-        setStatusText(`${pending.name} — ${levelToReadable(penResult.liquidLevel)}`);
-        setStabilityProgress(0);
-        await triggerSuccessFeedback();
-
-        if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
-        successTimeoutRef.current = setTimeout(() => {
-          needsPenRef.current = false;
-          pendingBottleDataRef.current = null;
-          setScanState('idle');
-          setBorderValue(0);
-          setStatusText('Hold steady to scan');
-          isCapturingRef.current = false;
-        }, SUCCESS_DISPLAY_MS);
-
-      } else {
-        // ── First pass: identify bottle and read level ──
-        const result = await apiService.analyzeBottleImage(photo.base64);
-
-        if (!result) {
-          // No bottle detected
-          await scanDiagnostics.logScan({
-            timestamp: new Date().toISOString(),
-            success: false,
-            errorType: 'parse_error',
-            errorMessage: 'API returned null — no bottle detected',
-            httpStatus: 200,
-            responseTimeMs: Date.now() - startTime,
-            imageSizeKb,
-          });
-          setScanState('idle');
-          setBorderValue(0);
-          setStatusText('Hold steady to scan');
-          isCapturingRef.current = false;
-          return;
-        }
-
-        if (result.levelReadable === false || result.confidence < 0.35) {
-          // Bottle found but level unreadable — prompt for pen reference
-          pendingBottleDataRef.current = {
-            name: result.name,
-            brand: result.brand,
-            category: result.category,
-            distributorId: (result as any).distributorId,
-          };
-          needsPenRef.current = true;
-          setScanState('needs_pen');
-          setBorderValue(0);
-          setStatusText('Use pen for reference');
-          isCapturingRef.current = false;
-          return;
-        }
-
-        await scanDiagnostics.logScan({
-          timestamp: new Date().toISOString(),
-          success: true,
-          errorType: null,
-          errorMessage: null,
-          httpStatus: 200,
-          responseTimeMs: Date.now() - startTime,
-          imageSizeKb,
-        });
-
-        // Level readable — record immediately
-        const newBottle: Bottle = {
-          id: `bottle_${Date.now()}`,
-          name: result.name,
-          brand: result.brand,
-          category: result.category,
-          size: '',
-          currentLevel: result.liquidLevel,
-          parLevel: 1,
-          level: levelToEnum(result.liquidLevel),
-          imageUrl: photo.uri,
-          distributorId: (result as any).distributorId,
-        };
-
-        lastCaptureTimeRef.current = Date.now();
-        addBottle(newBottle);
-        setBottleCount(prev => prev + 1);
-        setScanState('success');
-        setBorderValue(1);
-        setStatusText(`${result.name} — ${levelToReadable(result.liquidLevel)}`);
-        setStabilityProgress(0);
-        await triggerSuccessFeedback();
-
-        if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
-        successTimeoutRef.current = setTimeout(() => {
-          firstFrameTimeRef.current = 0;
-          setScanState('idle');
-          setBorderValue(0);
-          setStatusText('Hold steady to scan');
-          isCapturingRef.current = false;
-        }, SUCCESS_DISPLAY_MS);
+        setScanState('idle');
+        setBorderValue(0);
+        setStatusText('Pen at liquid line');
+        isCapturingRef.current = false;
+        return;
       }
+
+      await scanDiagnostics.logScan({
+        timestamp: new Date().toISOString(),
+        success: true,
+        errorType: null,
+        errorMessage: null,
+        httpStatus: 200,
+        responseTimeMs: Date.now() - startTime,
+        imageSizeKb,
+      });
+
+      const newBottle: Bottle = {
+        id: `bottle_${Date.now()}`,
+        name: result.name,
+        brand: result.brand,
+        category: result.category,
+        size: '',
+        currentLevel: result.liquidLevel,
+        parLevel: 1,
+        level: levelToEnum(result.liquidLevel),
+        imageUrl: photo.uri,
+        distributorId: (result as any).distributorId,
+      };
+
+      lastCaptureTimeRef.current = Date.now();
+      addBottle(newBottle);
+      setBottleCount(prev => prev + 1);
+      setScanState('success');
+      setBorderValue(1);
+      setStatusText(`${result.name} — ${levelToReadable(result.liquidLevel)}`);
+      setStabilityProgress(0);
+      await triggerSuccessFeedback();
+
+      if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
+      successTimeoutRef.current = setTimeout(() => {
+        firstFrameTimeRef.current = 0;
+        setScanState('idle');
+        setBorderValue(0);
+        setStatusText('Pen at liquid line');
+        isCapturingRef.current = false;
+      }, SUCCESS_DISPLAY_MS);
 
     } catch (error: any) {
       // --- Classify error ---
@@ -440,10 +363,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
 
-      const penMode = needsPenRef.current;
-      setScanState(penMode ? 'needs_pen' : 'idle');
+      setScanState('idle');
       setBorderValue(0);
-      setStatusText(penMode ? 'Use pen for reference' : 'Hold steady to scan');
+      setStatusText('Pen at liquid line');
       isCapturingRef.current = false;
 
       // Throttled error alert so we don't spam the user
@@ -490,7 +412,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
           if (diff < STABILITY_THRESHOLD) {
             stableFrameCountRef.current = Math.min(stableFrameCountRef.current + 1, FRAMES_NEEDED);
             setStabilityProgress(stableFrameCountRef.current / FRAMES_NEEDED);
-            if (!needsPenRef.current) setScanState('stabilizing');
+            setScanState('stabilizing');
             setStatusText('Hold steady...');
 
             if (stableFrameCountRef.current >= FRAMES_NEEDED) {
@@ -507,7 +429,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
             const timeProgress = Math.min(elapsed / AUTO_CAPTURE_TIMEOUT_MS, 0.9);
             setStabilityProgress(timeProgress);
 
-            if (!needsPenRef.current) setScanState('stabilizing');
+            setScanState('stabilizing');
             setStatusText('Hold steady...');
 
             // Auto-capture fallback: if we've been receiving frames long enough
@@ -597,22 +519,22 @@ export default function CameraScan({ onReview, onBack }: Props) {
             {/* Headline */}
             <Text style={styles.startHeadline}>Scan Your Inventory</Text>
             <Text style={styles.startSubheadline}>
-              Point at any bottle to instantly detect it. AI reads the label and liquid level automatically.
+              Hold a pen at the liquid line of each bottle. AI reads the label and uses the pen tip for an accurate level every time.
             </Text>
 
             {/* How it works */}
             <View style={styles.startTips}>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Just hold the camera at the bottle — auto-captures instantly</Text>
+                <Text style={styles.startTipText}>Touch pen tip to liquid surface, point camera at bottle</Text>
+              </View>
+              <View style={styles.startTip}>
+                <View style={styles.startTipDot} />
+                <Text style={styles.startTipText}>Auto-captures when steady — no tapping needed</Text>
               </View>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
                 <Text style={styles.startTipText}>Tap Done when finished to review</Text>
-              </View>
-              <View style={styles.startTip}>
-                <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Use a pen at the liquid line if level is unclear</Text>
               </View>
             </View>
 
@@ -724,13 +646,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
               </View>
             )}
 
-            {/* Pen reference prompt */}
-            {scanState === 'needs_pen' && (
-              <View style={styles.penBadge}>
-                <Text style={styles.penBadgeTitle}>Use pen for reference</Text>
-                <Text style={styles.penBadgeSub}>Hold pen at liquid line and hold steady</Text>
-              </View>
-            )}
 
           </CameraView>
         ) : (
@@ -761,19 +676,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
               <Text style={[
                 styles.instructionPrimary,
                 scanState === 'success' && { color: COLORS.success },
-                scanState === 'needs_pen' && { color: COLORS.warning },
               ]}>
-                {scanState === 'success'
-                  ? statusText
-                  : scanState === 'needs_pen'
-                  ? 'Use pen for reference'
-                  : statusText}
+                {statusText}
               </Text>
               <Text style={styles.instructionSub}>
                 {scanState === 'success'
                   ? 'Move to next bottle'
-                  : scanState === 'needs_pen'
-                  ? 'Hold pen at liquid line'
                   : 'Auto-captures when steady — tap to force'}
               </Text>
             </View>

@@ -283,6 +283,22 @@ class ApiService {
     return response.data;
   }
 
+  // Combined bottle ID + pen level (pen-always flow, single pass)
+  async analyzeBottleWithPenId(imageBase64: string): Promise<{
+    name: string;
+    brand: string;
+    category: string;
+    liquidLevel: number;
+    confidence: number;
+    levelReadable?: boolean;
+  }> {
+    const response = await this.client.post('/scans/analyze', {
+      image: imageBase64,
+      mode: 'bottle_pen',
+    });
+    return response.data;
+  }
+
   // Pen detection analysis (second pass)
   async analyzeBottleWithPen(imageBase64: string): Promise<{
     liquidLevel: number;
