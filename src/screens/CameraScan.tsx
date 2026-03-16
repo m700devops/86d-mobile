@@ -86,7 +86,6 @@ const FRAMES_NEEDED = 1;             // one stable pair is enough
 const FRAME_INTERVAL_MS = 200;       // faster loop = faster auto-capture
 const CAPTURE_COOLDOWN_MS = 1500;    // time between captures
 const SUCCESS_DISPLAY_MS = 1200;
-const AUTO_CAPTURE_TIMEOUT_MS = 3500; // if camera sees activity for 3.5s without stabilising, capture anyway
 const CAPTURE_WATCHDOG_MS = 18000;   // reset stuck isCapturing after 18s (API hang guard)
 
 // --- Component ---
@@ -103,6 +102,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const [statusText, setStatusText] = useState('Pen at liquid line');
   const [stabilityProgress, setStabilityProgress] = useState(0);
   const [lastBottleId, setLastBottleId] = useState<string | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
 
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
@@ -118,7 +118,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const stabilityIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const captureWatchdogRef = useRef<NodeJS.Timeout | null>(null);
-  const firstFrameTimeRef = useRef<number>(0); // when we first got a frame in this scan window
   const errorAlertCooldownRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- Border / flash animations ---
@@ -169,7 +168,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
     stableFrameCountRef.current = 0;
     isCapturingRef.current = false;
     isFrameProcessingRef.current = false;
-    firstFrameTimeRef.current = 0;
     if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
     setStabilityProgress(0);
     setScanState('idle');
@@ -231,7 +229,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
     setScanState('capturing');
     setStatusText('Analyzing...');
     setLastBottleId(null);
-    firstFrameTimeRef.current = 0; // reset so the auto-timeout doesn't double-fire
 
     // Watchdog: if the API call hangs (Render cold start etc.), un-stick after 18s
     if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
@@ -314,8 +311,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
       if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
       successTimeoutRef.current = setTimeout(() => {
-        firstFrameTimeRef.current = 0;
-        setScanState('idle');
+            setScanState('idle');
         setBorderValue(0);
         setStatusText('Pen at liquid line');
         isCapturingRef.current = false;
@@ -384,7 +380,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
   // --- Stability detection loop ---
 
   useEffect(() => {
-    if (!isScanning) {
+    if (!isScanning || isPaused) {
       if (stabilityIntervalRef.current) {
         clearInterval(stabilityIntervalRef.current);
         stabilityIntervalRef.current = null;
@@ -402,10 +398,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
       try {
         const frame = await cameraRef.current.takePictureAsync({ quality: 0.05, base64: true });
         if (!frame?.base64) { isFrameProcessingRef.current = false; return; }
-
-        const now = Date.now();
-        // Track first frame of this scan window (resets after each capture)
-        if (firstFrameTimeRef.current === 0) firstFrameTimeRef.current = now;
 
         const currentHash = sampleBase64(frame.base64);
 
@@ -427,25 +419,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
               return;
             }
           } else {
-            // Frames differ — show partial progress so user sees the app is active
-            const elapsed = now - firstFrameTimeRef.current;
-            const timeProgress = Math.min(elapsed / AUTO_CAPTURE_TIMEOUT_MS, 0.9);
-            setStabilityProgress(timeProgress);
-
-            setScanState('stabilizing');
-            setStatusText('Hold steady...');
-
-            // Auto-capture fallback: if we've been receiving frames long enough
-            // without ever stabilising (camera moves too much), just go for it.
-            if (elapsed > AUTO_CAPTURE_TIMEOUT_MS) {
-              isCapturingRef.current = true;
-              stableFrameCountRef.current = 0;
-              previousHashRef.current = null;
-              firstFrameTimeRef.current = 0;
-              isFrameProcessingRef.current = false;
-              triggerCapture();
-              return;
-            }
+            // Frames differ — phone is moving, reset progress, do not capture
+            stableFrameCountRef.current = 0;
+            setStabilityProgress(0);
+            setScanState('idle');
+            setStatusText('Pen at liquid line');
           }
         }
 
@@ -463,7 +441,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
         stabilityIntervalRef.current = null;
       }
     };
-  }, [isScanning, triggerCapture]);
+  }, [isScanning, isPaused, triggerCapture]);
 
   // --- Cleanup on unmount ---
 
@@ -482,6 +460,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
     setIsScanning(false);
     onReview();
   };
+
+  const handlePauseResume = useCallback(() => {
+    setIsPaused(prev => !prev);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
 
   const handleUndo = useCallback(() => {
     if (!lastBottleId) return;
@@ -608,10 +591,18 @@ export default function CameraScan({ onReview, onBack }: Props) {
           <ChevronLeft size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.counterText}>
-          {bottleCount > 0
+          {isPaused ? 'Paused' : bottleCount > 0
             ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
             : 'Scanning'}
         </Text>
+        <TouchableOpacity
+          style={styles.pauseButton}
+          onPress={handlePauseResume}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Text style={styles.pauseButtonText}>{isPaused ? 'Resume' : 'Pause'}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Camera */}
@@ -795,6 +786,22 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
+    flex: 1,
+    textAlign: 'center',
+  },
+  pauseButton: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 8,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  pauseButtonText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
     letterSpacing: LETTER_SPACING,
   },
   cameraContainer: {
