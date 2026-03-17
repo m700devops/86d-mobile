@@ -4,6 +4,7 @@ export interface BottleAnalysisResult {
   name: string;
   brand: string;
   category: string;
+  product_type?: string;  // Specific class/type (e.g. Tennessee Whiskey, Blended Scotch Whisky)
   liquidLevel: number;
   confidence: number;
   levelReadable?: boolean;

@@ -332,7 +332,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
       setBottleCount(prev => prev + 1);
       setScanState('success');
       setBorderValue(1);
-      setStatusText(`${result.brand}, ${result.name}, ${result.category}`);
+      setStatusText(`${result.brand}, ${result.name}, ${result.product_type || result.category}`);
       await triggerSuccessFeedback();
 
       if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
