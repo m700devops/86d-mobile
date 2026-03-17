@@ -332,7 +332,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
       setBottleCount(prev => prev + 1);
       setScanState('success');
       setBorderValue(1);
-      setStatusText(`${result.name} — ${levelToReadable(userSetLevel)}`);
+      setStatusText(`${result.brand}, ${result.name}, ${result.category}`);
       await triggerSuccessFeedback();
 
       if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
@@ -701,6 +701,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
                 )}
               </View>
 
+              {/* Half marker — visible while dragging, hides when locked */}
+              {levelValue !== null && !levelLocked && (
+                <Text style={styles.halfLabel}>Half</Text>
+              )}
+
               {/* Padlock at top of bar when locked */}
               {levelLocked && (
                 <TouchableOpacity
@@ -884,25 +889,25 @@ const styles = StyleSheet.create({
   },
   cornerTL: {
     position: 'absolute', top: 0, left: 0,
-    width: 40, height: 40,
+    width: 34, height: 34,
     borderLeftWidth: 3, borderTopWidth: 3,
     borderColor: 'rgba(255,255,255,0.5)',
   },
   cornerTR: {
     position: 'absolute', top: 0, right: 0,
-    width: 40, height: 40,
+    width: 34, height: 34,
     borderRightWidth: 3, borderTopWidth: 3,
     borderColor: 'rgba(255,255,255,0.5)',
   },
   cornerBL: {
     position: 'absolute', bottom: 0, left: 0,
-    width: 40, height: 40,
+    width: 34, height: 34,
     borderLeftWidth: 3, borderBottomWidth: 3,
     borderColor: 'rgba(255,255,255,0.5)',
   },
   cornerBR: {
     position: 'absolute', bottom: 0, right: 0,
-    width: 40, height: 40,
+    width: 34, height: 34,
     borderRightWidth: 3, borderBottomWidth: 3,
     borderColor: 'rgba(255,255,255,0.5)',
   },
@@ -946,8 +951,8 @@ const styles = StyleSheet.create({
   levelBarWrapper: {
     position: 'absolute',
     bottom: 20,
-    width: 44,
-    height: '60%',
+    width: 40,
+    height: '54%',
     zIndex: 25,
     alignItems: 'center',
   },
@@ -959,8 +964,8 @@ const styles = StyleSheet.create({
   },
   levelBarTrack: {
     flex: 1,
-    width: 36,
-    borderRadius: 18,
+    width: 32,
+    borderRadius: 16,
     borderWidth: 2,
     borderColor: '#FFFFFF',
     overflow: 'hidden',
@@ -979,7 +984,18 @@ const styles = StyleSheet.create({
   levelBarFill: {
     width: '100%',
     backgroundColor: COLORS.accentPrimary,
-    borderRadius: 16,
+    borderRadius: 14,
+  },
+  halfLabel: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -7,
+    alignSelf: 'center',
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    opacity: 0.9,
   },
   padlockButton: {
     position: 'absolute',
