@@ -7,13 +7,15 @@ import {
   SafeAreaView,
   Animated,
   Alert,
+  PanResponder,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { createAudioPlayer, AudioPlayer } from 'expo-audio';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Check, ChevronLeft, Zap, Camera } from 'lucide-react-native';
+import { Check, ChevronLeft, Zap, Camera, Lock } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
@@ -23,7 +25,7 @@ import { Bottle, LiquidLevel } from '../types';
 
 // --- Types ---
 
-type ScanState = 'idle' | 'stabilizing' | 'capturing' | 'success';
+type ScanState = 'idle' | 'capturing' | 'success';
 
 interface Props {
   onReview: () => void;
@@ -32,30 +34,6 @@ interface Props {
 
 // --- Helpers ---
 
-function sampleBase64(base64: string, sampleCount = 100): number[] {
-  const startOffset = Math.floor(base64.length * 0.1);
-  const endOffset = Math.floor(base64.length * 0.9);
-  const range = endOffset - startOffset;
-  const step = Math.max(1, Math.floor(range / sampleCount));
-  const samples: number[] = [];
-  for (let i = 0; i < sampleCount; i++) {
-    const idx = startOffset + i * step;
-    if (idx >= base64.length) break;
-    samples.push(base64.charCodeAt(idx));
-  }
-  return samples;
-}
-
-function frameDifference(hash1: number[], hash2: number[]): number {
-  const len = Math.min(hash1.length, hash2.length);
-  if (len === 0) return 1;
-  let totalDiff = 0;
-  for (let i = 0; i < len; i++) {
-    totalDiff += Math.abs(hash1[i] - hash2[i]);
-  }
-  return totalDiff / (len * 128);
-}
-
 // Conservative deadband: readings within ±0.03 of a boundary map to the LOWER
 // bucket.  This biases toward "less full" which triggers more ordering —
 // the safer outcome for bar inventory.  Thresholds are aligned with the backend
@@ -63,7 +41,6 @@ function frameDifference(hash1: number[], hash2: number[]): number {
 const LEVEL_DEADBAND = 0.03;
 
 function levelToReadable(level: number): string {
-  // Thresholds mirror levelToEnum — display text stays consistent with stored level.
   if (level >= 0.875 + LEVEL_DEADBAND) return 'Full';
   if (level >= 0.655) return 'Three quarters';
   if (level >= 0.405) return 'Half full';
@@ -81,12 +58,9 @@ function levelToEnum(level: number): LiquidLevel {
 
 // --- Constants ---
 
-const STABILITY_THRESHOLD = 0.30;   // was 0.12 — iOS auto-focus killed the old threshold
-const FRAMES_NEEDED = 1;             // one stable pair is enough
-const FRAME_INTERVAL_MS = 200;       // faster loop = faster auto-capture
-const CAPTURE_COOLDOWN_MS = 1500;    // time between captures
+const LOCK_SCAN_DELAY_MS = 500;          // delay between lock and actual scan firing
 const SUCCESS_DISPLAY_MS = 1200;
-const CAPTURE_WATCHDOG_MS = 18000;   // reset stuck isCapturing after 18s (API hang guard)
+const CAPTURE_WATCHDOG_MS = 18000;       // reset stuck isCapturing after 18s (API hang guard)
 
 // --- Component ---
 
@@ -99,26 +73,53 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const [isScanning, setIsScanning] = useState(false);
   const [bottleCount, setBottleCount] = useState(0);
   const [scanState, setScanState] = useState<ScanState>('idle');
-  const [statusText, setStatusText] = useState('Pen at liquid line');
-  const [stabilityProgress, setStabilityProgress] = useState(0);
+  const [statusText, setStatusText] = useState('Set bottle level');
   const [lastBottleId, setLastBottleId] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+
+  // Level bar state
+  const [levelValue, setLevelValue] = useState<number | null>(null);
+  const [levelLocked, setLevelLocked] = useState(false);
+  const [isLeftHanded, setIsLeftHanded] = useState(false);
 
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
   const [flashAnim] = useState(new Animated.Value(0));
 
+  // Pulse animation for empty bar state
+  const pulseAnim = useRef(new Animated.Value(0.4)).current;
+  const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+
   const cameraRef = useRef<CameraView>(null);
   const soundRef = useRef<AudioPlayer | null>(null);
-  const previousHashRef = useRef<number[] | null>(null);
-  const stableFrameCountRef = useRef(0);
-  const isFrameProcessingRef = useRef(false);
   const isCapturingRef = useRef(false);
-  const lastCaptureTimeRef = useRef(0);
-  const stabilityIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const captureWatchdogRef = useRef<NodeJS.Timeout | null>(null);
   const errorAlertCooldownRef = useRef<NodeJS.Timeout | null>(null);
+  const lockTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Refs mirroring state for use inside PanResponder / callbacks
+  const levelValueRef = useRef<number | null>(null);
+  const levelLockedRef = useRef(false);
+  const isScanningRef = useRef(false);
+  const isPausedRef = useRef(false);
+
+  // Bar measurement refs
+  const barRef = useRef<View>(null);
+  const barTopRef = useRef(0);
+  const barHeightRef = useRef(0);
+
+  // Keep refs in sync with state
+  useEffect(() => { isScanningRef.current = isScanning; }, [isScanning]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
+  // --- Load left-handed setting ---
+
+  useEffect(() => {
+    AsyncStorage.getItem('@leftHanded').then(val => {
+      if (val === 'true') setIsLeftHanded(true);
+    });
+  }, []);
 
   // --- Border / flash animations ---
 
@@ -140,7 +141,29 @@ export default function CameraScan({ onReview, onBack }: Props) {
     }).start();
   }, [borderColorAnim]);
 
-  // --- Start scanning (called when user taps "Start Scanning") ---
+  // --- Pulse animation (empty bar state) ---
+
+  useEffect(() => {
+    if (levelValue === null && isScanning && scanState === 'idle') {
+      pulseLoopRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 0.3, duration: 900, useNativeDriver: true }),
+        ])
+      );
+      pulseLoopRef.current.start();
+    } else {
+      pulseLoopRef.current?.stop();
+      pulseLoopRef.current = null;
+      pulseAnim.setValue(1);
+    }
+    return () => {
+      pulseLoopRef.current?.stop();
+      pulseLoopRef.current = null;
+    };
+  }, [levelValue, isScanning, scanState, pulseAnim]);
+
+  // --- Start scanning ---
 
   const handleStartScanning = useCallback(async () => {
     setShowStartScreen(false);
@@ -164,15 +187,16 @@ export default function CameraScan({ onReview, onBack }: Props) {
   }
 
   function resetScanState() {
-    previousHashRef.current = null;
-    stableFrameCountRef.current = 0;
     isCapturingRef.current = false;
-    isFrameProcessingRef.current = false;
     if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
-    setStabilityProgress(0);
+    if (lockTimerRef.current) { clearTimeout(lockTimerRef.current); lockTimerRef.current = null; }
     setScanState('idle');
     setBorderValue(0);
-    setStatusText('Pen at liquid line');
+    setStatusText('Set bottle level');
+    setLevelValue(null);
+    levelValueRef.current = null;
+    setLevelLocked(false);
+    levelLockedRef.current = false;
   }
 
   // --- Sound ---
@@ -221,13 +245,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
   // --- Capture & analyze ---
 
-  const triggerCapture = useCallback(async () => {
+  const triggerCapture = useCallback(async (userSetLevel: number) => {
     if (!cameraRef.current) return;
     const startTime = Date.now();
     let imageSizeKb = 0;
 
     setScanState('capturing');
-    setStatusText('Analyzing...');
     setLastBottleId(null);
 
     // Watchdog: if the API call hangs (Render cold start etc.), un-stick after 18s
@@ -235,10 +258,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
     captureWatchdogRef.current = setTimeout(() => {
       if (isCapturingRef.current) {
         isCapturingRef.current = false;
-        isFrameProcessingRef.current = false;
         setScanState('idle');
         setBorderValue(0);
-        setStatusText('Pen at liquid line');
+        setLevelLocked(false);
+        levelLockedRef.current = false;
+        setStatusText('Set bottle level');
       }
       captureWatchdogRef.current = null;
     }, CAPTURE_WATCHDOG_MS);
@@ -250,14 +274,16 @@ export default function CameraScan({ onReview, onBack }: Props) {
         isCapturingRef.current = false;
         setScanState('idle');
         setBorderValue(0);
-        setStatusText('Pen at liquid line');
+        setLevelLocked(false);
+        levelLockedRef.current = false;
+        setStatusText('Set bottle level');
         return;
       }
 
       imageSizeKb = Math.round((photo.base64.length * 0.75) / 1024);
 
-      // Single pass: identify bottle + read level from pen tip
-      const result = await apiService.analyzeBottleWithPenId(photo.base64);
+      // Bottle ID only — liquid level is set by the user via the scroll bar
+      const result = await apiService.analyzeBottleImage(photo.base64);
 
       if (!result) {
         await scanDiagnostics.logScan({
@@ -271,16 +297,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
         });
         setScanState('idle');
         setBorderValue(0);
-        setStatusText('Pen at liquid line');
-        isCapturingRef.current = false;
-        return;
-      }
-
-      // If no pen was detected in the frame, reject the scan silently and wait
-      if (result.levelReadable === false) {
-        setScanState('idle');
-        setBorderValue(0);
-        setStatusText('No pen detected — hold pen at liquid line');
+        setLevelLocked(false);
+        levelLockedRef.current = false;
+        setStatusText('Set bottle level');
         isCapturingRef.current = false;
         return;
       }
@@ -301,33 +320,36 @@ export default function CameraScan({ onReview, onBack }: Props) {
         brand: result.brand,
         category: result.category,
         size: '',
-        currentLevel: result.liquidLevel,
+        currentLevel: userSetLevel,          // user's bar value — not the AI estimate
         parLevel: 1,
-        level: levelToEnum(result.liquidLevel),
+        level: levelToEnum(userSetLevel),    // user's bar value
         imageUrl: photo.uri,
         distributorId: (result as any).distributorId,
       };
 
-      lastCaptureTimeRef.current = Date.now();
       addBottle(newBottle);
       setLastBottleId(newBottle.id);
       setBottleCount(prev => prev + 1);
       setScanState('success');
       setBorderValue(1);
-      setStatusText(`${result.name} — ${levelToReadable(result.liquidLevel)}`);
-      setStabilityProgress(0);
+      setStatusText(`${result.name} — ${levelToReadable(userSetLevel)}`);
       await triggerSuccessFeedback();
 
       if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
+
+      // After success display, reset bar so user can set level for the next bottle
       successTimeoutRef.current = setTimeout(() => {
-            setScanState('idle');
+        setScanState('idle');
         setBorderValue(0);
-        setStatusText('Pen at liquid line');
+        setLevelValue(null);
+        levelValueRef.current = null;
+        setLevelLocked(false);
+        levelLockedRef.current = false;
+        setStatusText('Set bottle level');
         isCapturingRef.current = false;
       }, SUCCESS_DISPLAY_MS);
 
     } catch (error: any) {
-      // --- Classify error ---
       let errorType: ScanLogEntry['errorType'] = 'unknown';
       let httpStatus: number | null = null;
       let errorMessage = error?.message || 'Unknown error';
@@ -360,7 +382,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
       if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
 
-      // Auth error: stop scanning and force re-login
       if (errorType === 'auth_error') {
         setIsScanning(false);
         Alert.alert(
@@ -373,10 +394,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
       setScanState('idle');
       setBorderValue(0);
-      setStatusText('Pen at liquid line');
+      setLevelLocked(false);
+      levelLockedRef.current = false;
+      setStatusText('Set bottle level');
       isCapturingRef.current = false;
 
-      // Throttled error alert so we don't spam the user
       if (!errorAlertCooldownRef.current) {
         Alert.alert('Scan Error', errorMessage, [{ text: 'OK' }]);
         errorAlertCooldownRef.current = setTimeout(() => {
@@ -386,85 +408,85 @@ export default function CameraScan({ onReview, onBack }: Props) {
     }
   }, [addBottle, setBorderValue, triggerSuccessFeedback, logout]);
 
-  // --- Stability detection loop ---
+  // --- Level bar interaction ---
 
-  useEffect(() => {
-    if (!isScanning || isPaused) {
-      if (stabilityIntervalRef.current) {
-        clearInterval(stabilityIntervalRef.current);
-        stabilityIntervalRef.current = null;
+  const updateLevelFromPageY = useCallback((pageY: number) => {
+    if (barHeightRef.current === 0) return;
+    const relativeFromTop = pageY - barTopRef.current;
+    const rawLevel = 1 - (relativeFromTop / barHeightRef.current);
+    const clamped = Math.max(0, Math.min(1, rawLevel));
+    setLevelValue(clamped);
+    levelValueRef.current = clamped;
+  }, []);
+
+  // Use a stable callbacks ref so PanResponder (created once) always calls fresh functions
+  const callbacksRef = useRef({
+    updateLevelFromPageY,
+    handleLockLevel: () => {},
+  });
+
+  const handleLockLevel = useCallback(() => {
+    if (levelValueRef.current === null || levelLockedRef.current || isPausedRef.current) return;
+    setLevelLocked(true);
+    levelLockedRef.current = true;
+    setStatusText('Scanning...');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+    lockTimerRef.current = setTimeout(() => {
+      lockTimerRef.current = null;
+      if (levelLockedRef.current && levelValueRef.current !== null) {
+        isCapturingRef.current = true;
+        triggerCapture(levelValueRef.current);
       }
-      return;
+    }, LOCK_SCAN_DELAY_MS);
+  }, [triggerCapture]);
+
+  // Keep callbacksRef current
+  callbacksRef.current = { updateLevelFromPageY, handleLockLevel };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () =>
+        !levelLockedRef.current && isScanningRef.current && !isPausedRef.current,
+      onMoveShouldSetPanResponder: () =>
+        !levelLockedRef.current && isScanningRef.current && !isPausedRef.current,
+      onPanResponderGrant: (evt) => callbacksRef.current.updateLevelFromPageY(evt.nativeEvent.pageY),
+      onPanResponderMove: (evt) => callbacksRef.current.updateLevelFromPageY(evt.nativeEvent.pageY),
+      onPanResponderRelease: () => callbacksRef.current.handleLockLevel(),
+    })
+  ).current;
+
+  const handleBarLayout = useCallback(() => {
+    barRef.current?.measure((_x, _y, _width, height, _pageX, pageY) => {
+      barTopRef.current = pageY;
+      barHeightRef.current = height;
+    });
+  }, []);
+
+  const handleUnlockLevel = useCallback(() => {
+    if (lockTimerRef.current) {
+      clearTimeout(lockTimerRef.current);
+      lockTimerRef.current = null;
     }
-
-    stabilityIntervalRef.current = setInterval(async () => {
-      if (isFrameProcessingRef.current || isCapturingRef.current) return;
-      if (!cameraRef.current) return;
-      if (Date.now() - lastCaptureTimeRef.current < CAPTURE_COOLDOWN_MS) return;
-
-      isFrameProcessingRef.current = true;
-
-      try {
-        const frame = await cameraRef.current.takePictureAsync({ quality: 0.05, base64: true });
-        if (!frame?.base64) { isFrameProcessingRef.current = false; return; }
-
-        const currentHash = sampleBase64(frame.base64);
-
-        if (previousHashRef.current) {
-          const diff = frameDifference(previousHashRef.current, currentHash);
-
-          if (diff < STABILITY_THRESHOLD) {
-            stableFrameCountRef.current = Math.min(stableFrameCountRef.current + 1, FRAMES_NEEDED);
-            setStabilityProgress(stableFrameCountRef.current / FRAMES_NEEDED);
-            setScanState('stabilizing');
-            setStatusText('Hold steady...');
-
-            if (stableFrameCountRef.current >= FRAMES_NEEDED) {
-              isCapturingRef.current = true;
-              stableFrameCountRef.current = 0;
-              previousHashRef.current = null;
-              isFrameProcessingRef.current = false;
-              triggerCapture();
-              return;
-            }
-          } else {
-            // Frames differ — phone is moving, reset progress, do not capture
-            stableFrameCountRef.current = 0;
-            setStabilityProgress(0);
-            setScanState('idle');
-            setStatusText('Pen at liquid line');
-          }
-        }
-
-        previousHashRef.current = currentHash;
-      } catch {
-        stableFrameCountRef.current = 0;
-      }
-
-      isFrameProcessingRef.current = false;
-    }, FRAME_INTERVAL_MS);
-
-    return () => {
-      if (stabilityIntervalRef.current) {
-        clearInterval(stabilityIntervalRef.current);
-        stabilityIntervalRef.current = null;
-      }
-    };
-  }, [isScanning, isPaused, triggerCapture]);
+    setLevelLocked(false);
+    levelLockedRef.current = false;
+    setStatusText('Set bottle level');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
 
   // --- Cleanup on unmount ---
 
   useEffect(() => {
     return () => {
-      if (stabilityIntervalRef.current) clearInterval(stabilityIntervalRef.current);
       if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
       if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
       if (errorAlertCooldownRef.current) clearTimeout(errorAlertCooldownRef.current);
+      if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
     };
   }, []);
 
   const handleDone = () => {
-    if (stabilityIntervalRef.current) clearInterval(stabilityIntervalRef.current);
     if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
     setIsScanning(false);
     onReview();
@@ -475,22 +497,23 @@ export default function CameraScan({ onReview, onBack }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
+  // Undo: remove last bottle and do a full reset back to level-setting
   const handleUndo = useCallback(() => {
     if (!lastBottleId) return;
     removeBottle(lastBottleId);
     setLastBottleId(null);
     setBottleCount(prev => Math.max(0, prev - 1));
+    setScanState('idle');
+    setBorderValue(0);
+    setLevelValue(null);
+    levelValueRef.current = null;
+    setLevelLocked(false);
+    levelLockedRef.current = false;
+    if (lockTimerRef.current) { clearTimeout(lockTimerRef.current); lockTimerRef.current = null; }
+    isCapturingRef.current = false;
+    setStatusText('Set bottle level');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [lastBottleId, removeBottle]);
-
-  const handleTapCapture = useCallback(() => {
-    if (isCapturingRef.current) return;
-    if (scanState === 'success') return;
-    isCapturingRef.current = true;
-    stableFrameCountRef.current = 0;
-    previousHashRef.current = null;
-    triggerCapture();
-  }, [scanState, triggerCapture]);
+  }, [lastBottleId, removeBottle, setBorderValue]);
 
   // --- Start screen ---
 
@@ -511,37 +534,33 @@ export default function CameraScan({ onReview, onBack }: Props) {
         </View>
 
         <View style={styles.startScreenContent}>
-          <Animated.View style={styles.startCard}>
-            {/* Icon */}
+          <View style={styles.startCard}>
             <View style={styles.startIconContainer}>
               <View style={styles.startIconBox}>
                 <Camera size={32} color="#FFFFFF" />
               </View>
             </View>
 
-            {/* Headline */}
             <Text style={styles.startHeadline}>Scan Your Inventory</Text>
             <Text style={styles.startSubheadline}>
-              Hold a pen at the liquid line of each bottle. AI reads the label and uses the pen tip for an accurate level every time.
+              Point your camera at each bottle. Set the liquid level using the bar on screen — AI identifies the bottle and logs it instantly.
             </Text>
 
-            {/* How it works */}
             <View style={styles.startTips}>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Touch pen tip to liquid surface, point camera at bottle</Text>
+                <Text style={styles.startTipText}>Point camera at the bottle label</Text>
               </View>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Auto-captures when steady — no tapping needed</Text>
+                <Text style={styles.startTipText}>Drag the level bar up to match how full the bottle is</Text>
               </View>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Tap Done when finished to review</Text>
+                <Text style={styles.startTipText}>Release to lock and scan — tap Done when finished</Text>
               </View>
             </View>
 
-            {/* Start button */}
             <TouchableOpacity
               style={styles.startButton}
               onPress={handleStartScanning}
@@ -550,7 +569,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
               <Zap size={20} color="#FFFFFF" fill="#FFFFFF" />
               <Text style={styles.startButtonText}>Start Scanning</Text>
             </TouchableOpacity>
-          </Animated.View>
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -585,6 +604,8 @@ export default function CameraScan({ onReview, onBack }: Props) {
   }
 
   // --- Render ---
+
+  const fillPercent = levelValue !== null ? levelValue * 100 : 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -625,13 +646,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
             {/* Green flash on capture */}
             <Animated.View style={[styles.flashOverlay, { opacity: flashOpacity }]} />
 
-            {/* Tap-to-capture overlay */}
-            <TouchableOpacity
-              style={styles.tapOverlay}
-              onPress={handleTapCapture}
-              activeOpacity={1}
-            />
-
             {/* Corner guides */}
             <View style={styles.centerZone}>
               <View style={styles.cornerTL} />
@@ -640,16 +654,19 @@ export default function CameraScan({ onReview, onBack }: Props) {
               <View style={styles.cornerBR} />
             </View>
 
-            {/* Scanning indicator — pulses while the stability loop is running */}
-            {(scanState === 'idle' || scanState === 'stabilizing') && (
-              <View style={styles.tapHint}>
-                <Text style={styles.tapHintText}>
-                  {scanState === 'stabilizing' ? 'Hold steady...' : 'Scanning...'}
-                </Text>
+            {/* Status hint at top of camera */}
+            {scanState === 'capturing' && (
+              <View style={styles.statusHint}>
+                <Text style={styles.statusHintText}>Scanning...</Text>
+              </View>
+            )}
+            {scanState === 'idle' && levelValue === null && (
+              <View style={styles.statusHint}>
+                <Text style={styles.statusHintText}>Drag bar to set level</Text>
               </View>
             )}
 
-            {/* Success badge: "Grey Goose — Half full" */}
+            {/* Success badge */}
             {scanState === 'success' && (
               <View style={styles.successBadge}>
                 <Check size={16} color={COLORS.primaryDark} />
@@ -657,6 +674,45 @@ export default function CameraScan({ onReview, onBack }: Props) {
               </View>
             )}
 
+            {/* Vertical level bar — right side (or left if left-handed) */}
+            <Animated.View
+              ref={barRef}
+              style={[
+                styles.levelBarWrapper,
+                isLeftHanded ? styles.levelBarWrapperLeft : styles.levelBarWrapperRight,
+                { opacity: pulseAnim },
+              ]}
+              onLayout={handleBarLayout}
+              {...panResponder.panHandlers}
+            >
+              {/* Track outline — white normally, black when locked */}
+              <View style={[
+                styles.levelBarTrack,
+                levelLocked && styles.levelBarTrackLocked,
+              ]}>
+                {/* Orange fill from bottom up */}
+                {levelValue !== null && (
+                  <View
+                    style={[
+                      styles.levelBarFill,
+                      { height: `${fillPercent}%` as any },
+                    ]}
+                  />
+                )}
+              </View>
+
+              {/* Padlock at top of bar when locked */}
+              {levelLocked && (
+                <TouchableOpacity
+                  style={styles.padlockButton}
+                  onPress={handleUnlockLevel}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  activeOpacity={0.7}
+                >
+                  <Lock size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              )}
+            </Animated.View>
 
           </CameraView>
         ) : (
@@ -669,19 +725,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
       {/* Bottom bar */}
       {isScanning && (
         <View style={styles.bottomBar}>
-          {/* Stability progress bar */}
-          <View style={styles.stabilityTrack}>
-            <View
-              style={[
-                styles.stabilityFill,
-                {
-                  width: `${stabilityProgress * 100}%` as any,
-                  backgroundColor: scanState === 'success' ? COLORS.success : COLORS.accentPrimary,
-                },
-              ]}
-            />
-          </View>
-
           <View style={styles.bottomContent}>
             <View style={styles.instructionBlock}>
               <Text style={[
@@ -693,7 +736,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
               <Text style={styles.instructionSub}>
                 {scanState === 'success'
                   ? 'Move to next bottle'
-                  : 'Auto-captures when steady — tap to force'}
+                  : levelLocked
+                    ? 'Tap lock to cancel'
+                    : 'Drag bar · release to lock · scan fires'}
               </Text>
             </View>
 
@@ -824,25 +869,6 @@ const styles = StyleSheet.create({
     borderWidth: 5,
     zIndex: 10,
   },
-  tapOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 4,
-  },
-  tapHint: {
-    position: 'absolute',
-    top: 16,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    zIndex: 15,
-  },
-  tapHintText: {
-    fontSize: FONT_SIZES.sm,
-    color: 'rgba(255,255,255,0.7)',
-    letterSpacing: LETTER_SPACING,
-  },
   flashOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.success,
@@ -880,6 +906,21 @@ const styles = StyleSheet.create({
     borderRightWidth: 3, borderBottomWidth: 3,
     borderColor: 'rgba(255,255,255,0.5)',
   },
+  statusHint: {
+    position: 'absolute',
+    top: 16,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    zIndex: 15,
+  },
+  statusHintText: {
+    fontSize: FONT_SIZES.sm,
+    color: 'rgba(255,255,255,0.85)',
+    letterSpacing: LETTER_SPACING,
+  },
   successBadge: {
     position: 'absolute',
     bottom: 24,
@@ -899,44 +940,68 @@ const styles = StyleSheet.create({
     color: COLORS.primaryDark,
     letterSpacing: LETTER_SPACING,
   },
-  penBadge: {
+
+  // --- Level bar ---
+
+  levelBarWrapper: {
     position: 'absolute',
-    bottom: 24,
-    left: SPACING.xl,
-    right: SPACING.xl,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    borderWidth: 1,
-    borderColor: `${COLORS.warning}50`,
-    borderRadius: 12,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
+    bottom: 20,
+    width: 44,
+    height: '60%',
+    zIndex: 25,
     alignItems: 'center',
+  },
+  levelBarWrapperRight: {
+    right: 16,
+  },
+  levelBarWrapperLeft: {
+    left: 16,
+  },
+  levelBarTrack: {
+    flex: 1,
+    width: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    // Drop shadow for visibility in all lighting conditions
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    elevation: 8,
+    justifyContent: 'flex-end',  // fill grows from bottom
+  },
+  levelBarTrackLocked: {
+    borderColor: '#000000',
+  },
+  levelBarFill: {
+    width: '100%',
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 16,
+  },
+  padlockButton: {
+    position: 'absolute',
+    top: -18,
+    alignSelf: 'center',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
     zIndex: 30,
   },
-  penBadgeTitle: {
-    fontSize: FONT_SIZES.base,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.warning,
-    letterSpacing: LETTER_SPACING,
-    marginBottom: 4,
-  },
-  penBadgeSub: {
-    fontSize: FONT_SIZES.sm,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-  },
+
+  // --- Bottom bar ---
+
   bottomBar: {
     backgroundColor: 'rgba(0,0,0,0.85)',
     borderTopWidth: 1,
     borderTopColor: `${COLORS.border}50`,
-  },
-  stabilityTrack: {
-    height: 3,
-    backgroundColor: `${COLORS.border}80`,
-    width: '100%',
-  },
-  stabilityFill: {
-    height: 3,
   },
   bottomContent: {
     flexDirection: 'row',
@@ -1004,7 +1069,9 @@ const styles = StyleSheet.create({
     color: COLORS.accentPrimary,
     fontFamily: 'monospace',
   },
+
   // --- Start screen ---
+
   startScreenHeader: {
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,

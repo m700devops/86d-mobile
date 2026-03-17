@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
@@ -21,8 +22,21 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
   const [phone, setPhone] = useState('');
   const [repName, setRepName] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  
+  const [isLeftHanded, setIsLeftHanded] = useState(false);
+
   const modalAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    AsyncStorage.getItem('@leftHanded').then(val => {
+      if (val === 'true') setIsLeftHanded(true);
+    });
+  }, []);
+
+  const handleToggleLeftHanded = () => {
+    const next = !isLeftHanded;
+    setIsLeftHanded(next);
+    AsyncStorage.setItem('@leftHanded', next ? 'true' : 'false');
+  };
 
   useEffect(() => {
     if (isModalOpen) {
@@ -166,12 +180,25 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
           <Text style={styles.sectionTitle}>GENERAL</Text>
           <View style={styles.settingCard}>
             <Text style={styles.settingLabel}>Dark Mode</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.toggle, isDarkMode && styles.toggleActive]}
               onPress={onToggleDarkMode}
               activeOpacity={0.8}
             >
               <View style={[styles.toggleKnob, isDarkMode && styles.toggleKnobActive]} />
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.settingCard, { marginTop: 12 }]}>
+            <View style={{ flex: 1, marginRight: 16 }}>
+              <Text style={styles.settingLabel}>Left-Handed Mode</Text>
+              <Text style={styles.settingSubLabel}>Moves the level bar to the left side of the screen</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.toggle, isLeftHanded && styles.toggleActive]}
+              onPress={handleToggleLeftHanded}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.toggleKnob, isLeftHanded && styles.toggleKnobActive]} />
             </TouchableOpacity>
           </View>
         </View>
@@ -423,6 +450,11 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.medium,
     color: COLORS.textPrimary,
     letterSpacing: LETTER_SPACING,
+  },
+  settingSubLabel: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: 2,
   },
   toggle: {
     width: 48,
