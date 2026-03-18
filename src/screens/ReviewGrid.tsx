@@ -244,7 +244,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
+    paddingLeft: 68,
+    paddingRight: SPACING.lg,
     paddingVertical: SPACING.lg,
   },
   headerTitle: {
