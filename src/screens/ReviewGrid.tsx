@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, SafeAreaView,
-  SectionList, TextInput,
+  SectionList, TextInput, Modal,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
@@ -46,6 +46,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual }: Props) {
   const { bottles, updateBottle, removeBottle } = useInventory();
   const { distributors } = useDistributors();
   const [searchQuery, setSearchQuery] = useState('');
+  const [assigningBottle, setAssigningBottle] = useState<Bottle | null>(null);
 
   const filtered = bottles.filter(b =>
     b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -116,6 +117,9 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual }: Props) {
           section.title ? (
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionHeaderText}>{section.title.toUpperCase()}</Text>
+              {section.id === '__none__' && (
+                <Text style={styles.sectionHeaderHint}>Tap item to assign</Text>
+              )}
             </View>
           ) : null
         }
@@ -124,12 +128,65 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual }: Props) {
             bottle={item}
             onUpdate={(updates) => updateBottle(item.id, updates)}
             onRemove={() => removeBottle(item.id)}
+            onAssign={!item.distributorId ? () => setAssigningBottle(item) : undefined}
           />
         )}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
       />
+
+      {/* Assign Distributor Modal */}
+      <Modal
+        visible={assigningBottle !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAssigningBottle(null)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setAssigningBottle(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Assign Distributor</Text>
+                <Text style={styles.modalSubtitle} numberOfLines={1}>
+                  {assigningBottle?.name}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setAssigningBottle(null)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {distributors.length === 0 ? (
+              <Text style={styles.modalEmpty}>No distributors added yet.</Text>
+            ) : (
+              distributors.map(dist => (
+                <TouchableOpacity
+                  key={dist.id}
+                  style={styles.modalDistRow}
+                  onPress={() => {
+                    if (assigningBottle) {
+                      updateBottle(assigningBottle.id, { distributorId: dist.id });
+                      setAssigningBottle(null);
+                    }
+                  }}
+                >
+                  <View style={styles.modalDistBadge}>
+                    <Text style={styles.modalDistInitials}>
+                      {dist.name.slice(0, 2).toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={styles.modalDistName}>{dist.name}</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Footer */}
       <View style={styles.footer}>
@@ -151,10 +208,12 @@ function BottleRow({
   bottle,
   onUpdate,
   onRemove,
+  onAssign,
 }: {
   bottle: Bottle;
   onUpdate: (updates: Partial<Bottle>) => void;
   onRemove: () => void;
+  onAssign?: () => void;
 }) {
   const [deletePressed, setDeletePressed] = useState(false);
   const percent = levelToPercent(bottle.level);
@@ -167,6 +226,11 @@ function BottleRow({
         <Text style={styles.bottleBrand} numberOfLines={1}>
           {bottle.brand.toUpperCase()}
         </Text>
+        {onAssign && (
+          <TouchableOpacity style={styles.assignChip} onPress={onAssign} activeOpacity={0.7}>
+            <Text style={styles.assignChipText}>Assign →</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Level bar (tap to cycle) */}
@@ -312,6 +376,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.md,
     paddingBottom: SPACING.sm,
+    flexDirection: 'column',
   },
   sectionHeaderText: {
     fontSize: FONT_SIZES.xs,
@@ -469,5 +534,106 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  sectionHeaderHint: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.accentPrimary,
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+  assignChip: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: `${COLORS.accentPrimary}60`,
+    backgroundColor: `${COLORS.accentPrimary}15`,
+  },
+  assignChipText: {
+    fontSize: 9,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
+    letterSpacing: 0.5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 40,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: `${COLORS.border}80`,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: `${COLORS.border}40`,
+  },
+  modalTitle: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+  },
+  modalSubtitle: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textTertiary,
+    marginTop: 2,
+  },
+  modalClose: {
+    fontSize: FONT_SIZES.lg,
+    color: COLORS.textTertiary,
+    padding: SPACING.sm,
+  },
+  modalEmpty: {
+    color: COLORS.textTertiary,
+    textAlign: 'center',
+    padding: SPACING.xl,
+  },
+  modalDistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    gap: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: `${COLORS.border}20`,
+  },
+  modalDistBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: `${COLORS.accentPrimary}20`,
+    borderWidth: 1,
+    borderColor: `${COLORS.accentPrimary}40`,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalDistInitials: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
+    letterSpacing: 0.5,
+  },
+  modalDistName: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
   },
 });
