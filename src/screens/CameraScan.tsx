@@ -295,12 +295,17 @@ export default function CameraScan({ onReview, onBack }: Props) {
           responseTimeMs: Date.now() - startTime,
           imageSizeKb,
         });
+        // Show a visible "not detected" state before resetting
         setScanState('idle');
         setBorderValue(0);
         setLevelLocked(false);
         levelLockedRef.current = false;
-        setStatusText('Set bottle level');
+        setStatusText('No bottle detected — try again');
         isCapturingRef.current = false;
+        // Clear the message after 2.5s so it doesn't linger
+        successTimeoutRef.current = setTimeout(() => {
+          setStatusText('Set bottle level');
+        }, 2500);
         return;
       }
 
