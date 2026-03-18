@@ -410,9 +410,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
   // --- Level bar interaction ---
 
+  // Offset so the fill indicator sits above the thumb while dragging
+  const THUMB_OFFSET = 44;
+
   const updateLevelFromPageY = useCallback((pageY: number) => {
     if (barHeightRef.current === 0) return;
-    const relativeFromTop = pageY - barTopRef.current;
+    const relativeFromTop = (pageY - THUMB_OFFSET) - barTopRef.current;
     const rawLevel = 1 - (relativeFromTop / barHeightRef.current);
     const clamped = Math.max(0, Math.min(1, rawLevel));
     setLevelValue(clamped);
@@ -706,6 +709,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
                 <Text style={styles.halfLabel}>Half</Text>
               )}
 
+              {/* 3/4 marker — visible while dragging, hides when locked */}
+              {levelValue !== null && !levelLocked && (
+                <Text style={styles.threeQuarterLabel}>3/4</Text>
+              )}
+
               {/* Padlock at top of bar when locked */}
               {levelLocked && (
                 <TouchableOpacity
@@ -881,10 +889,10 @@ const styles = StyleSheet.create({
   },
   centerZone: {
     position: 'absolute',
-    top: '15%',
-    left: '15%',
-    right: '15%',
-    bottom: '25%',
+    top: '27%',
+    left: '27%',
+    right: '27%',
+    bottom: '37%',
     zIndex: 5,
   },
   cornerTL: {
@@ -989,6 +997,17 @@ const styles = StyleSheet.create({
   halfLabel: {
     position: 'absolute',
     top: '50%',
+    marginTop: -7,
+    alignSelf: 'center',
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    opacity: 0.9,
+  },
+  threeQuarterLabel: {
+    position: 'absolute',
+    top: '25%',
     marginTop: -7,
     alignSelf: 'center',
     color: '#FFFFFF',
