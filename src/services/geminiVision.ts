@@ -10,33 +10,10 @@ export interface BottleAnalysisResult {
   levelReadable?: boolean;
 }
 
-export interface PenAnalysisResult {
-  liquidLevel: number;
-  confidence: number;
-}
-
-// First pass: Analyze bottle and detect if level is readable
 export async function analyzeBottleImage(
-  imageBase64: string,
-  usePen: boolean = false
+  imageBase64: string
 ): Promise<BottleAnalysisResult | null> {
   try {
-    // base64 is now passed directly, no FileSystem read needed
-
-    if (usePen) {
-      // Second pass: Use pen detection
-      const result = await apiService.analyzeBottleWithPen(imageBase64);
-      return {
-        name: '', // Not used in pen mode
-        brand: '',
-        category: 'Spirits',
-        liquidLevel: result.liquidLevel,
-        confidence: result.confidence,
-        levelReadable: true,
-      };
-    }
-
-    // First pass: Standard bottle analysis
     const response = await apiService.analyzeBottleImage(imageBase64);
 
     return {

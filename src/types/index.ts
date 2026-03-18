@@ -65,7 +65,7 @@ export interface Scan {
   product_id: string;
   level: 'almost_full' | '3/4' | 'half' | '1/4' | 'empty';
   quantity?: number;
-  detection_method: 'auto' | 'pen' | 'barcode' | 'manual';
+  detection_method: 'auto' | 'barcode' | 'manual';
   confidence?: number;
   photo_url?: string;
   shelf_location?: string;
@@ -176,10 +176,9 @@ export interface OrderItem {
 
 export type LiquidLevel = 'full' | 'almost_full' | '3/4' | 'half' | '1/4' | 'empty';
 
-export type AppScreen = 
-  | 'onboarding' 
-  | 'camera' 
-  | 'pen-detection' 
-  | 'review' 
+export type AppScreen =
+  | 'onboarding'
+  | 'camera'
+  | 'review'
   | 'order'
   | 'settings';
