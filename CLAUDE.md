@@ -39,9 +39,27 @@ Primary scan mode: user holds a physical pen at the liquid line — the app dete
 - NEVER run production builds without explicit approval
 - Check expo imports match package.json versions before building
 
+## EAS Authentication
+EXPO_TOKEN is stored in `~/.expo_env`. Source it before running EAS commands:
+
+```bash
+source ~/.expo_env
+eas whoami  # Should show: m700devops (authenticated using EXPO_TOKEN)
+```
+
+Then build:
+```bash
+cd /home/user/86d-mobile  # or ~/.openclaw/projects/86d-mobile
+eas build --platform ios --profile preview
+```
+
 ## Git Rules
 - Cannot push directly to main — push to claude/build-ios-preview-ASNee and PR
 - Branch claude/build-ios-preview-ASNee is the working dev branch
+
+## Repo Locations
+- Your server: `~/.openclaw/projects/86d-mobile` (canonical)
+- Claude's sandbox: `/home/user/86d-mobile` (if cloned there)
 
 ## Config
 - EAS Project ID: 514e311c-b6a4-4702-9ed8-08324144be33
