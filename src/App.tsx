@@ -82,6 +82,7 @@ function AppContent() {
           <ReviewGrid
             onGenerateOrder={() => navigate('order')}
             onAddManual={() => setIsManualAddOpen(true)}
+            onNavigateToSettings={() => navigate('settings')}
           />
         );
       case 'order':

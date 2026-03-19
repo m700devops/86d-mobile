@@ -15,6 +15,7 @@ import { LEVELS } from '../constants';
 interface Props {
   onGenerateOrder: () => void;
   onAddManual: () => void;
+  onNavigateToSettings: () => void;
 }
 
 const LEVEL_ORDER: LiquidLevel[] = ['empty', '1/4', 'half', '3/4', 'almost_full', 'full'];
@@ -42,7 +43,7 @@ function cycleLevelUp(level?: LiquidLevel): LiquidLevel {
   return LEVEL_ORDER[(idx + 1) % LEVEL_ORDER.length];
 }
 
-export default function ReviewGrid({ onGenerateOrder, onAddManual }: Props) {
+export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
   const { bottles, updateBottle, removeBottle } = useInventory();
   const { distributors } = useDistributors();
   const [searchQuery, setSearchQuery] = useState('');
@@ -162,7 +163,22 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual }: Props) {
               </TouchableOpacity>
             </View>
             {distributors.length === 0 ? (
-              <Text style={styles.modalEmpty}>No distributors added yet.</Text>
+              <View style={styles.modalEmptyState}>
+                <Text style={styles.modalEmptyTitle}>You're one step away from magic ✨</Text>
+                <Text style={styles.modalEmptyBody}>
+                  Add your distributors' emails in Settings and we'll send your entire inventory order to all of them at once — with one tap.
+                </Text>
+                <TouchableOpacity
+                  style={styles.modalEmptyButton}
+                  onPress={() => {
+                    setAssigningBottle(null);
+                    onNavigateToSettings();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.modalEmptyButtonText}>Add My Distributors →</Text>
+                </TouchableOpacity>
+              </View>
             ) : (
               distributors.map(dist => (
                 <TouchableOpacity
@@ -601,10 +617,34 @@ const styles = StyleSheet.create({
     color: COLORS.textTertiary,
     padding: SPACING.sm,
   },
-  modalEmpty: {
+  modalEmptyState: {
+    padding: SPACING.xl,
+    alignItems: 'center',
+    gap: SPACING.md,
+  },
+  modalEmptyTitle: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+  },
+  modalEmptyBody: {
+    fontSize: FONT_SIZES.sm,
     color: COLORS.textTertiary,
     textAlign: 'center',
-    padding: SPACING.xl,
+    lineHeight: 20,
+  },
+  modalEmptyButton: {
+    marginTop: SPACING.sm,
+    backgroundColor: COLORS.accentPrimary,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderRadius: 10,
+  },
+  modalEmptyButtonText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: '#FFFFFF',
   },
   modalDistRow: {
     flexDirection: 'row',
