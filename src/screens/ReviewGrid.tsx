@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, SafeAreaView,
-  SectionList, TextInput, Modal,
+  SectionList, TextInput, Modal, Alert,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
@@ -9,6 +9,8 @@ import { SPACING } from '../constants/spacing';
 import { Search, Plus, ChevronRight, Trash2, Minus } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
+import { useLocation } from '../context/LocationContext';
+import { apiService } from '../services/api';
 import { Bottle, LiquidLevel } from '../types';
 import { LEVELS } from '../constants';
 
@@ -46,8 +48,24 @@ function cycleLevelUp(level?: LiquidLevel): LiquidLevel {
 export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
   const { bottles, updateBottle, removeBottle } = useInventory();
   const { distributors } = useDistributors();
+  const { currentLocation } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [assigningBottle, setAssigningBottle] = useState<Bottle | null>(null);
+
+  // Load saved distributor assignments from the backend on mount
+  useEffect(() => {
+    if (!currentLocation) return;
+    apiService.getProductDistributors(currentLocation.id)
+      .then(assignments => {
+        assignments.forEach(assignment => {
+          const bottle = bottles.find(b => b.productId === assignment.product_id);
+          if (bottle) {
+            updateBottle(bottle.id, { distributorId: assignment.distributor_id });
+          }
+        });
+      })
+      .catch(err => console.error('[ReviewGrid] failed to load assignments:', err));
+  }, [currentLocation]);
 
   const filtered = bottles.filter(b =>
     b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -129,7 +147,13 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
             bottle={item}
             onUpdate={(updates) => updateBottle(item.id, updates)}
             onRemove={() => removeBottle(item.id)}
-            onAssign={!item.distributorId ? () => setAssigningBottle(item) : undefined}
+            onAssign={!item.distributorId ? () => {
+              if (!currentLocation) {
+                Alert.alert('Location Required', 'Set up a location in Settings before assigning distributors.');
+                return;
+              }
+              setAssigningBottle(item);
+            } : undefined}
           />
         )}
         contentContainerStyle={styles.listContent}
@@ -186,6 +210,10 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
                   style={styles.modalDistRow}
                   onPress={() => {
                     if (assigningBottle) {
+                      if (assigningBottle.productId && currentLocation) {
+                        apiService.assignProductDistributor(currentLocation.id, assigningBottle.productId, dist.id)
+                          .catch(err => console.error('Failed to save assignment:', err));
+                      }
                       updateBottle(assigningBottle.id, { distributorId: dist.id });
                       setAssigningBottle(null);
                     }

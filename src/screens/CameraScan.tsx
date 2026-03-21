@@ -321,6 +321,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
       const newBottle: Bottle = {
         id: `bottle_${Date.now()}`,
+        productId: (result as any).matched_product_id || undefined,
         name: result.name,
         brand: result.brand,
         category: result.category,

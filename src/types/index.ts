@@ -145,6 +145,14 @@ export interface Bottle {
   level?: LiquidLevel;
   currentStock?: number;
   price?: number;
+  productId?: string;
+}
+
+export interface ProductDistributorAssignment {
+  product_id: string;
+  distributor_id: string;
+  distributor: { id: string; name: string; email?: string };
+  product: { id: string; name: string; brand?: string; size?: string };
 }
 
 export interface Location {

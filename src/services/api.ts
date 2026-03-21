@@ -1,10 +1,10 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, STORAGE_KEYS } from '../config/api';
-import { 
-  AuthResponse, 
-  LoginRequest, 
-  RegisterRequest, 
+import {
+  AuthResponse,
+  LoginRequest,
+  RegisterRequest,
   User,
   Product,
   ProductListResponse,
@@ -16,6 +16,7 @@ import {
   Scan,
   ScanResponse,
   Distributor,
+  ProductDistributorAssignment,
   ApiError
 } from '../types';
 
@@ -267,6 +268,22 @@ class ApiService {
     return response.data.distributor;
   }
 
+  // Product-distributor assignment methods
+  async getProductDistributors(locationId: string): Promise<ProductDistributorAssignment[]> {
+    const response = await this.client.get<{ assignments: ProductDistributorAssignment[] }>(
+      `/locations/${locationId}/product-distributors`
+    );
+    return response.data.assignments;
+  }
+
+  async assignProductDistributor(locationId: string, productId: string, distributorId: string): Promise<any> {
+    const response = await this.client.post(
+      `/locations/${locationId}/product-distributors`,
+      { product_id: productId, distributor_id: distributorId }
+    );
+    return response.data;
+  }
+
   // Bottle analysis via backend (calls Gemini)
   async analyzeBottleImage(imageBase64: string): Promise<{
     name: string;
@@ -275,6 +292,7 @@ class ApiService {
     liquidLevel: number;
     confidence: number;
     levelReadable?: boolean;
+    matched_product_id?: string;
   }> {
     const response = await this.client.post('/scans/analyze', {
       image: imageBase64,
