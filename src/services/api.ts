@@ -296,7 +296,7 @@ class ApiService {
     matched_product_id?: string | null;
     is_new_product?: boolean;
     match_method?: string;
-  }> {
+  } | null> {
     const response = await this.client.post('/scans/analyze', {
       image: imageBase64,
       mode: 'bottle',
