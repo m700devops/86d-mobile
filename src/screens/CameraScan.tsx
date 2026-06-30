@@ -97,6 +97,8 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const captureWatchdogRef = useRef<NodeJS.Timeout | null>(null);
   const errorAlertCooldownRef = useRef<NodeJS.Timeout | null>(null);
   const lockTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [catalogToast, setCatalogToast] = useState<string | null>(null);
+  const catalogToastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Refs mirroring state for use inside PanResponder / callbacks
   const levelValueRef = useRef<number | null>(null);
@@ -295,13 +297,40 @@ export default function CameraScan({ onReview, onBack }: Props) {
           responseTimeMs: Date.now() - startTime,
           imageSizeKb,
         });
+        // Show a visible "not detected" state before resetting
         setScanState('idle');
         setBorderValue(0);
         setLevelLocked(false);
         levelLockedRef.current = false;
-        setStatusText('Set bottle level');
+        setStatusText('No bottle detected — try again');
         isCapturingRef.current = false;
+        // Clear the message after 2.5s so it doesn't linger
+        successTimeoutRef.current = setTimeout(() => {
+          setStatusText('Set bottle level');
+        }, 2500);
         return;
+      }
+
+      // Low-confidence: no exact match, confidence too low for auto-create
+      if (!result.matched_product_id) {
+        setScanState('idle');
+        setBorderValue(0);
+        setLevelLocked(false);
+        levelLockedRef.current = false;
+        setStatusText("Couldn't recognize — tap to add manually");
+        isCapturingRef.current = false;
+        successTimeoutRef.current = setTimeout(() => {
+          setStatusText('Set bottle level');
+        }, 2000);
+        return;
+      }
+
+      // Auto-created: briefly surface so bad auto-creates are visible during testing
+      if (result.is_new_product) {
+        const label = [result.brand, result.name].filter(Boolean).join(' ');
+        setCatalogToast(`Adding to catalog: ${label}`);
+        if (catalogToastTimerRef.current) clearTimeout(catalogToastTimerRef.current);
+        catalogToastTimerRef.current = setTimeout(() => setCatalogToast(null), 1500);
       }
 
       await scanDiagnostics.logScan({
@@ -315,7 +344,8 @@ export default function CameraScan({ onReview, onBack }: Props) {
       });
 
       const newBottle: Bottle = {
-        id: `bottle_${Date.now()}`,
+        id: result.matched_product_id ?? `bottle_${Date.now()}`,
+        productId: result.matched_product_id ?? null,
         name: result.name,
         brand: result.brand,
         category: result.category,
@@ -410,9 +440,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
   // --- Level bar interaction ---
 
+  // Offset so the fill indicator sits above the thumb while dragging
+  const THUMB_OFFSET = 44;
+
   const updateLevelFromPageY = useCallback((pageY: number) => {
     if (barHeightRef.current === 0) return;
-    const relativeFromTop = pageY - barTopRef.current;
+    const relativeFromTop = (pageY - THUMB_OFFSET) - barTopRef.current;
     const rawLevel = 1 - (relativeFromTop / barHeightRef.current);
     const clamped = Math.max(0, Math.min(1, rawLevel));
     setLevelValue(clamped);
@@ -483,6 +516,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
       if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
       if (errorAlertCooldownRef.current) clearTimeout(errorAlertCooldownRef.current);
       if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+      if (catalogToastTimerRef.current) clearTimeout(catalogToastTimerRef.current);
     };
   }, []);
 
@@ -666,6 +700,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
               </View>
             )}
 
+            {/* Catalog auto-create toast */}
+            {catalogToast ? (
+              <View style={styles.catalogToast}>
+                <Text style={styles.catalogToastText}>{catalogToast}</Text>
+              </View>
+            ) : null}
+
             {/* Success badge */}
             {scanState === 'success' && (
               <View style={styles.successBadge}>
@@ -704,6 +745,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
               {/* Half marker — visible while dragging, hides when locked */}
               {levelValue !== null && !levelLocked && (
                 <Text style={styles.halfLabel}>Half</Text>
+              )}
+
+              {/* 3/4 marker — visible while dragging, hides when locked */}
+              {levelValue !== null && !levelLocked && (
+                <Text style={styles.threeQuarterLabel}>3/4</Text>
               )}
 
               {/* Padlock at top of bar when locked */}
@@ -881,10 +927,10 @@ const styles = StyleSheet.create({
   },
   centerZone: {
     position: 'absolute',
-    top: '15%',
-    left: '15%',
-    right: '15%',
-    bottom: '25%',
+    top: '27%',
+    left: '27%',
+    right: '27%',
+    bottom: '37%',
     zIndex: 5,
   },
   cornerTL: {
@@ -925,6 +971,23 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     color: 'rgba(255,255,255,0.85)',
     letterSpacing: LETTER_SPACING,
+  },
+  catalogToast: {
+    position: 'absolute',
+    top: 12,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 140, 60, 0.90)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    zIndex: 40,
+  },
+  catalogToastText: {
+    color: '#FFFFFF',
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    textAlign: 'center',
   },
   successBadge: {
     position: 'absolute',
@@ -989,6 +1052,17 @@ const styles = StyleSheet.create({
   halfLabel: {
     position: 'absolute',
     top: '50%',
+    marginTop: -7,
+    alignSelf: 'center',
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    opacity: 0.9,
+  },
+  threeQuarterLabel: {
+    position: 'absolute',
+    top: '25%',
     marginTop: -7,
     alignSelf: 'center',
     color: '#FFFFFF',

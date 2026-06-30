@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const passwordRef = useRef<TextInput>(null);
 
   const { login } = useAuth();
 
@@ -53,8 +54,11 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
       await login({ email: email.trim(), password });
       onLoginSuccess();
     } catch (error: any) {
-      const message = error.response?.data?.detail?.message || error.response?.data?.message || 'Login failed. Please try again.';
-      Alert.alert('Login Error', message);
+      const message =
+        error.response?.data?.detail?.message ||
+        error.response?.data?.message ||
+        'Login failed. Please check your credentials.';
+      Alert.alert('Login Failed', message);
     } finally {
       setIsLoading(false);
     }
@@ -93,6 +97,10 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
+                autoFocus
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                blurOnSubmit={false}
                 editable={!isLoading}
               />
               {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
@@ -102,6 +110,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Password</Text>
               <TextInput
+                ref={passwordRef}
                 style={[styles.input, errors.password && styles.inputError]}
                 placeholder="••••••••"
                 placeholderTextColor="#666"
@@ -111,6 +120,8 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
                   if (errors.password) setErrors({ ...errors, password: undefined });
                 }}
                 secureTextEntry
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
                 editable={!isLoading}
               />
               {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}

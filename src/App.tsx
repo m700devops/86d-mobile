@@ -10,7 +10,6 @@ import { LoginScreen } from './screens/LoginScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
 import Onboarding from './screens/Onboarding';
 import CameraScan from './screens/CameraScan';
-import PenDetection from './screens/PenDetection';
 import ReviewGrid from './screens/ReviewGrid';
 import OrderSummary from './screens/OrderSummary';
 import SettingsScreen from './screens/SettingsScreen';
@@ -78,18 +77,12 @@ function AppContent() {
             onReview={() => navigate('review')}
           />
         );
-      case 'pen-detection':
-        return (
-          <PenDetection
-            onBack={() => navigate('camera')}
-            onComplete={() => navigate('review')}
-          />
-        );
       case 'review':
         return (
           <ReviewGrid
             onGenerateOrder={() => navigate('order')}
             onAddManual={() => setIsManualAddOpen(true)}
+            onNavigateToSettings={() => navigate('settings')}
           />
         );
       case 'order':
