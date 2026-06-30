@@ -97,6 +97,8 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const captureWatchdogRef = useRef<NodeJS.Timeout | null>(null);
   const errorAlertCooldownRef = useRef<NodeJS.Timeout | null>(null);
   const lockTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [catalogToast, setCatalogToast] = useState<string | null>(null);
+  const catalogToastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Refs mirroring state for use inside PanResponder / callbacks
   const levelValueRef = useRef<number | null>(null);
@@ -309,6 +311,28 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
 
+      // Low-confidence: no exact match, confidence too low for auto-create
+      if (!result.matched_product_id) {
+        setScanState('idle');
+        setBorderValue(0);
+        setLevelLocked(false);
+        levelLockedRef.current = false;
+        setStatusText("Couldn't recognize — tap to add manually");
+        isCapturingRef.current = false;
+        successTimeoutRef.current = setTimeout(() => {
+          setStatusText('Set bottle level');
+        }, 2000);
+        return;
+      }
+
+      // Auto-created: briefly surface so bad auto-creates are visible during testing
+      if (result.is_new_product) {
+        const label = [result.brand, result.name].filter(Boolean).join(' ');
+        setCatalogToast(`Adding to catalog: ${label}`);
+        if (catalogToastTimerRef.current) clearTimeout(catalogToastTimerRef.current);
+        catalogToastTimerRef.current = setTimeout(() => setCatalogToast(null), 1500);
+      }
+
       await scanDiagnostics.logScan({
         timestamp: new Date().toISOString(),
         success: true,
@@ -320,8 +344,8 @@ export default function CameraScan({ onReview, onBack }: Props) {
       });
 
       const newBottle: Bottle = {
-        id: `bottle_${Date.now()}`,
-        productId: (result as any).matched_product_id || undefined,
+        id: result.matched_product_id ?? `bottle_${Date.now()}`,
+        productId: result.matched_product_id ?? null,
         name: result.name,
         brand: result.brand,
         category: result.category,
@@ -492,6 +516,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
       if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
       if (errorAlertCooldownRef.current) clearTimeout(errorAlertCooldownRef.current);
       if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+      if (catalogToastTimerRef.current) clearTimeout(catalogToastTimerRef.current);
     };
   }, []);
 
@@ -674,6 +699,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
                 <Text style={styles.statusHintText}>Drag bar to set level</Text>
               </View>
             )}
+
+            {/* Catalog auto-create toast */}
+            {catalogToast ? (
+              <View style={styles.catalogToast}>
+                <Text style={styles.catalogToastText}>{catalogToast}</Text>
+              </View>
+            ) : null}
 
             {/* Success badge */}
             {scanState === 'success' && (
@@ -939,6 +971,23 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     color: 'rgba(255,255,255,0.85)',
     letterSpacing: LETTER_SPACING,
+  },
+  catalogToast: {
+    position: 'absolute',
+    top: 12,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 140, 60, 0.90)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    zIndex: 40,
+  },
+  catalogToastText: {
+    color: '#FFFFFF',
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    textAlign: 'center',
   },
   successBadge: {
     position: 'absolute',

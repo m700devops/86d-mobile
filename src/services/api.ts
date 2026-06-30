@@ -289,10 +289,13 @@ class ApiService {
     name: string;
     brand: string;
     category: string;
+    product_type?: string;
     liquidLevel: number;
     confidence: number;
     levelReadable?: boolean;
-    matched_product_id?: string;
+    matched_product_id?: string | null;
+    is_new_product?: boolean;
+    match_method?: string;
   }> {
     const response = await this.client.post('/scans/analyze', {
       image: imageBase64,
