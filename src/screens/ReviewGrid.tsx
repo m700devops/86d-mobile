@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, SafeAreaView,
   SectionList, TextInput, Modal, Alert,
@@ -12,7 +12,6 @@ import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 import { Bottle, LiquidLevel } from '../types';
-import { LEVELS } from '../constants';
 
 interface Props {
   onGenerateOrder: () => void;
@@ -22,9 +21,20 @@ interface Props {
 
 const LEVEL_ORDER: LiquidLevel[] = ['empty', '1/4', 'half', '3/4', 'almost_full', 'full'];
 
-function levelToPercent(level?: LiquidLevel): number {
-  const found = LEVELS.find(l => l.value === level);
-  return found ? found.percent : 0;
+const STOCK_MAX = 999.99;
+const STOCK_TAP_STEP = 0.25;
+const STOCK_HOLD_STEP = 1.0;
+const STOCK_HOLD_FAST_STEP = 5.0;
+const STOCK_HOLD_FAST_AFTER_MS = 2000;
+const STOCK_HOLD_INTERVAL_MS = 300;
+
+function clampStock(value: number): number {
+  return Math.min(STOCK_MAX, Math.max(0, Math.round(value * 100) / 100));
+}
+
+// 3 → "3", 2.25 → "2.25", 0.5 → "0.5" — no trailing .00 on whole numbers
+function formatStock(value: number): string {
+  return String(Math.round(value * 100) / 100);
 }
 
 function levelLabel(level?: LiquidLevel): string {
@@ -51,6 +61,23 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   const { currentLocation } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [assigningBottle, setAssigningBottle] = useState<Bottle | null>(null);
+  const stockSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Debounced write-through: rapid stepper taps / long-press repeats collapse
+  // into one PATCH per bottle once the value settles.
+  const handleBottleUpdate = (bottle: Bottle, updates: Partial<Bottle>) => {
+    updateBottle(bottle.id, updates);
+    if (updates.currentStock === undefined || !bottle.productId || !currentLocation) return;
+    const value = updates.currentStock;
+    const productId = bottle.productId;
+    const locationId = currentLocation.id;
+    if (stockSaveTimers.current[bottle.id]) clearTimeout(stockSaveTimers.current[bottle.id]);
+    stockSaveTimers.current[bottle.id] = setTimeout(() => {
+      delete stockSaveTimers.current[bottle.id];
+      apiService.updateProductStock(locationId, productId, { current_stock: value })
+        .catch(err => console.error('[ReviewGrid] failed to save stock:', err));
+    }, 600);
+  };
 
   // Load saved distributor assignments from the backend on mount
   useEffect(() => {
@@ -145,7 +172,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         renderItem={({ item }) => (
           <BottleRow
             bottle={item}
-            onUpdate={(updates) => updateBottle(item.id, updates)}
+            onUpdate={(updates) => handleBottleUpdate(item, updates)}
             onRemove={() => removeBottle(item.id)}
             onAssign={!item.distributorId ? () => {
               if (!currentLocation) {
@@ -260,7 +287,46 @@ function BottleRow({
   onAssign?: () => void;
 }) {
   const [deletePressed, setDeletePressed] = useState(false);
-  const percent = levelToPercent(bottle.level);
+  const [stockDraft, setStockDraft] = useState<string | null>(null);
+
+  // Refs so long-press interval callbacks always see the latest value
+  const stockRef = useRef(bottle.currentStock ?? 0);
+  stockRef.current = bottle.currentStock ?? 0;
+  const repeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdStart = useRef(0);
+
+  const stepStock = (delta: number) => {
+    onUpdate({ currentStock: clampStock(stockRef.current + delta) });
+  };
+
+  const startStockHold = (dir: 1 | -1) => {
+    holdStart.current = Date.now();
+    stepStock(dir * STOCK_HOLD_STEP);
+    repeatTimer.current = setInterval(() => {
+      const held = Date.now() - holdStart.current;
+      stepStock(dir * (held >= STOCK_HOLD_FAST_AFTER_MS ? STOCK_HOLD_FAST_STEP : STOCK_HOLD_STEP));
+    }, STOCK_HOLD_INTERVAL_MS);
+  };
+
+  const endStockHold = () => {
+    if (repeatTimer.current) {
+      clearInterval(repeatTimer.current);
+      repeatTimer.current = null;
+    }
+  };
+
+  useEffect(() => endStockHold, []);
+
+  const commitStockDraft = () => {
+    if (stockDraft !== null && stockDraft.trim() !== '') {
+      const parsed = parseFloat(stockDraft);
+      if (!Number.isNaN(parsed)) {
+        onUpdate({ currentStock: clampStock(parsed) });
+      }
+    }
+    // Empty or unparseable input reverts to the previous value
+    setStockDraft(null);
+  };
 
   return (
     <View style={styles.bottleRow}>
@@ -277,37 +343,50 @@ function BottleRow({
         )}
       </View>
 
-      {/* Level bar (tap to cycle) */}
+      {/* Level label (tap to cycle) */}
       <TouchableOpacity
         style={styles.levelColumn}
         onPress={() => onUpdate({ level: cycleLevelUp(bottle.level) })}
         activeOpacity={0.7}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
-        <View style={styles.levelBar}>
-          <View style={[styles.levelFill, { height: `${percent}%` as any }]} />
-        </View>
         <Text style={styles.levelLabel}>{levelLabel(bottle.level)}</Text>
       </TouchableOpacity>
 
-      {/* Backup stepper */}
+      {/* Current stock stepper — tap ±0.25, hold ±1.0 (±5.0 after 2s), tap number to type */}
       <View style={styles.stepperColumn}>
         <View style={styles.stepperBox}>
           <TouchableOpacity
             style={styles.stepperButton}
-            onPress={() => onUpdate({ currentStock: Math.max(0, (bottle.currentStock ?? 0) - 1) })}
+            onPress={() => stepStock(-STOCK_TAP_STEP)}
+            onLongPress={() => startStockHold(-1)}
+            delayLongPress={500}
+            onPressOut={endStockHold}
           >
             <Minus size={10} color={COLORS.textSecondary} />
           </TouchableOpacity>
-          <Text style={styles.stepperValue}>{bottle.currentStock ?? 0}</Text>
+          <TextInput
+            style={styles.stepperInput}
+            value={stockDraft ?? formatStock(bottle.currentStock ?? 0)}
+            keyboardType="decimal-pad"
+            returnKeyType="done"
+            onFocus={() => setStockDraft(formatStock(bottle.currentStock ?? 0))}
+            onChangeText={(text) => setStockDraft(text.replace(/[^0-9.]/g, ''))}
+            onBlur={commitStockDraft}
+            onSubmitEditing={commitStockDraft}
+            selectTextOnFocus
+          />
           <TouchableOpacity
             style={styles.stepperButton}
-            onPress={() => onUpdate({ currentStock: (bottle.currentStock ?? 0) + 1 })}
+            onPress={() => stepStock(STOCK_TAP_STEP)}
+            onLongPress={() => startStockHold(1)}
+            delayLongPress={500}
+            onPressOut={endStockHold}
           >
             <Plus size={10} color={COLORS.textSecondary} />
           </TouchableOpacity>
         </View>
-        <Text style={styles.stepperLabel}>BACK UP</Text>
+        <Text style={styles.stepperLabel}>CURRENT STOCK</Text>
       </View>
 
       {/* Par stepper */}
@@ -465,19 +544,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: 36,
   },
-  levelBar: {
-    width: 10,
-    height: 32,
-    backgroundColor: `${COLORS.border}60`,
-    borderRadius: 3,
-    overflow: 'hidden',
-    justifyContent: 'flex-end',
-  },
-  levelFill: {
-    width: '100%',
-    backgroundColor: COLORS.accentPrimary,
-    borderRadius: 3,
-  },
   levelLabel: {
     fontSize: 8,
     fontWeight: FONT_WEIGHTS.bold,
@@ -519,6 +585,15 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontFamily: 'monospace',
   },
+  stepperInput: {
+    flex: 1,
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    fontFamily: 'monospace',
+    textAlign: 'center',
+    padding: 0,
+  },
   parValue: {
     color: COLORS.accentPrimary,
   },
@@ -528,6 +603,7 @@ const styles = StyleSheet.create({
     color: COLORS.textTertiary,
     letterSpacing: 1,
     marginTop: 3,
+    textAlign: 'center',
   },
   parLabel: {
     fontSize: 8,

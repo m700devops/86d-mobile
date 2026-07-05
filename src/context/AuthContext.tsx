@@ -6,8 +6,8 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (data: LoginRequest) => Promise<void>;
-  register: (data: RegisterRequest) => Promise<void>;
+  login: (data: LoginRequest, signal?: AbortSignal) => Promise<void>;
+  register: (data: RegisterRequest, signal?: AbortSignal) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -64,14 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const login = async (data: LoginRequest) => {
+  const login = async (data: LoginRequest, signal?: AbortSignal) => {
     // Don't touch global isLoading — LoginScreen manages its own spinner
-    const response = await apiService.login(data);
+    const response = await apiService.login(data, signal);
     setUser(response.user);
   };
 
-  const register = async (data: RegisterRequest) => {
-    const response = await apiService.register(data);
+  const register = async (data: RegisterRequest, signal?: AbortSignal) => {
+    const response = await apiService.register(data, signal);
     setUser(response.user);
   };
 

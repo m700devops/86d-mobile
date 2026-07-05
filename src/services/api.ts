@@ -51,7 +51,11 @@ class ApiService {
       async (error: AxiosError<ApiError>) => {
         const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        // A 401 from login/register/refresh is a definitive failure — a token
+        // refresh can't fix it and only delays the error reaching the UI.
+        const isAuthRoute = /\/auth\/(login|register|refresh)/.test(originalRequest?.url ?? '');
+
+        if (error.response?.status === 401 && !originalRequest._retry && !isAuthRoute) {
           originalRequest._retry = true;
 
           try {
@@ -104,16 +108,16 @@ class ApiService {
   }
 
   // Auth methods
-  async register(data: RegisterRequest): Promise<AuthResponse> {
-    const response = await this.client.post<AuthResponse>('/auth/register', data);
+  async register(data: RegisterRequest, signal?: AbortSignal): Promise<AuthResponse> {
+    const response = await this.client.post<AuthResponse>('/auth/register', data, { signal });
     const { access_token, refresh_token, user } = response.data;
     await this.setTokens(access_token, refresh_token);
     await this.setUserData(user);
     return response.data;
   }
 
-  async login(data: LoginRequest): Promise<AuthResponse> {
-    const response = await this.client.post<AuthResponse>('/auth/login', data);
+  async login(data: LoginRequest, signal?: AbortSignal): Promise<AuthResponse> {
+    const response = await this.client.post<AuthResponse>('/auth/login', data, { signal });
     const { access_token, refresh_token, user } = response.data;
     await this.setTokens(access_token, refresh_token);
     await this.setUserData(user);
@@ -202,6 +206,18 @@ class ApiService {
       timezone,
     });
     return response.data.location;
+  }
+
+  async updateProductStock(
+    locationId: string,
+    productId: string,
+    updates: { full?: number; current_stock?: number; par?: number }
+  ): Promise<{ location_id: string; product_id: string; full: number; current_stock: number; par: number | null; updated_at: string }> {
+    const response = await this.client.patch(
+      `/locations/${locationId}/products/${productId}`,
+      updates
+    );
+    return response.data;
   }
 
   async getParLevels(locationId: string): Promise<ParLevel[]> {

@@ -14,6 +14,9 @@ import {
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 
+// Render free tier cold-starts in ~10s worst case — cap requests just past that.
+const REGISTER_TIMEOUT_MS = 12000;
+
 interface RegisterScreenProps {
   onNavigateToLogin: () => void;
   onRegisterSuccess: () => void;
@@ -26,6 +29,7 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
   const [confirmPassword, setConfirmPassword] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [errors, setErrors] = useState<{
     name?: string;
     email?: string;
@@ -76,28 +80,39 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
   const handleRegister = async () => {
     if (!validateForm()) return;
 
+    setFormError(null);
     setIsLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REGISTER_TIMEOUT_MS);
     try {
-      await register({
-        email: email.trim(),
-        password,
-        name: name.trim(),
-        terms_accepted: termsAccepted,
-      });
+      await register(
+        {
+          email: email.trim(),
+          password,
+          name: name.trim(),
+          terms_accepted: termsAccepted,
+        },
+        controller.signal
+      );
       onRegisterSuccess();
     } catch (error: any) {
       const detail = error.response?.data?.detail;
       const errorCode = detail?.error || error.response?.data?.error;
-      const message = detail?.message || error.response?.data?.message || 'Registration failed. Please try again.';
       if (errorCode === 'email_exists') {
+        const message = detail?.message || error.response?.data?.message || 'An account with this email already exists.';
         Alert.alert('Account Exists', message + '\n\nPlease sign in instead.', [
           { text: 'Sign In', onPress: onNavigateToLogin },
           { text: 'OK', style: 'cancel' },
         ]);
-        return;
+      } else if (controller.signal.aborted) {
+        setFormError('Server is waking up. Try again.');
+      } else if (error?.response) {
+        setFormError(detail?.message || error.response?.data?.message || "Couldn't reach server. Check your connection.");
+      } else {
+        setFormError("Couldn't reach server. Check your connection.");
       }
-      Alert.alert('Registration Error', message);
     } finally {
+      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   };
@@ -223,6 +238,13 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
                 {errors.terms && <Text style={styles.errorText}>{errors.terms}</Text>}
               </View>
 
+              {/* Form-level error (timeout / network / server) */}
+              {formError && (
+                <View style={styles.formErrorBox}>
+                  <Text style={styles.formErrorText}>{formError}</Text>
+                </View>
+              )}
+
               {/* Register Button */}
               <TouchableOpacity
                 style={[styles.button, isLoading && styles.buttonDisabled]}
@@ -321,6 +343,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#FF6B35',
     marginTop: 4,
+  },
+  formErrorBox: {
+    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.4)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  formErrorText: {
+    fontSize: 14,
+    color: '#FF6B35',
+    textAlign: 'center',
+    fontWeight: '600',
   },
   termsContainer: {
     marginBottom: 24,
