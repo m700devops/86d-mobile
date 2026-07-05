@@ -9,9 +9,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+
+// Render free tier cold-starts in ~10s worst case — cap requests just past that.
+const LOGIN_TIMEOUT_MS = 12000;
 
 interface LoginScreenProps {
   onNavigateToRegister: () => void;
@@ -23,6 +25,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [formError, setFormError] = useState<string | null>(null);
   const passwordRef = useRef<TextInput>(null);
 
   const { login } = useAuth();
@@ -49,17 +52,23 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
   const handleLogin = async () => {
     if (!validateForm()) return;
 
+    setFormError(null);
     setIsLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
     try {
-      await login({ email: email.trim(), password });
+      await login({ email: email.trim(), password }, controller.signal);
       onLoginSuccess();
     } catch (error: any) {
-      const message =
-        error.response?.data?.detail?.message ||
-        error.response?.data?.message ||
-        'Login failed. Please check your credentials.';
-      Alert.alert('Login Failed', message);
+      if (error?.response?.status === 401) {
+        setFormError('Wrong email or password');
+      } else if (controller.signal.aborted) {
+        setFormError('Server is waking up. Try again.');
+      } else {
+        setFormError("Couldn't reach server. Check your connection.");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   };
@@ -131,6 +140,13 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
             <TouchableOpacity style={styles.forgotLink}>
               <Text style={styles.forgotText}>Forgot password?</Text>
             </TouchableOpacity>
+
+            {/* Form-level error (wrong password / timeout / network) */}
+            {formError && (
+              <View style={styles.formErrorBox}>
+                <Text style={styles.formErrorText}>{formError}</Text>
+              </View>
+            )}
 
             {/* Login Button */}
             <TouchableOpacity
@@ -225,6 +241,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#FF6B35',
     marginTop: 4,
+  },
+  formErrorBox: {
+    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 53, 0.4)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  formErrorText: {
+    fontSize: 14,
+    color: '#FF6B35',
+    textAlign: 'center',
+    fontWeight: '600',
   },
   forgotLink: {
     alignSelf: 'flex-end',
