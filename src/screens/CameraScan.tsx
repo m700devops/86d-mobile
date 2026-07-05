@@ -10,6 +10,7 @@ import {
   PanResponder,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../constants/colors';
@@ -60,7 +61,7 @@ function levelToEnum(level: number): LiquidLevel {
 
 const LOCK_SCAN_DELAY_MS = 500;          // delay between lock and actual scan firing
 const SUCCESS_DISPLAY_MS = 1200;
-const CAPTURE_WATCHDOG_MS = 18000;       // reset stuck isCapturing after 18s (API hang guard)
+const CAPTURE_WATCHDOG_MS = 25000;       // reset stuck isCapturing after 25s (backend scan cap is 20s)
 
 // --- Component ---
 
@@ -270,9 +271,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
     }, CAPTURE_WATCHDOG_MS);
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7, base64: true });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7, base64: false });
 
-      if (!photo?.base64) {
+      if (!photo?.uri) {
         isCapturingRef.current = false;
         setScanState('idle');
         setBorderValue(0);
@@ -282,10 +283,28 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
 
-      imageSizeKb = Math.round((photo.base64.length * 0.75) / 1024);
+      // Downscale before upload — full-res photos are several MB of base64,
+      // which blows past the backend's scan timeout on slow connections.
+      const resized = await ImageManipulator.manipulateAsync(
+        photo.uri,
+        [{ resize: { width: 1024 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+
+      if (!resized.base64) {
+        isCapturingRef.current = false;
+        setScanState('idle');
+        setBorderValue(0);
+        setLevelLocked(false);
+        levelLockedRef.current = false;
+        setStatusText('Set bottle level');
+        return;
+      }
+
+      imageSizeKb = Math.round((resized.base64.length * 0.75) / 1024);
 
       // Bottle ID only — liquid level is set by the user via the scroll bar
-      const result = await apiService.analyzeBottleImage(photo.base64);
+      const result = await apiService.analyzeBottleImage(resized.base64);
 
       if (!result) {
         await scanDiagnostics.logScan({

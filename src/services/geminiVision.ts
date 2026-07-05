@@ -16,9 +16,18 @@ export async function analyzeBottleImage(
   try {
     const response = await apiService.analyzeBottleImage(imageBase64);
 
+    if (!response || !response.name) {
+      return null;
+    }
+
     return {
       ...response,
-      levelReadable: response.levelReadable !== false && response.confidence > 0.6,
+      name: response.name,
+      brand: response.brand ?? '',
+      category: response.category ?? 'other',
+      liquidLevel: response.liquidLevel ?? 0,
+      confidence: response.confidence ?? 0,
+      levelReadable: response.levelReadable !== false && (response.confidence ?? 0) > 0.6,
     };
   } catch (error: any) {
     console.error('Bottle analysis error:', error);
