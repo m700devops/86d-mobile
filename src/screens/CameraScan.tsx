@@ -646,7 +646,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
                 disabled={isCapturing || isPaused}
                 activeOpacity={0.7}
               >
-                <View style={styles.shutterInner} />
+                <View style={styles.shutterInner}>
+                  <Text style={styles.shutterText}>SCAN</Text>
+                </View>
               </TouchableOpacity>
             )}
 
@@ -1012,6 +1014,14 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 27,
     backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shutterText: {
+    fontSize: 12,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.primaryDark,
+    letterSpacing: 1,
   },
 
   // --- Stock number pad ---
