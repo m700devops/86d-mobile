@@ -12,8 +12,10 @@ import {
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 
-// Render free tier cold-starts in ~10s worst case — cap requests just past that.
+// Render free tier cold-starts in ~30-60s. Each attempt gets 12s and timeouts
+// auto-retry, so a cold start rides through instead of failing at the first cap.
 const LOGIN_TIMEOUT_MS = 12000;
+const LOGIN_MAX_ATTEMPTS = 4;
 
 interface LoginScreenProps {
   onNavigateToRegister: () => void;
@@ -54,21 +56,34 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
 
     setFormError(null);
     setIsLoading(true);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
     try {
-      await login({ email: email.trim(), password }, controller.signal);
-      onLoginSuccess();
-    } catch (error: any) {
-      if (error?.response?.status === 401) {
-        setFormError('Wrong email or password');
-      } else if (controller.signal.aborted) {
-        setFormError('Server is waking up. Try again.');
-      } else {
-        setFormError("Couldn't reach server. Check your connection.");
+      for (let attempt = 1; attempt <= LOGIN_MAX_ATTEMPTS; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
+        try {
+          await login({ email: email.trim(), password }, controller.signal);
+          onLoginSuccess();
+          return;
+        } catch (error: any) {
+          if (error?.response?.status === 401) {
+            setFormError('Wrong email or password');
+            return;
+          }
+          if (controller.signal.aborted) {
+            if (attempt < LOGIN_MAX_ATTEMPTS) {
+              setFormError('Server is waking up — retrying...');
+              continue;
+            }
+            setFormError('Server is still waking up. Give it a minute, then try again.');
+            return;
+          }
+          setFormError("Couldn't reach server. Check your connection.");
+          return;
+        } finally {
+          clearTimeout(timeoutId);
+        }
       }
     } finally {
-      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   };

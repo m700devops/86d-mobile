@@ -14,8 +14,10 @@ import {
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 
-// Render free tier cold-starts in ~10s worst case — cap requests just past that.
+// Render free tier cold-starts in ~30-60s. Each attempt gets 12s and timeouts
+// auto-retry, so a cold start rides through instead of failing at the first cap.
 const REGISTER_TIMEOUT_MS = 12000;
+const REGISTER_MAX_ATTEMPTS = 4;
 
 interface RegisterScreenProps {
   onNavigateToLogin: () => void;
@@ -82,37 +84,52 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
 
     setFormError(null);
     setIsLoading(true);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REGISTER_TIMEOUT_MS);
     try {
-      await register(
-        {
-          email: email.trim(),
-          password,
-          name: name.trim(),
-          terms_accepted: termsAccepted,
-        },
-        controller.signal
-      );
-      onRegisterSuccess();
-    } catch (error: any) {
-      const detail = error.response?.data?.detail;
-      const errorCode = detail?.error || error.response?.data?.error;
-      if (errorCode === 'email_exists') {
-        const message = detail?.message || error.response?.data?.message || 'An account with this email already exists.';
-        Alert.alert('Account Exists', message + '\n\nPlease sign in instead.', [
-          { text: 'Sign In', onPress: onNavigateToLogin },
-          { text: 'OK', style: 'cancel' },
-        ]);
-      } else if (controller.signal.aborted) {
-        setFormError('Server is waking up. Try again.');
-      } else if (error?.response) {
-        setFormError(detail?.message || error.response?.data?.message || "Couldn't reach server. Check your connection.");
-      } else {
-        setFormError("Couldn't reach server. Check your connection.");
+      for (let attempt = 1; attempt <= REGISTER_MAX_ATTEMPTS; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), REGISTER_TIMEOUT_MS);
+        try {
+          await register(
+            {
+              email: email.trim(),
+              password,
+              name: name.trim(),
+              terms_accepted: termsAccepted,
+            },
+            controller.signal
+          );
+          onRegisterSuccess();
+          return;
+        } catch (error: any) {
+          const detail = error.response?.data?.detail;
+          const errorCode = detail?.error || error.response?.data?.error;
+          if (errorCode === 'email_exists') {
+            const message = detail?.message || error.response?.data?.message || 'An account with this email already exists.';
+            Alert.alert('Account Exists', message + '\n\nPlease sign in instead.', [
+              { text: 'Sign In', onPress: onNavigateToLogin },
+              { text: 'OK', style: 'cancel' },
+            ]);
+            return;
+          }
+          if (controller.signal.aborted) {
+            if (attempt < REGISTER_MAX_ATTEMPTS) {
+              setFormError('Server is waking up — retrying...');
+              continue;
+            }
+            setFormError('Server is still waking up. Give it a minute, then try again.');
+            return;
+          }
+          if (error?.response) {
+            setFormError(detail?.message || error.response?.data?.message || "Couldn't reach server. Check your connection.");
+          } else {
+            setFormError("Couldn't reach server. Check your connection.");
+          }
+          return;
+        } finally {
+          clearTimeout(timeoutId);
+        }
       }
     } finally {
-      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   };
