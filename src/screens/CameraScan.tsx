@@ -46,6 +46,11 @@ function clampStock(value: number): number {
   return Math.min(STOCK_MAX, Math.max(0, Math.round(value * 100) / 100));
 }
 
+// 2.5 → "2.5", 3 → "3" — no trailing .00 on whole numbers
+function formatStock(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
 const KEYPAD_ROWS: string[][] = [
   ['1', '2', '3'],
   ['4', '5', '6'],
@@ -57,7 +62,7 @@ const KEYPAD_ROWS: string[][] = [
 
 export default function CameraScan({ onReview, onBack }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
-  const { addBottle, removeBottle } = useInventory();
+  const { bottles, addBottle, updateBottle, removeBottle } = useInventory();
   const { logout } = useAuth();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
@@ -75,6 +80,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const [identifiedLabel, setIdentifiedLabel] = useState<string | null>(null);
   const [failMessage, setFailMessage] = useState<string | null>(null);
   const [awaitingCommit, setAwaitingCommit] = useState(false);
+  // Set when the scanned product is already in this session — commit updates
+  // that row's count instead of adding a duplicate
+  const [existingBottle, setExistingBottle] = useState<Bottle | null>(null);
 
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
@@ -219,6 +227,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
       setIdentifiedLabel(null);
       setFailMessage(null);
       setAwaitingCommit(false);
+      setExistingBottle(null);
       setPadVisible(true);
 
       // Downscale before upload — full-res photos are several MB of base64,
@@ -278,6 +287,14 @@ export default function CameraScan({ onReview, onBack }: Props) {
         catalogToastTimerRef.current = setTimeout(() => setCatalogToast(null), 1500);
       }
 
+      // Same product already scanned this session? Update its row, don't duplicate
+      const existing = bottles.find(b =>
+        (result.matched_product_id && b.productId === result.matched_product_id) ||
+        (b.name.toLowerCase() === result.name.toLowerCase() &&
+         b.brand.toLowerCase() === result.brand.toLowerCase())
+      );
+      setExistingBottle(existing ?? null);
+
       scanResultRef.current = result;
       identifyStatusRef.current = 'ok';
       setIdentifiedLabel([result.brand, result.name].filter(Boolean).join(' — '));
@@ -334,7 +351,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
         : errorType === 'network' ? 'No connection — check your network'
         : 'Scan failed — try again');
     }
-  }, [failScan, logout, setBorderValue]);
+  }, [failScan, logout, setBorderValue, bottles]);
 
   // --- Number pad: commit / fail / cancel ---
 
@@ -360,28 +377,36 @@ export default function CameraScan({ onReview, onBack }: Props) {
     }
     clearWatchdog();
     const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
+    const label = [result.brand, result.name].filter(Boolean).join(', ');
 
-    const newBottle: Bottle = {
-      id: result.matched_product_id ?? `bottle_${Date.now()}`,
-      productId: result.matched_product_id ?? undefined,
-      name: result.name,
-      brand: result.brand,
-      category: result.category,
-      size: '',
-      currentLevel: 1,
-      parLevel: 1,
-      currentStock: stock,       // typed on the pad — total back-up bottles
-      imageUrl: photoUriRef.current ?? undefined,
-      distributorId: (result as any).distributorId,
-    };
+    if (existingBottle) {
+      // Re-scan of a product already in the session — replace its count
+      updateBottle(existingBottle.id, { currentStock: stock });
+      setLastBottleId(null);   // no undo for count updates
+      setStatusText(`${label} — updated to ${formatStock(stock)}`);
+    } else {
+      const newBottle: Bottle = {
+        id: `bottle_${Date.now()}`,   // always unique — productId tracks the catalog match
+        productId: result.matched_product_id ?? undefined,
+        name: result.name,
+        brand: result.brand,
+        category: result.category,
+        size: '',
+        currentLevel: 1,
+        parLevel: 1,
+        currentStock: stock,       // typed on the pad — total back-up bottles
+        imageUrl: photoUriRef.current ?? undefined,
+        distributorId: (result as any).distributorId,
+      };
+      addBottle(newBottle);
+      setLastBottleId(newBottle.id);
+      setBottleCount(prev => prev + 1);
+      setStatusText(label);
+    }
 
-    addBottle(newBottle);
-    setLastBottleId(newBottle.id);
-    setBottleCount(prev => prev + 1);
     setPadVisible(false);
     setScanState('success');
     setBorderValue(1);
-    setStatusText([result.brand, result.name].filter(Boolean).join(', '));
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     flashGreen();
 
@@ -389,7 +414,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
     successTimeoutRef.current = setTimeout(() => {
       resetToIdle();
     }, SUCCESS_DISPLAY_MS);
-  }, [stockInput, addBottle, setBorderValue, flashGreen, closePadWithFail]);
+  }, [stockInput, existingBottle, addBottle, updateBottle, setBorderValue, flashGreen, closePadWithFail]);
 
   // If the user hits Add while the AI is still identifying, commit as soon as it lands
   useEffect(() => {
@@ -735,6 +760,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
               )}
             </View>
 
+            {/* Duplicate scan — updating the existing row, not adding a new one */}
+            {identifyStatus === 'ok' && existingBottle && (
+              <Text style={styles.padDuplicateNote}>
+                Already scanned — {formatStock(existingBottle.currentStock ?? 0)} in stock. Enter your new total.
+              </Text>
+            )}
+
             {/* Typed value */}
             <View style={styles.padValueRow}>
               <Text style={styles.padValue}>{stockInput === '' ? '0' : stockInput}</Text>
@@ -783,7 +815,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.padAddText}>
-                    {identifyStatus === 'failed' ? 'Close' : 'Add Bottle'}
+                    {identifyStatus === 'failed' ? 'Close'
+                      : existingBottle ? 'Update Count'
+                      : 'Add Bottle'}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -1076,6 +1110,13 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     letterSpacing: LETTER_SPACING,
     textAlign: 'center',
+  },
+  padDuplicateNote: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.accentPrimary,
+    textAlign: 'center',
+    marginBottom: 4,
   },
   padValueRow: {
     alignItems: 'center',
