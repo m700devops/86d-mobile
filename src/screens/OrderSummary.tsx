@@ -22,17 +22,17 @@ export default function OrderSummary({ onRestart }: Props) {
 
   const orderItems: OrderItem[] = bottles
     .map(b => {
-      const baseQuantity = Math.max(0, b.parLevel - (b.currentStock || 0));
-      const extraQuantity = b.level === 'half' || b.level === '1/4' ? 1 : 0;
-      const totalQuantity = baseQuantity + extraQuantity;
+      // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole bottles, round up
+      const totalQuantity = Math.max(0, Math.ceil(b.parLevel - (b.currentStock || 0)));
 
       return {
         bottleId: b.id,
+        bottleName: b.name,
         name: b.name,
         quantity: totalQuantity,
         price: b.price || 0,
         category: b.category,
-        urgency: totalQuantity > 5 ? 'critical' : 'normal',
+        urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
         distributorId: b.distributorId,
       };
     })
@@ -837,6 +837,12 @@ const styles = StyleSheet.create({
   },
   distributorInfo: {
     flex: 1,
+  },
+  distributorInitials: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
+    letterSpacing: 0.5,
   },
   distributorName: {
     fontSize: FONT_SIZES.sm,

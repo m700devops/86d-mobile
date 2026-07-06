@@ -11,15 +11,13 @@ import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
-import { Bottle, LiquidLevel } from '../types';
+import { Bottle } from '../types';
 
 interface Props {
   onGenerateOrder: () => void;
   onAddManual: () => void;
   onNavigateToSettings: () => void;
 }
-
-const LEVEL_ORDER: LiquidLevel[] = ['empty', '1/4', 'half', '3/4', 'almost_full', 'full'];
 
 const STOCK_MAX = 999.99;
 const STOCK_TAP_STEP = 0.25;
@@ -35,24 +33,6 @@ function clampStock(value: number): number {
 // 3 → "3", 2.25 → "2.25", 0.5 → "0.5" — no trailing .00 on whole numbers
 function formatStock(value: number): string {
   return String(Math.round(value * 100) / 100);
-}
-
-function levelLabel(level?: LiquidLevel): string {
-  if (!level) return 'EMPTY';
-  const map: Record<LiquidLevel, string> = {
-    empty: 'EMPTY',
-    '1/4': '1/4',
-    half: 'HALF',
-    '3/4': '3/4',
-    almost_full: 'ALMOST FULL',
-    full: 'FULL',
-  };
-  return map[level] ?? level.toUpperCase();
-}
-
-function cycleLevelUp(level?: LiquidLevel): LiquidLevel {
-  const idx = LEVEL_ORDER.indexOf(level as LiquidLevel);
-  return LEVEL_ORDER[(idx + 1) % LEVEL_ORDER.length];
 }
 
 export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
@@ -343,16 +323,6 @@ function BottleRow({
         )}
       </View>
 
-      {/* Level label (tap to cycle) */}
-      <TouchableOpacity
-        style={styles.levelColumn}
-        onPress={() => onUpdate({ level: cycleLevelUp(bottle.level) })}
-        activeOpacity={0.7}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <Text style={styles.levelLabel}>{levelLabel(bottle.level)}</Text>
-      </TouchableOpacity>
-
       {/* Current stock stepper — tap ±0.25, hold ±1.0 (±5.0 after 2s), tap number to type */}
       <View style={styles.stepperColumn}>
         <View style={styles.stepperBox}>
@@ -540,22 +510,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginTop: 2,
   },
-  levelColumn: {
-    alignItems: 'center',
-    width: 36,
-  },
-  levelLabel: {
-    fontSize: 8,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-    marginTop: 3,
-    textAlign: 'center',
-  },
   stepperColumn: {
     alignItems: 'center',
-    width: 64,
+    width: 80,
   },
   stepperBox: {
     flexDirection: 'row',
@@ -574,8 +531,8 @@ const styles = StyleSheet.create({
     borderColor: `${COLORS.accentPrimary}30`,
   },
   stepperButton: {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -587,7 +544,7 @@ const styles = StyleSheet.create({
   },
   stepperInput: {
     flex: 1,
-    fontSize: FONT_SIZES.sm,
+    fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
     fontFamily: 'monospace',
