@@ -9,11 +9,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
+import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
+import { BrandMark, GlowBackground } from '../components/Brand';
 
-// Render free tier cold-starts in ~10s worst case — cap requests just past that.
+// Render free tier cold-starts in ~30-60s. Each attempt gets 12s and timeouts
+// auto-retry, so a cold start rides through instead of failing at the first cap.
 const LOGIN_TIMEOUT_MS = 12000;
+const LOGIN_MAX_ATTEMPTS = 4;
 
 interface LoginScreenProps {
   onNavigateToRegister: () => void;
@@ -26,6 +31,8 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const passwordRef = useRef<TextInput>(null);
 
   const { login } = useAuth();
@@ -54,122 +61,179 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
 
     setFormError(null);
     setIsLoading(true);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
     try {
-      await login({ email: email.trim(), password }, controller.signal);
-      onLoginSuccess();
-    } catch (error: any) {
-      if (error?.response?.status === 401) {
-        setFormError('Wrong email or password');
-      } else if (controller.signal.aborted) {
-        setFormError('Server is waking up. Try again.');
-      } else {
-        setFormError("Couldn't reach server. Check your connection.");
+      for (let attempt = 1; attempt <= LOGIN_MAX_ATTEMPTS; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
+        try {
+          await login({ email: email.trim(), password }, controller.signal);
+          onLoginSuccess();
+          return;
+        } catch (error: any) {
+          if (error?.response?.status === 401) {
+            setFormError('Wrong email or password');
+            return;
+          }
+          if (controller.signal.aborted) {
+            if (attempt < LOGIN_MAX_ATTEMPTS) {
+              setFormError('Server is waking up — retrying...');
+              continue;
+            }
+            setFormError('Server is still waking up. Give it a minute, then try again.');
+            return;
+          }
+          setFormError("Couldn't reach server. Check your connection.");
+          return;
+        } finally {
+          clearTimeout(timeoutId);
+        }
       }
     } finally {
-      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
+      <GlowBackground />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        <View style={styles.content}>
-          {/* Logo */}
-          <View style={styles.logoContainer}>
-            <Text style={styles.logo}>86'd</Text>
-            <Text style={styles.tagline}>Bar Inventory in 10 Minutes</Text>
-          </View>
-
-          {/* Form */}
-          <View style={styles.form}>
-            <Text style={styles.title}>Welcome Back</Text>
-            <Text style={styles.subtitle}>Sign in to your account</Text>
-
-            {/* Email Input */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                style={[styles.input, errors.email && styles.inputError]}
-                placeholder="you@bar.com"
-                placeholderTextColor="#666"
-                value={email}
-                onChangeText={(text) => {
-                  setEmail(text);
-                  if (errors.email) setErrors({ ...errors, email: undefined });
-                }}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoFocus
-                returnKeyType="next"
-                onSubmitEditing={() => passwordRef.current?.focus()}
-                blurOnSubmit={false}
-                editable={!isLoading}
-              />
-              {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.content}>
+            {/* Brand hero */}
+            <View style={styles.hero}>
+              <BrandMark size={92} />
+              <Text style={styles.slogan}>Scan it. Count it. Order it.</Text>
+              <Text style={styles.subSlogan}>Bar inventory in 10 minutes — not hours.</Text>
             </View>
 
-            {/* Password Input */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Password</Text>
-              <TextInput
-                ref={passwordRef}
-                style={[styles.input, errors.password && styles.inputError]}
-                placeholder="••••••••"
-                placeholderTextColor="#666"
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text);
-                  if (errors.password) setErrors({ ...errors, password: undefined });
-                }}
-                secureTextEntry
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
-                editable={!isLoading}
-              />
-              {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
-            </View>
+            {/* Sign-in card */}
+            <View style={styles.card}>
+              <Text style={styles.title}>Welcome back</Text>
+              <Text style={styles.subtitle}>Sign in to keep your bar stocked</Text>
 
-            {/* Forgot Password */}
-            <TouchableOpacity style={styles.forgotLink}>
-              <Text style={styles.forgotText}>Forgot password?</Text>
-            </TouchableOpacity>
-
-            {/* Form-level error (wrong password / timeout / network) */}
-            {formError && (
-              <View style={styles.formErrorBox}>
-                <Text style={styles.formErrorText}>{formError}</Text>
+              {/* Email */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Email</Text>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    focusedField === 'email' && styles.inputWrapperFocused,
+                    errors.email && styles.inputWrapperError,
+                  ]}
+                >
+                  <Mail size={18} color={focusedField === 'email' ? '#FF6B35' : '#6B6B6B'} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="you@bar.com"
+                    placeholderTextColor="#5C5C5C"
+                    value={email}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      if (errors.email) setErrors({ ...errors, email: undefined });
+                    }}
+                    onFocus={() => setFocusedField('email')}
+                    onBlur={() => setFocusedField(null)}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoFocus
+                    returnKeyType="next"
+                    onSubmitEditing={() => passwordRef.current?.focus()}
+                    blurOnSubmit={false}
+                    editable={!isLoading}
+                  />
+                </View>
+                {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
               </View>
-            )}
 
-            {/* Login Button */}
-            <TouchableOpacity
-              style={[styles.button, isLoading && styles.buttonDisabled]}
-              onPress={handleLogin}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Sign In</Text>
+              {/* Password */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Password</Text>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    focusedField === 'password' && styles.inputWrapperFocused,
+                    errors.password && styles.inputWrapperError,
+                  ]}
+                >
+                  <Lock size={18} color={focusedField === 'password' ? '#FF6B35' : '#6B6B6B'} />
+                  <TextInput
+                    ref={passwordRef}
+                    style={styles.input}
+                    placeholder="••••••••"
+                    placeholderTextColor="#5C5C5C"
+                    value={password}
+                    onChangeText={(text) => {
+                      setPassword(text);
+                      if (errors.password) setErrors({ ...errors, password: undefined });
+                    }}
+                    onFocus={() => setFocusedField('password')}
+                    onBlur={() => setFocusedField(null)}
+                    secureTextEntry={!showPassword}
+                    returnKeyType="done"
+                    onSubmitEditing={handleLogin}
+                    editable={!isLoading}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(v => !v)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    {showPassword
+                      ? <EyeOff size={18} color="#6B6B6B" />
+                      : <Eye size={18} color="#6B6B6B" />}
+                  </TouchableOpacity>
+                </View>
+                {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+              </View>
+
+              {/* Forgot password */}
+              <TouchableOpacity style={styles.forgotLink}>
+                <Text style={styles.forgotText}>Forgot password?</Text>
+              </TouchableOpacity>
+
+              {/* Form-level error (wrong password / timeout / network) */}
+              {formError && (
+                <View style={styles.formErrorBox}>
+                  <Text style={styles.formErrorText}>{formError}</Text>
+                </View>
               )}
-            </TouchableOpacity>
 
-            {/* Create Account Link */}
+              {/* Sign in */}
+              <TouchableOpacity
+                style={[styles.button, isLoading && styles.buttonDisabled]}
+                onPress={handleLogin}
+                disabled={isLoading}
+                activeOpacity={0.85}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Sign In</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Create account */}
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Don't have an account? </Text>
-              <TouchableOpacity onPress={onNavigateToRegister} disabled={isLoading}>
-                <Text style={styles.footerLink}>Create one</Text>
+              <Text style={styles.footerText}>New to 86'd?</Text>
+              <TouchableOpacity
+                style={styles.createButton}
+                onPress={onNavigateToRegister}
+                disabled={isLoading}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.createButtonText}>Create Free Account</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -178,75 +242,106 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F0F0F',
+    backgroundColor: '#0C0C0C',
   },
   keyboardView: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
     padding: 24,
   },
-  logoContainer: {
+  hero: {
     alignItems: 'center',
-    marginBottom: 48,
-  },
-  logo: {
-    fontSize: 48,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 8,
-  },
-  tagline: {
-    fontSize: 16,
-    color: '#A3A3A3',
-  },
-  form: {
-    width: '100%',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#A3A3A3',
     marginBottom: 32,
   },
+  slogan: {
+    marginTop: 26,
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+    textAlign: 'center',
+  },
+  subSlogan: {
+    marginTop: 6,
+    fontSize: 14,
+    color: '#9A9A9A',
+    textAlign: 'center',
+  },
+  card: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    padding: 22,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#9A9A9A',
+    marginBottom: 22,
+  },
   inputContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   label: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#D9D9D9',
     marginBottom: 8,
   },
-  input: {
-    backgroundColor: '#1a1a1a',
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#161616',
     borderWidth: 1,
-    borderColor: '#2d2d2d',
-    borderRadius: 8,
-    padding: 16,
+    borderColor: '#2A2A2A',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 52,
+  },
+  inputWrapperFocused: {
+    borderColor: '#FF6B35',
+    backgroundColor: '#1A1512',
+  },
+  inputWrapperError: {
+    borderColor: '#FF6B35',
+  },
+  input: {
+    flex: 1,
     fontSize: 16,
     color: '#FFFFFF',
-  },
-  inputError: {
-    borderColor: '#FF6B35',
+    height: '100%',
   },
   errorText: {
     fontSize: 12,
     color: '#FF6B35',
-    marginTop: 4,
+    marginTop: 6,
+  },
+  forgotLink: {
+    alignSelf: 'flex-end',
+    marginBottom: 18,
+  },
+  forgotText: {
+    fontSize: 13,
+    color: '#FFD700',
   },
   formErrorBox: {
     backgroundColor: 'rgba(255, 107, 53, 0.12)',
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 53, 0.4)',
-    borderRadius: 8,
+    borderRadius: 10,
     padding: 12,
     marginBottom: 16,
   },
@@ -256,42 +351,49 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
   },
-  forgotLink: {
-    alignSelf: 'flex-end',
-    marginBottom: 24,
-  },
-  forgotText: {
-    fontSize: 14,
-    color: '#FFD700',
-  },
   button: {
     backgroundColor: '#FF6B35',
-    padding: 16,
-    borderRadius: 8,
+    height: 54,
+    borderRadius: 14,
     alignItems: 'center',
-    minHeight: 56,
     justifyContent: 'center',
+    shadowColor: '#FF6B35',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.45,
+    shadowRadius: 18,
+    elevation: 10,
   },
   buttonDisabled: {
     opacity: 0.7,
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
   footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 24,
+    alignItems: 'center',
+    marginTop: 26,
+    gap: 12,
   },
   footerText: {
     fontSize: 14,
-    color: '#A3A3A3',
+    color: '#9A9A9A',
   },
-  footerLink: {
-    fontSize: 14,
+  createButton: {
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 215, 0, 0.55)',
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 28,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+  },
+  createButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
     color: '#FFD700',
-    fontWeight: '600',
+    letterSpacing: 0.3,
   },
 });

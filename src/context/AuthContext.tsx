@@ -21,6 +21,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check for existing session on mount
   useEffect(() => {
+    // Fire-and-forget warm-up ping: Render free tier cold-starts in ~30-60s,
+    // so kick the server awake while the user is still typing credentials.
+    apiService.healthCheck().catch(() => {});
     checkAuthStatus();
     return () => { validateController.current?.abort(); };
   }, []);
