@@ -25,8 +25,15 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     (async () => {
       try {
         const fetched = await apiService.getLocations();
-        setLocations(fetched);
-        if (fetched.length > 0) {
+        if (fetched.length === 0) {
+          // Fresh account — create a default location so nothing downstream
+          // (distributor assignment, stock saves) blocks on setup. Renameable
+          // in Settings later.
+          const created = await apiService.createLocation('My Bar');
+          setLocations([created]);
+          setCurrentLocationState(created);
+        } else {
+          setLocations(fetched);
           setCurrentLocationState(fetched[0]);
         }
       } catch (err) {
