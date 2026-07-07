@@ -151,6 +151,8 @@ export default function CameraScan({ onReview, onBack }: Props) {
   async function initScanning() {
     const token = await apiService.getAccessToken();
     if (!token) return;
+    // Warm the backend's AI connection now so the first scan isn't slow
+    apiService.warmScanPath();
     resetToIdle();
     setIsScanning(true);
   }
@@ -760,6 +762,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
               )}
             </View>
 
+            {/* While the AI works, tell new users to keep going — the scan runs itself */}
+            {identifyStatus === 'pending' && (
+              <Text style={styles.padHintNote}>
+                Still scanning — go ahead and enter your stock count.
+              </Text>
+            )}
+
             {/* Duplicate scan — updating the existing row, not adding a new one */}
             {identifyStatus === 'ok' && existingBottle && (
               <Text style={styles.padDuplicateNote}>
@@ -1115,6 +1124,12 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.accentPrimary,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  padHintNote: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
     textAlign: 'center',
     marginBottom: 4,
   },

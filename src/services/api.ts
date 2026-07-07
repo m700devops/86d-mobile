@@ -300,6 +300,12 @@ class ApiService {
     return response.data;
   }
 
+  // Pre-warm the backend's AI connection so the first scan is as fast as the
+  // rest. Fire-and-forget — errors are irrelevant.
+  warmScanPath(): void {
+    this.client.post('/scans/warm', {}).catch(() => {});
+  }
+
   // Bottle analysis via backend (calls Gemini)
   async analyzeBottleImage(imageBase64: string): Promise<{
     name: string;
