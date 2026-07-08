@@ -62,7 +62,7 @@ const KEYPAD_ROWS: string[][] = [
 
 export default function CameraScan({ onReview, onBack }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
-  const { bottles, addBottle, updateBottle, removeBottle } = useInventory();
+  const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
   const { logout } = useAuth();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
@@ -79,7 +79,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const [identifyStatus, setIdentifyStatus] = useState<IdentifyStatus>('pending');
   const [identifiedLabel, setIdentifiedLabel] = useState<string | null>(null);
   const [failMessage, setFailMessage] = useState<string | null>(null);
-  const [awaitingCommit, setAwaitingCommit] = useState(false);
   // Set when the scanned product is already in this session — commit updates
   // that row's count instead of adding a duplicate
   const [existingBottle, setExistingBottle] = useState<Bottle | null>(null);
@@ -91,13 +90,15 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const cameraRef = useRef<CameraView>(null);
   const isCapturingRef = useRef(false);
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const captureWatchdogRef = useRef<NodeJS.Timeout | null>(null);
   const errorAlertCooldownRef = useRef<NodeJS.Timeout | null>(null);
   const [catalogToast, setCatalogToast] = useState<string | null>(null);
   const catalogToastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Per-scan token: cancel/undo bumps this so stale async results are ignored
+  // Per-scan token: pad-cancel bumps this so a stale result can't touch the pad
   const scanSeq = useRef(0);
+  // Fire-and-forget: scan token → row id saved before identification landed.
+  // The in-flight continuation resolves that row instead of the pad UI.
+  const pendingCommits = useRef<Map<number, string>>(new Map());
   const identifyStatusRef = useRef<IdentifyStatus | 'idle'>('idle');
   const scanResultRef = useRef<ScanApiResult | null>(null);
   const photoUriRef = useRef<string | null>(null);
@@ -157,17 +158,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
     setIsScanning(true);
   }
 
-  const clearWatchdog = () => {
-    if (captureWatchdogRef.current) {
-      clearTimeout(captureWatchdogRef.current);
-      captureWatchdogRef.current = null;
-    }
-  };
-
   function resetToIdle() {
     isCapturingRef.current = false;
     identifyStatusRef.current = 'idle';
-    clearWatchdog();
     setScanState('idle');
     setBorderValue(0);
     setStatusText(IDLE_STATUS);
@@ -198,10 +191,16 @@ export default function CameraScan({ onReview, onBack }: Props) {
     setLastBottleId(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Watchdog: fail the scan if the API call hangs (Render cold start etc.)
-    clearWatchdog();
-    captureWatchdogRef.current = setTimeout(() => {
-      captureWatchdogRef.current = null;
+    // Per-scan watchdog: if the API call hangs, fail this scan — the saved row
+    // if the user already moved on, otherwise the pad UI. Late firings are
+    // no-ops (guards below), so it never needs explicit clearing.
+    setTimeout(() => {
+      const committedRowId = pendingCommits.current.get(token);
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        markScanFailed(committedRowId);
+        return;
+      }
       if (token === scanSeq.current && identifyStatusRef.current === 'pending') {
         failScan(token, 'Scan timed out — try again');
       }
@@ -228,7 +227,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
       setIdentifyStatus('pending');
       setIdentifiedLabel(null);
       setFailMessage(null);
-      setAwaitingCommit(false);
       setExistingBottle(null);
       setPadVisible(true);
 
@@ -240,60 +238,81 @@ export default function CameraScan({ onReview, onBack }: Props) {
         { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
 
-      if (token !== scanSeq.current) return;
+      // From here on the user may have saved the row and moved to the next
+      // bottle (fire-and-forget) — check the committed map before the pad UI.
+      if (token !== scanSeq.current && !pendingCommits.current.has(token)) return;
       if (!resized.base64) {
-        failScan(token, 'Capture failed — try again');
+        const committedRowId = pendingCommits.current.get(token);
+        if (committedRowId !== undefined) {
+          pendingCommits.current.delete(token);
+          markScanFailed(committedRowId);
+        } else {
+          failScan(token, 'Capture failed — try again');
+        }
         return;
       }
 
       imageSizeKb = Math.round((resized.base64.length * 0.75) / 1024);
 
       const result = await apiService.analyzeBottleImage(resized.base64);
-      if (token !== scanSeq.current) return;
 
-      if (!result) {
-        await scanDiagnostics.logScan({
-          timestamp: new Date().toISOString(),
-          success: false,
-          errorType: 'parse_error',
-          errorMessage: 'API returned null — no bottle detected',
-          httpStatus: 200,
-          responseTimeMs: Date.now() - startTime,
-          imageSizeKb,
-        });
-        failScan(token, 'No bottle detected — try again');
-        return;
-      }
-
-      // Low-confidence: no exact match, confidence too low for auto-create
-      if (!result.matched_product_id) {
-        failScan(token, "Couldn't recognize — add it manually");
-        return;
-      }
-
+      const scanOk = result != null && !!result.matched_product_id;
       await scanDiagnostics.logScan({
         timestamp: new Date().toISOString(),
-        success: true,
-        errorType: null,
-        errorMessage: null,
+        success: scanOk,
+        errorType: scanOk ? null : 'parse_error',
+        errorMessage: scanOk ? null
+          : result == null ? 'API returned null — no bottle detected'
+          : 'No product match — confidence too low',
         httpStatus: 200,
         responseTimeMs: Date.now() - startTime,
         imageSizeKb,
       });
 
       // Auto-created: briefly surface so bad auto-creates are visible during testing
-      if (result.is_new_product) {
+      if (scanOk && result.is_new_product) {
         const label = [result.brand, result.name].filter(Boolean).join(' ');
         setCatalogToast(`Adding to catalog: ${label}`);
         if (catalogToastTimerRef.current) clearTimeout(catalogToastTimerRef.current);
         catalogToastTimerRef.current = setTimeout(() => setCatalogToast(null), 1500);
       }
 
+      // Fire-and-forget: the row was saved before identification finished —
+      // fill it in (or flag it) and leave the pad/scanner UI alone.
+      const committedRowId = pendingCommits.current.get(token);
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        if (scanOk) {
+          resolveScan(committedRowId, {
+            productId: result.matched_product_id ?? undefined,
+            name: result.name,
+            brand: result.brand,
+            category: result.category,
+          });
+        } else {
+          markScanFailed(committedRowId);
+        }
+        return;
+      }
+
+      if (token !== scanSeq.current) return;
+
+      if (result == null) {
+        failScan(token, 'No bottle detected — try again');
+        return;
+      }
+      // Low-confidence: no exact match, confidence too low for auto-create
+      if (!result.matched_product_id) {
+        failScan(token, "Couldn't recognize — add it manually");
+        return;
+      }
+
       // Same product already scanned this session? Update its row, don't duplicate
       const existing = bottles.find(b =>
-        (result.matched_product_id && b.productId === result.matched_product_id) ||
-        (b.name.toLowerCase() === result.name.toLowerCase() &&
-         b.brand.toLowerCase() === result.brand.toLowerCase())
+        b.scanStatus === undefined &&
+        ((result.matched_product_id && b.productId === result.matched_product_id) ||
+          (b.name.toLowerCase() === result.name.toLowerCase() &&
+           b.brand.toLowerCase() === result.brand.toLowerCase()))
       );
       setExistingBottle(existing ?? null);
 
@@ -334,10 +353,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
         imageSizeKb,
       });
 
-      if (token !== scanSeq.current) return;
+      const committedRowId = pendingCommits.current.get(token);
 
       if (errorType === 'auth_error') {
-        clearWatchdog();
+        if (committedRowId !== undefined) {
+          pendingCommits.current.delete(token);
+          markScanFailed(committedRowId);
+        }
         setPadVisible(false);
         setIsScanning(false);
         Alert.alert(
@@ -348,18 +370,26 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
 
+      // Fire-and-forget: flag the saved row so it can be retried from Review
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        markScanFailed(committedRowId);
+        return;
+      }
+
+      if (token !== scanSeq.current) return;
+
       failScan(token,
         errorType === 'timeout' ? 'Scan timed out — try again'
         : errorType === 'network' ? 'No connection — check your network'
         : 'Scan failed — try again');
     }
-  }, [failScan, logout, setBorderValue, bottles]);
+  }, [failScan, logout, setBorderValue, bottles, resolveScan, markScanFailed]);
 
   // --- Number pad: commit / fail / cancel ---
 
   const closePadWithFail = useCallback(() => {
     scanSeq.current++;
-    clearWatchdog();
     const message = failMessage ?? 'Scan failed — try again';
     setPadVisible(false);
     isCapturingRef.current = false;
@@ -377,7 +407,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
       closePadWithFail();
       return;
     }
-    clearWatchdog();
     const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
     const label = [result.brand, result.name].filter(Boolean).join(', ');
 
@@ -418,32 +447,54 @@ export default function CameraScan({ onReview, onBack }: Props) {
     }, SUCCESS_DISPLAY_MS);
   }, [stockInput, existingBottle, addBottle, updateBottle, setBorderValue, flashGreen, closePadWithFail]);
 
-  // If the user hits Add while the AI is still identifying, commit as soon as it lands
-  useEffect(() => {
-    if (!awaitingCommit) return;
-    if (identifyStatus === 'ok') {
-      setAwaitingCommit(false);
-      commitBottle();
-    } else if (identifyStatus === 'failed') {
-      setAwaitingCommit(false);
-      closePadWithFail();
-    }
-  }, [awaitingCommit, identifyStatus, commitBottle, closePadWithFail]);
-
   const handlePadAdd = useCallback(() => {
     if (identifyStatus === 'ok') {
       commitBottle();
-    } else if (identifyStatus === 'failed') {
-      closePadWithFail();
-    } else {
-      setAwaitingCommit(true);
+      return;
     }
-  }, [identifyStatus, commitBottle, closePadWithFail]);
+    if (identifyStatus === 'failed') {
+      closePadWithFail();
+      return;
+    }
+
+    // Fire-and-forget: save the row NOW with the typed count and move on —
+    // the in-flight identification fills in the name when it lands.
+    const token = scanSeq.current;
+    const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
+    const newBottle: Bottle = {
+      id: `bottle_${Date.now()}`,
+      name: 'Identifying…',
+      brand: '',
+      category: 'other',
+      size: '',
+      currentLevel: 1,
+      parLevel: 1,
+      currentStock: stock,
+      imageUrl: photoUriRef.current ?? undefined,
+      scanStatus: 'pending',
+    };
+    addBottle(newBottle);
+    pendingCommits.current.set(token, newBottle.id);
+    setLastBottleId(newBottle.id);
+    setBottleCount(prev => prev + 1);
+
+    setPadVisible(false);
+    setScanState('success');
+    setBorderValue(1);
+    setStatusText('Saved — identifying in background');
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    flashGreen();
+
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    successTimeoutRef.current = setTimeout(() => {
+      resetToIdle();
+    }, SUCCESS_DISPLAY_MS);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identifyStatus, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen]);
 
   const handlePadCancel = useCallback(() => {
     scanSeq.current++;   // invalidate the in-flight scan
     setPadVisible(false);
-    setAwaitingCommit(false);
     resetToIdle();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -468,7 +519,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
   useEffect(() => {
     return () => {
       if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
-      if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
       if (errorAlertCooldownRef.current) clearTimeout(errorAlertCooldownRef.current);
       if (catalogToastTimerRef.current) clearTimeout(catalogToastTimerRef.current);
     };
@@ -485,13 +535,14 @@ export default function CameraScan({ onReview, onBack }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
-  // Undo: remove last bottle and reset back to idle
+  // Undo: remove last bottle and reset back to idle. Doesn't touch scanSeq —
+  // other in-flight identifications must keep resolving. If the undone row's
+  // scan is still in flight, resolveScan finds no row and no-ops.
   const handleUndo = useCallback(() => {
     if (!lastBottleId) return;
     removeBottle(lastBottleId);
     setLastBottleId(null);
     setBottleCount(prev => Math.max(0, prev - 1));
-    scanSeq.current++;
     resetToIdle();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -765,7 +816,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
             {/* While the AI works, tell new users to keep going — the scan runs itself */}
             {identifyStatus === 'pending' && (
               <Text style={styles.padHintNote}>
-                Still scanning — go ahead and enter your stock count.
+                Still identifying — add your count and keep scanning.
               </Text>
             )}
 
@@ -814,21 +865,17 @@ export default function CameraScan({ onReview, onBack }: Props) {
               <TouchableOpacity
                 style={[
                   styles.padAddButton,
-                  (stockInput === '' || awaitingCommit) && styles.padAddButtonDisabled,
+                  stockInput === '' && identifyStatus !== 'failed' && styles.padAddButtonDisabled,
                 ]}
                 onPress={handlePadAdd}
-                disabled={stockInput === '' || awaitingCommit}
+                disabled={stockInput === '' && identifyStatus !== 'failed'}
                 activeOpacity={0.8}
               >
-                {awaitingCommit ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.padAddText}>
-                    {identifyStatus === 'failed' ? 'Close'
-                      : existingBottle ? 'Update Count'
-                      : 'Add Bottle'}
-                  </Text>
-                )}
+                <Text style={styles.padAddText}>
+                  {identifyStatus === 'failed' ? 'Close'
+                    : existingBottle ? 'Update Count'
+                    : 'Add Bottle'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>

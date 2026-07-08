@@ -146,6 +146,9 @@ export interface Bottle {
   currentStock?: number;
   price?: number;
   productId?: string;
+  // Fire-and-forget scans: 'pending' while the AI identifies in the background,
+  // 'failed' when identification didn't land (row shows a retry action)
+  scanStatus?: 'pending' | 'failed';
 }
 
 export interface ProductDistributorAssignment {

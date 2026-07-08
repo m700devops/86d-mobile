@@ -7,6 +7,7 @@ import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Search, Plus, ChevronRight, Trash2, Minus } from 'lucide-react-native';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
@@ -36,7 +37,7 @@ function formatStock(value: number): string {
 }
 
 export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
-  const { bottles, updateBottle, removeBottle } = useInventory();
+  const { bottles, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,6 +58,34 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
       apiService.updateProductStock(locationId, productId, { current_stock: value })
         .catch(err => console.error('[ReviewGrid] failed to save stock:', err));
     }, 600);
+  };
+
+  // Re-run identification for a fire-and-forget row that failed, using the
+  // photo captured at scan time.
+  const retryIdentify = async (bottle: Bottle) => {
+    if (!bottle.imageUrl) return;
+    updateBottle(bottle.id, { scanStatus: 'pending', name: 'Identifying…' });
+    try {
+      const resized = await ImageManipulator.manipulateAsync(
+        bottle.imageUrl,
+        [{ resize: { width: 800 } }],
+        { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      const result = resized.base64 ? await apiService.analyzeBottleImage(resized.base64) : null;
+      if (result && result.matched_product_id) {
+        resolveScan(bottle.id, {
+          productId: result.matched_product_id,
+          name: result.name,
+          brand: result.brand,
+          category: result.category,
+        });
+      } else {
+        markScanFailed(bottle.id);
+      }
+    } catch (err) {
+      console.error('[ReviewGrid] retry identify failed:', err);
+      markScanFailed(bottle.id);
+    }
   };
 
   // Load saved distributor assignments from the backend on mount
@@ -154,6 +183,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
             bottle={item}
             onUpdate={(updates) => handleBottleUpdate(item, updates)}
             onRemove={() => removeBottle(item.id)}
+            onRetryIdentify={item.scanStatus === 'failed' ? () => retryIdentify(item) : undefined}
             onAssign={!item.distributorId ? () => {
               if (!currentLocation) {
                 Alert.alert('Location Required', 'Set up a location in Settings before assigning distributors.');
@@ -260,11 +290,13 @@ function BottleRow({
   onUpdate,
   onRemove,
   onAssign,
+  onRetryIdentify,
 }: {
   bottle: Bottle;
   onUpdate: (updates: Partial<Bottle>) => void;
   onRemove: () => void;
   onAssign?: () => void;
+  onRetryIdentify?: () => void;
 }) {
   const [deletePressed, setDeletePressed] = useState(false);
   const [stockDraft, setStockDraft] = useState<string | null>(null);
@@ -312,11 +344,21 @@ function BottleRow({
     <View style={styles.bottleRow}>
       {/* Name + Brand */}
       <View style={styles.bottleInfo}>
-        <Text style={styles.bottleName} numberOfLines={1}>{bottle.name}</Text>
+        <Text
+          style={[styles.bottleName, bottle.scanStatus === 'pending' && styles.bottleNamePending]}
+          numberOfLines={1}
+        >
+          {bottle.name}
+        </Text>
         <Text style={styles.bottleBrand} numberOfLines={1}>
           {bottle.brand.toUpperCase()}
         </Text>
-        {onAssign && (
+        {bottle.scanStatus === 'failed' && onRetryIdentify && (
+          <TouchableOpacity style={styles.retryChip} onPress={onRetryIdentify} activeOpacity={0.7}>
+            <Text style={styles.retryChipText}>Couldn't identify — retry</Text>
+          </TouchableOpacity>
+        )}
+        {onAssign && bottle.scanStatus === undefined && (
           <TouchableOpacity style={styles.assignChip} onPress={onAssign} activeOpacity={0.7}>
             <Text style={styles.assignChipText}>Assign →</Text>
           </TouchableOpacity>
@@ -509,6 +551,26 @@ const styles = StyleSheet.create({
     color: COLORS.textTertiary,
     letterSpacing: 0.5,
     marginTop: 2,
+  },
+  bottleNamePending: {
+    color: COLORS.textTertiary,
+    fontStyle: 'italic',
+  },
+  retryChip: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: `${COLORS.error}60`,
+    backgroundColor: `${COLORS.error}15`,
+  },
+  retryChipText: {
+    fontSize: 9,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.error,
+    letterSpacing: 0.5,
   },
   stepperColumn: {
     alignItems: 'center',
