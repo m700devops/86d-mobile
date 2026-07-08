@@ -27,8 +27,9 @@ export default function OrderSummary({ onRestart }: Props) {
 
       return {
         bottleId: b.id,
-        bottleName: b.name,
-        name: b.name,
+        // Order lines show the full product: "Sprite Original", "Gatorade Blue Bolt"
+        bottleName: [b.brand, b.name].filter(Boolean).join(' '),
+        name: [b.brand, b.name].filter(Boolean).join(' '),
         quantity: totalQuantity,
         price: b.price || 0,
         category: b.category,
