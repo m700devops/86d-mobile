@@ -7,118 +7,104 @@ import {
   SafeAreaView,
   Animated,
   Alert,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { createAudioPlayer, AudioPlayer } from 'expo-audio';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Check, ChevronLeft, Zap, Camera } from 'lucide-react-native';
+import { Check, ChevronLeft, Zap, Camera, Delete } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
-import { Bottle, LiquidLevel } from '../types';
+import { Bottle } from '../types';
 
 // --- Types ---
 
-type ScanState = 'idle' | 'stabilizing' | 'capturing' | 'success';
+type ScanState = 'idle' | 'capturing' | 'success';
+type IdentifyStatus = 'pending' | 'ok' | 'failed';
+type ScanApiResult = NonNullable<Awaited<ReturnType<typeof apiService.analyzeBottleImage>>>;
 
 interface Props {
   onReview: () => void;
   onBack?: () => void;
 }
 
-// --- Helpers ---
-
-function sampleBase64(base64: string, sampleCount = 100): number[] {
-  const startOffset = Math.floor(base64.length * 0.1);
-  const endOffset = Math.floor(base64.length * 0.9);
-  const range = endOffset - startOffset;
-  const step = Math.max(1, Math.floor(range / sampleCount));
-  const samples: number[] = [];
-  for (let i = 0; i < sampleCount; i++) {
-    const idx = startOffset + i * step;
-    if (idx >= base64.length) break;
-    samples.push(base64.charCodeAt(idx));
-  }
-  return samples;
-}
-
-function frameDifference(hash1: number[], hash2: number[]): number {
-  const len = Math.min(hash1.length, hash2.length);
-  if (len === 0) return 1;
-  let totalDiff = 0;
-  for (let i = 0; i < len; i++) {
-    totalDiff += Math.abs(hash1[i] - hash2[i]);
-  }
-  return totalDiff / (len * 128);
-}
-
-// Conservative deadband: readings within ±0.03 of a boundary map to the LOWER
-// bucket.  This biases toward "less full" which triggers more ordering —
-// the safer outcome for bar inventory.  Thresholds are aligned with the backend
-// decimal_to_level() boundaries (0.875 / 0.625 / 0.375 / 0.125) plus deadband.
-const LEVEL_DEADBAND = 0.03;
-
-function levelToReadable(level: number): string {
-  // Thresholds mirror levelToEnum — display text stays consistent with stored level.
-  if (level >= 0.875 + LEVEL_DEADBAND) return 'Full';
-  if (level >= 0.655) return 'Three quarters';
-  if (level >= 0.405) return 'Half full';
-  if (level >= 0.155) return 'Quarter full';
-  return 'Almost empty';
-}
-
-function levelToEnum(level: number): LiquidLevel {
-  if (level >= 0.875 + LEVEL_DEADBAND) return 'full';
-  if (level >= 0.625 + LEVEL_DEADBAND) return '3/4';
-  if (level >= 0.375 + LEVEL_DEADBAND) return 'half';
-  if (level >= 0.125 + LEVEL_DEADBAND) return '1/4';
-  return 'empty';
-}
-
 // --- Constants ---
 
-const STABILITY_THRESHOLD = 0.30;   // was 0.12 — iOS auto-focus killed the old threshold
-const FRAMES_NEEDED = 1;             // one stable pair is enough
-const FRAME_INTERVAL_MS = 200;       // faster loop = faster auto-capture
-const CAPTURE_COOLDOWN_MS = 1500;    // time between captures
 const SUCCESS_DISPLAY_MS = 1200;
-const CAPTURE_WATCHDOG_MS = 18000;   // reset stuck isCapturing after 18s (API hang guard)
+const CAPTURE_WATCHDOG_MS = 25000;       // fail a stuck scan after 25s (backend scan cap is 20s)
+const IDLE_STATUS = 'Point at bottle';
+const STOCK_MAX = 999.99;
+
+function clampStock(value: number): number {
+  if (Number.isNaN(value)) return 0;
+  return Math.min(STOCK_MAX, Math.max(0, Math.round(value * 100) / 100));
+}
+
+// 2.5 → "2.5", 3 → "3" — no trailing .00 on whole numbers
+function formatStock(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
+const KEYPAD_ROWS: string[][] = [
+  ['1', '2', '3'],
+  ['4', '5', '6'],
+  ['7', '8', '9'],
+  ['.', '0', 'back'],
+];
 
 // --- Component ---
 
 export default function CameraScan({ onReview, onBack }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
-  const { addBottle, removeBottle } = useInventory();
+  const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
   const { logout } = useAuth();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [bottleCount, setBottleCount] = useState(0);
   const [scanState, setScanState] = useState<ScanState>('idle');
-  const [statusText, setStatusText] = useState('Pen at liquid line');
-  const [stabilityProgress, setStabilityProgress] = useState(0);
+  const [statusText, setStatusText] = useState(IDLE_STATUS);
   const [lastBottleId, setLastBottleId] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+
+  // Stock number pad state
+  const [padVisible, setPadVisible] = useState(false);
+  const [stockInput, setStockInput] = useState('');
+  const [identifyStatus, setIdentifyStatus] = useState<IdentifyStatus>('pending');
+  const [identifiedLabel, setIdentifiedLabel] = useState<string | null>(null);
+  const [failMessage, setFailMessage] = useState<string | null>(null);
+  // Set when the scanned product is already in this session — commit updates
+  // that row's count instead of adding a duplicate
+  const [existingBottle, setExistingBottle] = useState<Bottle | null>(null);
 
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
   const [flashAnim] = useState(new Animated.Value(0));
 
   const cameraRef = useRef<CameraView>(null);
-  const soundRef = useRef<AudioPlayer | null>(null);
-  const previousHashRef = useRef<number[] | null>(null);
-  const stableFrameCountRef = useRef(0);
-  const isFrameProcessingRef = useRef(false);
   const isCapturingRef = useRef(false);
-  const lastCaptureTimeRef = useRef(0);
-  const stabilityIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const captureWatchdogRef = useRef<NodeJS.Timeout | null>(null);
   const errorAlertCooldownRef = useRef<NodeJS.Timeout | null>(null);
+  const [catalogToast, setCatalogToast] = useState<string | null>(null);
+  const catalogToastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Per-scan token: pad-cancel bumps this so a stale result can't touch the pad
+  const scanSeq = useRef(0);
+  // Fire-and-forget: scan token → row id saved before identification landed.
+  // The in-flight continuation resolves that row instead of the pad UI.
+  const pendingCommits = useRef<Map<number, string>>(new Map());
+  const identifyStatusRef = useRef<IdentifyStatus | 'idle'>('idle');
+  const scanResultRef = useRef<ScanApiResult | null>(null);
+  const photoUriRef = useRef<string | null>(null);
+
+  const isPausedRef = useRef(false);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
   // --- Border / flash animations ---
 
@@ -140,7 +126,14 @@ export default function CameraScan({ onReview, onBack }: Props) {
     }).start();
   }, [borderColorAnim]);
 
-  // --- Start scanning (called when user taps "Start Scanning") ---
+  const flashGreen = useCallback(() => {
+    Animated.sequence([
+      Animated.timing(flashAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+      Animated.timing(flashAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start();
+  }, [flashAnim]);
+
+  // --- Start scanning ---
 
   const handleStartScanning = useCallback(async () => {
     setShowStartScreen(false);
@@ -159,175 +152,177 @@ export default function CameraScan({ onReview, onBack }: Props) {
   async function initScanning() {
     const token = await apiService.getAccessToken();
     if (!token) return;
-    resetScanState();
+    // Warm the backend's AI connection now so the first scan isn't slow
+    apiService.warmScanPath();
+    resetToIdle();
     setIsScanning(true);
   }
 
-  function resetScanState() {
-    previousHashRef.current = null;
-    stableFrameCountRef.current = 0;
+  function resetToIdle() {
     isCapturingRef.current = false;
-    isFrameProcessingRef.current = false;
-    if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
-    setStabilityProgress(0);
+    identifyStatusRef.current = 'idle';
     setScanState('idle');
     setBorderValue(0);
-    setStatusText('Pen at liquid line');
+    setStatusText(IDLE_STATUS);
   }
-
-  // --- Sound ---
-
-  useEffect(() => {
-    let mounted = true;
-    try {
-      const player = createAudioPlayer(require('../../assets/sounds/beep.mp3'));
-      if (mounted) soundRef.current = player;
-      else player.remove();
-    } catch (err) {
-      console.warn('CameraScan: could not load beep sound:', err);
-    }
-    return () => {
-      mounted = false;
-      soundRef.current?.remove();
-      soundRef.current = null;
-    };
-  }, []);
-
-  async function playBeep() {
-    try {
-      const player = soundRef.current;
-      if (player) { player.seekTo(0); player.play(); }
-    } catch {
-      // haptic handles feedback
-    }
-  }
-
-  // --- Flash animation ---
-
-  const flashGreen = useCallback(() => {
-    Animated.sequence([
-      Animated.timing(flashAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
-      Animated.timing(flashAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start();
-  }, [flashAnim]);
-
-  const triggerSuccessFeedback = useCallback(async () => {
-    await Promise.all([
-      playBeep(),
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
-      Promise.resolve(flashGreen()),
-    ]);
-  }, [flashGreen]);
 
   // --- Capture & analyze ---
 
+  const failScan = useCallback((token: number, message: string) => {
+    if (token !== scanSeq.current) return;
+    identifyStatusRef.current = 'failed';
+    setIdentifyStatus('failed');
+    setFailMessage(message);
+  }, []);
+
   const triggerCapture = useCallback(async () => {
     if (!cameraRef.current) return;
+    if (isCapturingRef.current || isPausedRef.current) return;
+
+    const token = ++scanSeq.current;
     const startTime = Date.now();
     let imageSizeKb = 0;
 
+    isCapturingRef.current = true;
+    scanResultRef.current = null;
+    identifyStatusRef.current = 'pending';
     setScanState('capturing');
-    setStatusText('Analyzing...');
+    setStatusText('Scanning...');
     setLastBottleId(null);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Watchdog: if the API call hangs (Render cold start etc.), un-stick after 18s
-    if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
-    captureWatchdogRef.current = setTimeout(() => {
-      if (isCapturingRef.current) {
-        isCapturingRef.current = false;
-        isFrameProcessingRef.current = false;
-        setScanState('idle');
-        setBorderValue(0);
-        setStatusText('Pen at liquid line');
+    // Per-scan watchdog: if the API call hangs, fail this scan — the saved row
+    // if the user already moved on, otherwise the pad UI. Late firings are
+    // no-ops (guards below), so it never needs explicit clearing.
+    setTimeout(() => {
+      const committedRowId = pendingCommits.current.get(token);
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        markScanFailed(committedRowId);
+        return;
       }
-      captureWatchdogRef.current = null;
+      if (token === scanSeq.current && identifyStatusRef.current === 'pending') {
+        failScan(token, 'Scan timed out — try again');
+      }
     }, CAPTURE_WATCHDOG_MS);
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7, base64: true });
+      // skipProcessing + low quality = fast shutter; we resize/compress below anyway
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.5,
+        base64: false,
+        skipProcessing: true,
+      });
 
-      if (!photo?.base64) {
-        isCapturingRef.current = false;
-        setScanState('idle');
-        setBorderValue(0);
-        setStatusText('Pen at liquid line');
+      if (token !== scanSeq.current) return;
+      if (!photo?.uri) {
+        resetToIdle();
+        return;
+      }
+      photoUriRef.current = photo.uri;
+
+      // Open the number pad immediately — the user types their back-up count
+      // while the AI identifies the bottle in the background.
+      setStockInput('');
+      setIdentifyStatus('pending');
+      setIdentifiedLabel(null);
+      setFailMessage(null);
+      setExistingBottle(null);
+      setPadVisible(true);
+
+      // Downscale before upload — full-res photos are several MB of base64,
+      // which blows past the backend's scan timeout on slow connections.
+      const resized = await ImageManipulator.manipulateAsync(
+        photo.uri,
+        [{ resize: { width: 800 } }],
+        { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+
+      // From here on the user may have saved the row and moved to the next
+      // bottle (fire-and-forget) — check the committed map before the pad UI.
+      if (token !== scanSeq.current && !pendingCommits.current.has(token)) return;
+      if (!resized.base64) {
+        const committedRowId = pendingCommits.current.get(token);
+        if (committedRowId !== undefined) {
+          pendingCommits.current.delete(token);
+          markScanFailed(committedRowId);
+        } else {
+          failScan(token, 'Capture failed — try again');
+        }
         return;
       }
 
-      imageSizeKb = Math.round((photo.base64.length * 0.75) / 1024);
+      imageSizeKb = Math.round((resized.base64.length * 0.75) / 1024);
 
-      // Single pass: identify bottle + read level from pen tip
-      const result = await apiService.analyzeBottleWithPenId(photo.base64);
+      const result = await apiService.analyzeBottleImage(resized.base64);
 
-      if (!result) {
-        await scanDiagnostics.logScan({
-          timestamp: new Date().toISOString(),
-          success: false,
-          errorType: 'parse_error',
-          errorMessage: 'API returned null — no bottle detected',
-          httpStatus: 200,
-          responseTimeMs: Date.now() - startTime,
-          imageSizeKb,
-        });
-        setScanState('idle');
-        setBorderValue(0);
-        setStatusText('Pen at liquid line');
-        isCapturingRef.current = false;
-        return;
-      }
-
-      // If no pen was detected in the frame, reject the scan silently and wait
-      if (result.levelReadable === false) {
-        setScanState('idle');
-        setBorderValue(0);
-        setStatusText('No pen detected — hold pen at liquid line');
-        isCapturingRef.current = false;
-        return;
-      }
-
+      const scanOk = result != null && !!result.matched_product_id;
       await scanDiagnostics.logScan({
         timestamp: new Date().toISOString(),
-        success: true,
-        errorType: null,
-        errorMessage: null,
+        success: scanOk,
+        errorType: scanOk ? null : 'parse_error',
+        errorMessage: scanOk ? null
+          : result == null ? 'API returned null — no bottle detected'
+          : 'No product match — confidence too low',
         httpStatus: 200,
         responseTimeMs: Date.now() - startTime,
         imageSizeKb,
       });
 
-      const newBottle: Bottle = {
-        id: `bottle_${Date.now()}`,
-        name: result.name,
-        brand: result.brand,
-        category: result.category,
-        size: '',
-        currentLevel: result.liquidLevel,
-        parLevel: 1,
-        level: levelToEnum(result.liquidLevel),
-        imageUrl: photo.uri,
-        distributorId: (result as any).distributorId,
-      };
+      // Auto-created: briefly surface so bad auto-creates are visible during testing
+      if (scanOk && result.is_new_product) {
+        const label = [result.brand, result.name].filter(Boolean).join(' ');
+        setCatalogToast(`Adding to catalog: ${label}`);
+        if (catalogToastTimerRef.current) clearTimeout(catalogToastTimerRef.current);
+        catalogToastTimerRef.current = setTimeout(() => setCatalogToast(null), 1500);
+      }
 
-      lastCaptureTimeRef.current = Date.now();
-      addBottle(newBottle);
-      setLastBottleId(newBottle.id);
-      setBottleCount(prev => prev + 1);
-      setScanState('success');
-      setBorderValue(1);
-      setStatusText(`${result.name} — ${levelToReadable(result.liquidLevel)}`);
-      setStabilityProgress(0);
-      await triggerSuccessFeedback();
+      // Fire-and-forget: the row was saved before identification finished —
+      // fill it in (or flag it) and leave the pad/scanner UI alone.
+      const committedRowId = pendingCommits.current.get(token);
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        if (scanOk) {
+          resolveScan(committedRowId, {
+            productId: result.matched_product_id ?? undefined,
+            name: result.name,
+            brand: result.brand,
+            category: result.category,
+          });
+        } else {
+          markScanFailed(committedRowId);
+        }
+        return;
+      }
 
-      if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
-      successTimeoutRef.current = setTimeout(() => {
-            setScanState('idle');
-        setBorderValue(0);
-        setStatusText('Pen at liquid line');
-        isCapturingRef.current = false;
-      }, SUCCESS_DISPLAY_MS);
+      if (token !== scanSeq.current) return;
+
+      if (result == null) {
+        failScan(token, 'No bottle detected — try again');
+        return;
+      }
+      // Low-confidence: no exact match, confidence too low for auto-create
+      if (!result.matched_product_id) {
+        failScan(token, "Couldn't recognize — add it manually");
+        return;
+      }
+
+      // Same product already scanned this session? Update its row, don't duplicate
+      const existing = bottles.find(b =>
+        b.scanStatus === undefined &&
+        ((result.matched_product_id && b.productId === result.matched_product_id) ||
+          (b.name.toLowerCase() === result.name.toLowerCase() &&
+           b.brand.toLowerCase() === result.brand.toLowerCase()))
+      );
+      setExistingBottle(existing ?? null);
+
+      scanResultRef.current = result;
+      identifyStatusRef.current = 'ok';
+      setIdentifiedLabel([result.brand, result.name].filter(Boolean).join(' — '));
+      setIdentifyStatus('ok');
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     } catch (error: any) {
-      // --- Classify error ---
       let errorType: ScanLogEntry['errorType'] = 'unknown';
       let httpStatus: number | null = null;
       let errorMessage = error?.message || 'Unknown error';
@@ -358,10 +353,14 @@ export default function CameraScan({ onReview, onBack }: Props) {
         imageSizeKb,
       });
 
-      if (captureWatchdogRef.current) { clearTimeout(captureWatchdogRef.current); captureWatchdogRef.current = null; }
+      const committedRowId = pendingCommits.current.get(token);
 
-      // Auth error: stop scanning and force re-login
       if (errorType === 'auth_error') {
+        if (committedRowId !== undefined) {
+          pendingCommits.current.delete(token);
+          markScanFailed(committedRowId);
+        }
+        setPadVisible(false);
         setIsScanning(false);
         Alert.alert(
           'Session Expired',
@@ -371,100 +370,161 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
 
-      setScanState('idle');
-      setBorderValue(0);
-      setStatusText('Pen at liquid line');
-      isCapturingRef.current = false;
-
-      // Throttled error alert so we don't spam the user
-      if (!errorAlertCooldownRef.current) {
-        Alert.alert('Scan Error', errorMessage, [{ text: 'OK' }]);
-        errorAlertCooldownRef.current = setTimeout(() => {
-          errorAlertCooldownRef.current = null;
-        }, 5000);
+      // Fire-and-forget: flag the saved row so it can be retried from Review
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        markScanFailed(committedRowId);
+        return;
       }
+
+      if (token !== scanSeq.current) return;
+
+      failScan(token,
+        errorType === 'timeout' ? 'Scan timed out — try again'
+        : errorType === 'network' ? 'No connection — check your network'
+        : 'Scan failed — try again');
     }
-  }, [addBottle, setBorderValue, triggerSuccessFeedback, logout]);
+  }, [failScan, logout, setBorderValue, bottles, resolveScan, markScanFailed]);
 
-  // --- Stability detection loop ---
+  // --- Number pad: commit / fail / cancel ---
 
-  useEffect(() => {
-    if (!isScanning || isPaused) {
-      if (stabilityIntervalRef.current) {
-        clearInterval(stabilityIntervalRef.current);
-        stabilityIntervalRef.current = null;
-      }
+  const closePadWithFail = useCallback(() => {
+    scanSeq.current++;
+    const message = failMessage ?? 'Scan failed — try again';
+    setPadVisible(false);
+    isCapturingRef.current = false;
+    identifyStatusRef.current = 'idle';
+    setScanState('idle');
+    setBorderValue(0);
+    setStatusText(message);
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    successTimeoutRef.current = setTimeout(() => setStatusText(IDLE_STATUS), 2500);
+  }, [failMessage, setBorderValue]);
+
+  const commitBottle = useCallback(() => {
+    const result = scanResultRef.current;
+    if (!result) {
+      closePadWithFail();
+      return;
+    }
+    const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
+    const label = [result.brand, result.name].filter(Boolean).join(', ');
+
+    if (existingBottle) {
+      // Re-scan of a product already in the session — replace its count
+      updateBottle(existingBottle.id, { currentStock: stock });
+      setLastBottleId(null);   // no undo for count updates
+      setStatusText(`${label} — updated to ${formatStock(stock)}`);
+    } else {
+      const newBottle: Bottle = {
+        id: `bottle_${Date.now()}`,   // always unique — productId tracks the catalog match
+        productId: result.matched_product_id ?? undefined,
+        name: result.name,
+        brand: result.brand,
+        category: result.category,
+        size: '',
+        currentLevel: 1,
+        parLevel: 1,
+        currentStock: stock,       // typed on the pad — total back-up bottles
+        imageUrl: photoUriRef.current ?? undefined,
+        distributorId: (result as any).distributorId,
+      };
+      addBottle(newBottle);
+      setLastBottleId(newBottle.id);
+      setBottleCount(prev => prev + 1);
+      setStatusText(label);
+    }
+
+    setPadVisible(false);
+    setScanState('success');
+    setBorderValue(1);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    flashGreen();
+
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    successTimeoutRef.current = setTimeout(() => {
+      resetToIdle();
+    }, SUCCESS_DISPLAY_MS);
+  }, [stockInput, existingBottle, addBottle, updateBottle, setBorderValue, flashGreen, closePadWithFail]);
+
+  const handlePadAdd = useCallback(() => {
+    if (identifyStatus === 'ok') {
+      commitBottle();
+      return;
+    }
+    if (identifyStatus === 'failed') {
+      closePadWithFail();
       return;
     }
 
-    stabilityIntervalRef.current = setInterval(async () => {
-      if (isFrameProcessingRef.current || isCapturingRef.current) return;
-      if (!cameraRef.current) return;
-      if (Date.now() - lastCaptureTimeRef.current < CAPTURE_COOLDOWN_MS) return;
-
-      isFrameProcessingRef.current = true;
-
-      try {
-        const frame = await cameraRef.current.takePictureAsync({ quality: 0.05, base64: true });
-        if (!frame?.base64) { isFrameProcessingRef.current = false; return; }
-
-        const currentHash = sampleBase64(frame.base64);
-
-        if (previousHashRef.current) {
-          const diff = frameDifference(previousHashRef.current, currentHash);
-
-          if (diff < STABILITY_THRESHOLD) {
-            stableFrameCountRef.current = Math.min(stableFrameCountRef.current + 1, FRAMES_NEEDED);
-            setStabilityProgress(stableFrameCountRef.current / FRAMES_NEEDED);
-            setScanState('stabilizing');
-            setStatusText('Hold steady...');
-
-            if (stableFrameCountRef.current >= FRAMES_NEEDED) {
-              isCapturingRef.current = true;
-              stableFrameCountRef.current = 0;
-              previousHashRef.current = null;
-              isFrameProcessingRef.current = false;
-              triggerCapture();
-              return;
-            }
-          } else {
-            // Frames differ — phone is moving, reset progress, do not capture
-            stableFrameCountRef.current = 0;
-            setStabilityProgress(0);
-            setScanState('idle');
-            setStatusText('Pen at liquid line');
-          }
-        }
-
-        previousHashRef.current = currentHash;
-      } catch {
-        stableFrameCountRef.current = 0;
-      }
-
-      isFrameProcessingRef.current = false;
-    }, FRAME_INTERVAL_MS);
-
-    return () => {
-      if (stabilityIntervalRef.current) {
-        clearInterval(stabilityIntervalRef.current);
-        stabilityIntervalRef.current = null;
-      }
+    // Fire-and-forget: save the row NOW with the typed count and move on —
+    // the in-flight identification fills in the name when it lands.
+    const token = scanSeq.current;
+    const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
+    const newBottle: Bottle = {
+      id: `bottle_${Date.now()}`,
+      name: 'Identifying…',
+      brand: '',
+      category: 'other',
+      size: '',
+      currentLevel: 1,
+      parLevel: 1,
+      currentStock: stock,
+      imageUrl: photoUriRef.current ?? undefined,
+      scanStatus: 'pending',
     };
-  }, [isScanning, isPaused, triggerCapture]);
+    addBottle(newBottle);
+    pendingCommits.current.set(token, newBottle.id);
+    setLastBottleId(newBottle.id);
+    setBottleCount(prev => prev + 1);
+
+    setPadVisible(false);
+    setScanState('success');
+    setBorderValue(1);
+    setStatusText('Saved — identifying in background');
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    flashGreen();
+
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    successTimeoutRef.current = setTimeout(() => {
+      resetToIdle();
+    }, SUCCESS_DISPLAY_MS);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identifyStatus, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen]);
+
+  const handlePadCancel = useCallback(() => {
+    scanSeq.current++;   // invalidate the in-flight scan
+    setPadVisible(false);
+    resetToIdle();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleKeyPress = useCallback((key: string) => {
+    Haptics.selectionAsync();
+    setStockInput(prev => {
+      if (key === 'back') return prev.slice(0, -1);
+      if (key === '.') {
+        if (prev.includes('.')) return prev;
+        return prev === '' ? '0.' : prev + '.';
+      }
+      const next = prev + key;
+      if (!/^\d{0,3}(\.\d{0,2})?$/.test(next)) return prev;
+      if (parseFloat(next) > STOCK_MAX) return prev;
+      return next;
+    });
+  }, []);
 
   // --- Cleanup on unmount ---
 
   useEffect(() => {
     return () => {
-      if (stabilityIntervalRef.current) clearInterval(stabilityIntervalRef.current);
       if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
-      if (captureWatchdogRef.current) clearTimeout(captureWatchdogRef.current);
       if (errorAlertCooldownRef.current) clearTimeout(errorAlertCooldownRef.current);
+      if (catalogToastTimerRef.current) clearTimeout(catalogToastTimerRef.current);
     };
   }, []);
 
   const handleDone = () => {
-    if (stabilityIntervalRef.current) clearInterval(stabilityIntervalRef.current);
     if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
     setIsScanning(false);
     onReview();
@@ -475,22 +535,18 @@ export default function CameraScan({ onReview, onBack }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
+  // Undo: remove last bottle and reset back to idle. Doesn't touch scanSeq —
+  // other in-flight identifications must keep resolving. If the undone row's
+  // scan is still in flight, resolveScan finds no row and no-ops.
   const handleUndo = useCallback(() => {
     if (!lastBottleId) return;
     removeBottle(lastBottleId);
     setLastBottleId(null);
     setBottleCount(prev => Math.max(0, prev - 1));
+    resetToIdle();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastBottleId, removeBottle]);
-
-  const handleTapCapture = useCallback(() => {
-    if (isCapturingRef.current) return;
-    if (scanState === 'success') return;
-    isCapturingRef.current = true;
-    stableFrameCountRef.current = 0;
-    previousHashRef.current = null;
-    triggerCapture();
-  }, [scanState, triggerCapture]);
 
   // --- Start screen ---
 
@@ -511,37 +567,33 @@ export default function CameraScan({ onReview, onBack }: Props) {
         </View>
 
         <View style={styles.startScreenContent}>
-          <Animated.View style={styles.startCard}>
-            {/* Icon */}
+          <View style={styles.startCard}>
             <View style={styles.startIconContainer}>
               <View style={styles.startIconBox}>
                 <Camera size={32} color="#FFFFFF" />
               </View>
             </View>
 
-            {/* Headline */}
             <Text style={styles.startHeadline}>Scan Your Inventory</Text>
             <Text style={styles.startSubheadline}>
-              Hold a pen at the liquid line of each bottle. AI reads the label and uses the pen tip for an accurate level every time.
+              Point, tap, type a count. AI identifies each bottle instantly.
             </Text>
 
-            {/* How it works */}
             <View style={styles.startTips}>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Touch pen tip to liquid surface, point camera at bottle</Text>
+                <Text style={styles.startTipText}>Point camera at the bottle label</Text>
               </View>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Auto-captures when steady — no tapping needed</Text>
+                <Text style={styles.startTipText}>Tap the shutter — AI identifies the bottle</Text>
               </View>
               <View style={styles.startTip}>
                 <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Tap Done when finished to review</Text>
+                <Text style={styles.startTipText}>Type your total stock count on the number pad</Text>
               </View>
             </View>
 
-            {/* Start button */}
             <TouchableOpacity
               style={styles.startButton}
               onPress={handleStartScanning}
@@ -550,7 +602,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
               <Zap size={20} color="#FFFFFF" fill="#FFFFFF" />
               <Text style={styles.startButtonText}>Start Scanning</Text>
             </TouchableOpacity>
-          </Animated.View>
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -586,6 +638,8 @@ export default function CameraScan({ onReview, onBack }: Props) {
 
   // --- Render ---
 
+  const isCapturing = scanState === 'capturing';
+
   return (
     <SafeAreaView style={styles.container}>
 
@@ -599,10 +653,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
         >
           <ChevronLeft size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.counterText}>
-          {isPaused ? 'Paused' : bottleCount > 0
-            ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
-            : 'Scanning'}
+        <Text style={[styles.counterText, isCapturing && styles.counterTextActive]}>
+          {isPaused ? 'Paused'
+            : isCapturing ? 'Scanning'
+            : bottleCount > 0
+              ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
+              : 'Scanning'}
         </Text>
         <TouchableOpacity
           style={styles.pauseButton}
@@ -625,13 +681,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
             {/* Green flash on capture */}
             <Animated.View style={[styles.flashOverlay, { opacity: flashOpacity }]} />
 
-            {/* Tap-to-capture overlay */}
-            <TouchableOpacity
-              style={styles.tapOverlay}
-              onPress={handleTapCapture}
-              activeOpacity={1}
-            />
-
             {/* Corner guides */}
             <View style={styles.centerZone}>
               <View style={styles.cornerTL} />
@@ -640,16 +689,26 @@ export default function CameraScan({ onReview, onBack }: Props) {
               <View style={styles.cornerBR} />
             </View>
 
-            {/* Scanning indicator — pulses while the stability loop is running */}
-            {(scanState === 'idle' || scanState === 'stabilizing') && (
-              <View style={styles.tapHint}>
-                <Text style={styles.tapHintText}>
-                  {scanState === 'stabilizing' ? 'Hold steady...' : 'Scanning...'}
-                </Text>
+            {/* Status hint at top of camera */}
+            {isCapturing && (
+              <View style={styles.statusHint}>
+                <Text style={[styles.statusHintText, styles.statusHintTextActive]}>Scanning...</Text>
+              </View>
+            )}
+            {scanState === 'idle' && (
+              <View style={styles.statusHint}>
+                <Text style={styles.statusHintText}>Point at bottle · tap shutter</Text>
               </View>
             )}
 
-            {/* Success badge: "Grey Goose — Half full" */}
+            {/* Catalog auto-create toast */}
+            {catalogToast ? (
+              <View style={styles.catalogToast}>
+                <Text style={styles.catalogToastText}>{catalogToast}</Text>
+              </View>
+            ) : null}
+
+            {/* Success badge */}
             {scanState === 'success' && (
               <View style={styles.successBadge}>
                 <Check size={16} color={COLORS.primaryDark} />
@@ -657,6 +716,19 @@ export default function CameraScan({ onReview, onBack }: Props) {
               </View>
             )}
 
+            {/* Shutter button */}
+            {scanState !== 'success' && !padVisible && (
+              <TouchableOpacity
+                style={[styles.shutterButton, (isCapturing || isPaused) && styles.shutterButtonDisabled]}
+                onPress={triggerCapture}
+                disabled={isCapturing || isPaused}
+                activeOpacity={0.7}
+              >
+                <View style={styles.shutterInner}>
+                  <Text style={styles.shutterText}>SCAN</Text>
+                </View>
+              </TouchableOpacity>
+            )}
 
           </CameraView>
         ) : (
@@ -669,31 +741,20 @@ export default function CameraScan({ onReview, onBack }: Props) {
       {/* Bottom bar */}
       {isScanning && (
         <View style={styles.bottomBar}>
-          {/* Stability progress bar */}
-          <View style={styles.stabilityTrack}>
-            <View
-              style={[
-                styles.stabilityFill,
-                {
-                  width: `${stabilityProgress * 100}%` as any,
-                  backgroundColor: scanState === 'success' ? COLORS.success : COLORS.accentPrimary,
-                },
-              ]}
-            />
-          </View>
-
           <View style={styles.bottomContent}>
             <View style={styles.instructionBlock}>
               <Text style={[
                 styles.instructionPrimary,
-                scanState === 'success' && { color: COLORS.success },
+                (scanState === 'success' || isCapturing) && { color: COLORS.success },
               ]}>
                 {statusText}
               </Text>
               <Text style={styles.instructionSub}>
                 {scanState === 'success'
                   ? 'Move to next bottle'
-                  : 'Auto-captures when steady — tap to force'}
+                  : isCapturing
+                    ? 'Identifying bottle...'
+                    : 'Tap the shutter to scan'}
               </Text>
             </View>
 
@@ -721,6 +782,105 @@ export default function CameraScan({ onReview, onBack }: Props) {
           </View>
         </View>
       )}
+
+      {/* Stock count number pad — half-screen sheet, camera stays visible behind */}
+      <Modal
+        visible={padVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handlePadCancel}
+      >
+        <View style={styles.padOverlay}>
+          <View style={styles.padSheet}>
+            <View style={styles.padHandle} />
+
+            {/* Identification status */}
+            <View style={styles.padStatusRow}>
+              {identifyStatus === 'pending' && (
+                <>
+                  <ActivityIndicator size="small" color={COLORS.textTertiary} />
+                  <Text style={styles.padStatusPending}>Identifying bottle...</Text>
+                </>
+              )}
+              {identifyStatus === 'ok' && (
+                <>
+                  <Check size={16} color={COLORS.success} />
+                  <Text style={styles.padStatusOk} numberOfLines={1}>{identifiedLabel}</Text>
+                </>
+              )}
+              {identifyStatus === 'failed' && (
+                <Text style={styles.padStatusFailed}>{failMessage}</Text>
+              )}
+            </View>
+
+            {/* While the AI works, tell new users to keep going — the scan runs itself */}
+            {identifyStatus === 'pending' && (
+              <Text style={styles.padHintNote}>
+                Still identifying — add your count and keep scanning.
+              </Text>
+            )}
+
+            {/* Duplicate scan — updating the existing row, not adding a new one */}
+            {identifyStatus === 'ok' && existingBottle && (
+              <Text style={styles.padDuplicateNote}>
+                Already scanned — {formatStock(existingBottle.currentStock ?? 0)} in stock. Enter your new total.
+              </Text>
+            )}
+
+            {/* Typed value */}
+            <View style={styles.padValueRow}>
+              <Text style={styles.padValue}>{stockInput === '' ? '0' : stockInput}</Text>
+              <Text style={styles.padValueLabel}>CURRENT STOCK</Text>
+            </View>
+
+            {/* Keypad */}
+            <View style={styles.keypad}>
+              {KEYPAD_ROWS.map((row, i) => (
+                <View key={i} style={styles.keypadRow}>
+                  {row.map(key => (
+                    <TouchableOpacity
+                      key={key}
+                      style={styles.keypadKey}
+                      onPress={() => handleKeyPress(key)}
+                      activeOpacity={0.6}
+                    >
+                      {key === 'back'
+                        ? <Delete size={22} color={COLORS.textPrimary} />
+                        : <Text style={styles.keypadKeyText}>{key}</Text>}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ))}
+            </View>
+
+            {/* Actions */}
+            <View style={styles.padActions}>
+              <TouchableOpacity
+                style={styles.padCancelButton}
+                onPress={handlePadCancel}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.padCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.padAddButton,
+                  stockInput === '' && identifyStatus !== 'failed' && styles.padAddButtonDisabled,
+                ]}
+                onPress={handlePadAdd}
+                disabled={stockInput === '' && identifyStatus !== 'failed'}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.padAddText}>
+                  {identifyStatus === 'failed' ? 'Close'
+                    : existingBottle ? 'Update Count'
+                    : 'Add Bottle'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
     </SafeAreaView>
   );
@@ -794,10 +954,13 @@ const styles = StyleSheet.create({
   counterText: {
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.textPrimary,
+    color: COLORS.textSecondary,
     letterSpacing: LETTER_SPACING,
     flex: 1,
     textAlign: 'center',
+  },
+  counterTextActive: {
+    color: COLORS.success,
   },
   pauseButton: {
     paddingHorizontal: SPACING.md,
@@ -824,11 +987,44 @@ const styles = StyleSheet.create({
     borderWidth: 5,
     zIndex: 10,
   },
-  tapOverlay: {
+  flashOverlay: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 4,
+    backgroundColor: COLORS.success,
+    zIndex: 20,
   },
-  tapHint: {
+  centerZone: {
+    position: 'absolute',
+    top: '27%',
+    left: '27%',
+    right: '27%',
+    bottom: '37%',
+    zIndex: 5,
+  },
+  cornerTL: {
+    position: 'absolute', top: 0, left: 0,
+    width: 34, height: 34,
+    borderLeftWidth: 3, borderTopWidth: 3,
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  cornerTR: {
+    position: 'absolute', top: 0, right: 0,
+    width: 34, height: 34,
+    borderRightWidth: 3, borderTopWidth: 3,
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  cornerBL: {
+    position: 'absolute', bottom: 0, left: 0,
+    width: 34, height: 34,
+    borderLeftWidth: 3, borderBottomWidth: 3,
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  cornerBR: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 34, height: 34,
+    borderRightWidth: 3, borderBottomWidth: 3,
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  statusHint: {
     position: 'absolute',
     top: 16,
     alignSelf: 'center',
@@ -838,47 +1034,31 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     zIndex: 15,
   },
-  tapHintText: {
+  statusHintText: {
     fontSize: FONT_SIZES.sm,
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.85)',
     letterSpacing: LETTER_SPACING,
   },
-  flashOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: COLORS.success,
-    zIndex: 20,
+  statusHintTextActive: {
+    color: COLORS.success,
+    fontWeight: FONT_WEIGHTS.bold,
   },
-  centerZone: {
+  catalogToast: {
     position: 'absolute',
-    top: '15%',
-    left: '15%',
-    right: '15%',
-    bottom: '25%',
-    zIndex: 5,
+    top: 12,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 140, 60, 0.90)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    zIndex: 40,
   },
-  cornerTL: {
-    position: 'absolute', top: 0, left: 0,
-    width: 40, height: 40,
-    borderLeftWidth: 3, borderTopWidth: 3,
-    borderColor: 'rgba(255,255,255,0.5)',
-  },
-  cornerTR: {
-    position: 'absolute', top: 0, right: 0,
-    width: 40, height: 40,
-    borderRightWidth: 3, borderTopWidth: 3,
-    borderColor: 'rgba(255,255,255,0.5)',
-  },
-  cornerBL: {
-    position: 'absolute', bottom: 0, left: 0,
-    width: 40, height: 40,
-    borderLeftWidth: 3, borderBottomWidth: 3,
-    borderColor: 'rgba(255,255,255,0.5)',
-  },
-  cornerBR: {
-    position: 'absolute', bottom: 0, right: 0,
-    width: 40, height: 40,
-    borderRightWidth: 3, borderBottomWidth: 3,
-    borderColor: 'rgba(255,255,255,0.5)',
+  catalogToastText: {
+    color: '#FFFFFF',
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    textAlign: 'center',
   },
   successBadge: {
     position: 'absolute',
@@ -899,44 +1079,191 @@ const styles = StyleSheet.create({
     color: COLORS.primaryDark,
     letterSpacing: LETTER_SPACING,
   },
-  penBadge: {
+
+  // --- Shutter ---
+
+  shutterButton: {
     position: 'absolute',
-    bottom: 24,
-    left: SPACING.xl,
-    right: SPACING.xl,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    borderWidth: 1,
-    borderColor: `${COLORS.warning}50`,
-    borderRadius: 12,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
+    bottom: 28,
+    alignSelf: 'center',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
+    justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 30,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    zIndex: 25,
   },
-  penBadgeTitle: {
-    fontSize: FONT_SIZES.base,
+  shutterButtonDisabled: {
+    opacity: 0.4,
+  },
+  shutterInner: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shutterText: {
+    fontSize: 12,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.warning,
-    letterSpacing: LETTER_SPACING,
-    marginBottom: 4,
+    color: COLORS.primaryDark,
+    letterSpacing: 1,
   },
-  penBadgeSub: {
+
+  // --- Stock number pad ---
+
+  padOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'transparent',
+  },
+  padSheet: {
+    backgroundColor: COLORS.primaryDark,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderColor: `${COLORS.border}80`,
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING.xl,
+    maxHeight: '55%',
+  },
+  padHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: `${COLORS.border}80`,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  padStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+    minHeight: 24,
+    marginBottom: 2,
+  },
+  padStatusPending: {
     fontSize: FONT_SIZES.sm,
-    color: COLORS.textSecondary,
+    color: COLORS.textTertiary,
+    letterSpacing: LETTER_SPACING,
+  },
+  padStatusOk: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.success,
+    letterSpacing: LETTER_SPACING,
+    maxWidth: '85%',
+  },
+  padStatusFailed: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.error,
+    letterSpacing: LETTER_SPACING,
     textAlign: 'center',
   },
+  padDuplicateNote: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.accentPrimary,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  padHintNote: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  padValueRow: {
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  padValue: {
+    fontSize: 40,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    fontFamily: 'monospace',
+  },
+  padValueLabel: {
+    fontSize: 10,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textTertiary,
+    letterSpacing: 1.5,
+  },
+  keypad: {
+    gap: 8,
+    marginBottom: SPACING.md,
+  },
+  keypadRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  keypadKey: {
+    flex: 1,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: `${COLORS.surface}90`,
+    borderWidth: 1,
+    borderColor: `${COLORS.border}50`,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  keypadKeyText: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
+    fontFamily: 'monospace',
+  },
+  padActions: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+  },
+  padCancelButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  padCancelText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
+    letterSpacing: LETTER_SPACING,
+  },
+  padAddButton: {
+    flex: 2,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: COLORS.accentPrimary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  padAddButtonDisabled: {
+    opacity: 0.5,
+  },
+  padAddText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
+  },
+
+  // --- Bottom bar ---
+
   bottomBar: {
     backgroundColor: 'rgba(0,0,0,0.85)',
     borderTopWidth: 1,
     borderTopColor: `${COLORS.border}50`,
-  },
-  stabilityTrack: {
-    height: 3,
-    backgroundColor: `${COLORS.border}80`,
-    width: '100%',
-  },
-  stabilityFill: {
-    height: 3,
   },
   bottomContent: {
     flexDirection: 'row',
@@ -953,7 +1280,7 @@ const styles = StyleSheet.create({
   instructionPrimary: {
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.textPrimary,
+    color: COLORS.textSecondary,
     letterSpacing: LETTER_SPACING,
     marginBottom: 2,
   },
@@ -1004,7 +1331,9 @@ const styles = StyleSheet.create({
     color: COLORS.accentPrimary,
     fontFamily: 'monospace',
   },
+
   // --- Start screen ---
+
   startScreenHeader: {
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,

@@ -4,43 +4,30 @@ export interface BottleAnalysisResult {
   name: string;
   brand: string;
   category: string;
+  product_type?: string;  // Specific class/type (e.g. Tennessee Whiskey, Blended Scotch Whisky)
   liquidLevel: number;
   confidence: number;
   levelReadable?: boolean;
 }
 
-export interface PenAnalysisResult {
-  liquidLevel: number;
-  confidence: number;
-}
-
-// First pass: Analyze bottle and detect if level is readable
 export async function analyzeBottleImage(
-  imageBase64: string,
-  usePen: boolean = false
+  imageBase64: string
 ): Promise<BottleAnalysisResult | null> {
   try {
-    // base64 is now passed directly, no FileSystem read needed
-
-    if (usePen) {
-      // Second pass: Use pen detection
-      const result = await apiService.analyzeBottleWithPen(imageBase64);
-      return {
-        name: '', // Not used in pen mode
-        brand: '',
-        category: 'Spirits',
-        liquidLevel: result.liquidLevel,
-        confidence: result.confidence,
-        levelReadable: true,
-      };
-    }
-
-    // First pass: Standard bottle analysis
     const response = await apiService.analyzeBottleImage(imageBase64);
+
+    if (!response || !response.name) {
+      return null;
+    }
 
     return {
       ...response,
-      levelReadable: response.levelReadable !== false && response.confidence > 0.6,
+      name: response.name,
+      brand: response.brand ?? '',
+      category: response.category ?? 'other',
+      liquidLevel: response.liquidLevel ?? 0,
+      confidence: response.confidence ?? 0,
+      levelReadable: response.levelReadable !== false && (response.confidence ?? 0) > 0.6,
     };
   } catch (error: any) {
     console.error('Bottle analysis error:', error);

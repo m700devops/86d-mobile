@@ -1,7 +1,5 @@
 name: Build iOS App
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       profile:
@@ -41,5 +39,5 @@ jobs:
       run: |
         eas build \
           --platform ios \
-          --profile ${{ github.event.inputs.profile || 'production' }} \
+          --profile ${{ github.event.inputs.profile || 'preview' }} \
           --non-interactive

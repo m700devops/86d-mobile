@@ -65,7 +65,7 @@ export interface Scan {
   product_id: string;
   level: 'almost_full' | '3/4' | 'half' | '1/4' | 'empty';
   quantity?: number;
-  detection_method: 'auto' | 'pen' | 'barcode' | 'manual';
+  detection_method: 'auto' | 'barcode' | 'manual';
   confidence?: number;
   photo_url?: string;
   shelf_location?: string;
@@ -145,6 +145,17 @@ export interface Bottle {
   level?: LiquidLevel;
   currentStock?: number;
   price?: number;
+  productId?: string;
+  // Fire-and-forget scans: 'pending' while the AI identifies in the background,
+  // 'failed' when identification didn't land (row shows a retry action)
+  scanStatus?: 'pending' | 'failed';
+}
+
+export interface ProductDistributorAssignment {
+  product_id: string;
+  distributor_id: string;
+  distributor: { id: string; name: string; email?: string };
+  product: { id: string; name: string; brand?: string; size?: string };
 }
 
 export interface Location {
@@ -176,10 +187,9 @@ export interface OrderItem {
 
 export type LiquidLevel = 'full' | 'almost_full' | '3/4' | 'half' | '1/4' | 'empty';
 
-export type AppScreen = 
-  | 'onboarding' 
-  | 'camera' 
-  | 'pen-detection' 
-  | 'review' 
+export type AppScreen =
+  | 'onboarding'
+  | 'camera'
+  | 'review'
   | 'order'
   | 'settings';

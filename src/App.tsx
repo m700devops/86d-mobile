@@ -10,7 +10,6 @@ import { LoginScreen } from './screens/LoginScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
 import Onboarding from './screens/Onboarding';
 import CameraScan from './screens/CameraScan';
-import PenDetection from './screens/PenDetection';
 import ReviewGrid from './screens/ReviewGrid';
 import OrderSummary from './screens/OrderSummary';
 import SettingsScreen from './screens/SettingsScreen';
@@ -19,7 +18,7 @@ import Sidebar from './components/Sidebar';
 
 // Auth-aware app content
 function AppContent() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, logout } = useAuth();
   const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
@@ -78,18 +77,12 @@ function AppContent() {
             onReview={() => navigate('review')}
           />
         );
-      case 'pen-detection':
-        return (
-          <PenDetection
-            onBack={() => navigate('camera')}
-            onComplete={() => navigate('review')}
-          />
-        );
       case 'review':
         return (
           <ReviewGrid
             onGenerateOrder={() => navigate('order')}
             onAddManual={() => setIsManualAddOpen(true)}
+            onNavigateToSettings={() => navigate('settings')}
           />
         );
       case 'order':
@@ -121,7 +114,8 @@ function AppContent() {
                 onClose={() => setIsSidebarOpen(false)}
                 currentScreen={currentScreen as AppScreen}
                 onNavigate={(screen) => navigate(screen as AppScreen)}
-                onSignOut={() => {
+                onSignOut={async () => {
+                  await logout();
                   setCurrentScreen('login');
                   setIsSidebarOpen(false);
                 }}
