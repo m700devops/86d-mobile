@@ -1,13 +1,11 @@
 name: Build iOS App
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       profile:
         description: 'Build profile'
         required: true
-        default: 'production'
+        default: 'preview'
         type: choice
         options:
           - development
@@ -41,5 +39,5 @@ jobs:
       run: |
         eas build \
           --platform ios \
-          --profile ${{ github.event.inputs.profile || 'production' }} \
+          --profile ${{ github.event.inputs.profile || 'preview' }} \
           --non-interactive
