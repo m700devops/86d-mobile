@@ -18,7 +18,7 @@ import Sidebar from './components/Sidebar';
 
 // Auth-aware app content
 function AppContent() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, logout } = useAuth();
   const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
@@ -82,6 +82,7 @@ function AppContent() {
           <ReviewGrid
             onGenerateOrder={() => navigate('order')}
             onAddManual={() => setIsManualAddOpen(true)}
+            onNavigateToSettings={() => navigate('settings')}
           />
         );
       case 'order':
@@ -113,7 +114,8 @@ function AppContent() {
                 onClose={() => setIsSidebarOpen(false)}
                 currentScreen={currentScreen as AppScreen}
                 onNavigate={(screen) => navigate(screen as AppScreen)}
-                onSignOut={() => {
+                onSignOut={async () => {
+                  await logout();
                   setCurrentScreen('login');
                   setIsSidebarOpen(false);
                 }}

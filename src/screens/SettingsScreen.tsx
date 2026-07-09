@@ -334,8 +334,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryDark,
   },
   header: {
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.lg,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.lg,
+    paddingLeft: 70,
+    paddingRight: SPACING.lg,
   },
   headerTitle: {
     fontSize: FONT_SIZES['2xl'],

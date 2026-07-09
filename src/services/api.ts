@@ -1,10 +1,10 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, STORAGE_KEYS } from '../config/api';
-import { 
-  AuthResponse, 
-  LoginRequest, 
-  RegisterRequest, 
+import {
+  AuthResponse,
+  LoginRequest,
+  RegisterRequest,
   User,
   Product,
   ProductListResponse,
@@ -16,6 +16,7 @@ import {
   Scan,
   ScanResponse,
   Distributor,
+  ProductDistributorAssignment,
   ApiError
 } from '../types';
 
@@ -50,7 +51,11 @@ class ApiService {
       async (error: AxiosError<ApiError>) => {
         const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        // A 401 from login/register/refresh is a definitive failure — a token
+        // refresh can't fix it and only delays the error reaching the UI.
+        const isAuthRoute = /\/auth\/(login|register|refresh)/.test(originalRequest?.url ?? '');
+
+        if (error.response?.status === 401 && !originalRequest._retry && !isAuthRoute) {
           originalRequest._retry = true;
 
           try {
@@ -103,16 +108,16 @@ class ApiService {
   }
 
   // Auth methods
-  async register(data: RegisterRequest): Promise<AuthResponse> {
-    const response = await this.client.post<AuthResponse>('/auth/register', data);
+  async register(data: RegisterRequest, signal?: AbortSignal): Promise<AuthResponse> {
+    const response = await this.client.post<AuthResponse>('/auth/register', data, { signal });
     const { access_token, refresh_token, user } = response.data;
     await this.setTokens(access_token, refresh_token);
     await this.setUserData(user);
     return response.data;
   }
 
-  async login(data: LoginRequest): Promise<AuthResponse> {
-    const response = await this.client.post<AuthResponse>('/auth/login', data);
+  async login(data: LoginRequest, signal?: AbortSignal): Promise<AuthResponse> {
+    const response = await this.client.post<AuthResponse>('/auth/login', data, { signal });
     const { access_token, refresh_token, user } = response.data;
     await this.setTokens(access_token, refresh_token);
     await this.setUserData(user);
@@ -203,6 +208,18 @@ class ApiService {
     return response.data.location;
   }
 
+  async updateProductStock(
+    locationId: string,
+    productId: string,
+    updates: { full?: number; current_stock?: number; par?: number }
+  ): Promise<{ location_id: string; product_id: string; full: number; current_stock: number; par: number | null; updated_at: string }> {
+    const response = await this.client.patch(
+      `/locations/${locationId}/products/${productId}`,
+      updates
+    );
+    return response.data;
+  }
+
   async getParLevels(locationId: string): Promise<ParLevel[]> {
     const response = await this.client.get<{ par_levels: ParLevel[] }>(
       `/locations/${locationId}/par-levels`
@@ -267,15 +284,63 @@ class ApiService {
     return response.data.distributor;
   }
 
+  // Product-distributor assignment methods
+  async getProductDistributors(locationId: string): Promise<ProductDistributorAssignment[]> {
+    const response = await this.client.get<{ assignments: ProductDistributorAssignment[] }>(
+      `/locations/${locationId}/product-distributors`
+    );
+    return response.data.assignments;
+  }
+
+  async assignProductDistributor(locationId: string, productId: string, distributorId: string): Promise<any> {
+    const response = await this.client.post(
+      `/locations/${locationId}/product-distributors`,
+      { product_id: productId, distributor_id: distributorId }
+    );
+    return response.data;
+  }
+
+  // Send order emails to distributors (backend delivers via Resend)
+  async sendOrderEmails(payload: {
+    location_name: string;
+    orders: {
+      distributor_id: string;
+      items: { name: string; quantity: number; size?: string }[];
+    }[];
+  }): Promise<{
+    results: {
+      distributor_id: string;
+      distributor_name: string | null;
+      email: string | null;
+      status: 'sent' | 'failed' | 'no_email';
+      error: string | null;
+    }[];
+    sent: number;
+    failed: number;
+  }> {
+    const response = await this.client.post('/orders/email', payload);
+    return response.data;
+  }
+
+  // Pre-warm the backend's AI connection so the first scan is as fast as the
+  // rest. Fire-and-forget — errors are irrelevant.
+  warmScanPath(): void {
+    this.client.post('/scans/warm', {}).catch(() => {});
+  }
+
   // Bottle analysis via backend (calls Gemini)
   async analyzeBottleImage(imageBase64: string): Promise<{
     name: string;
     brand: string;
     category: string;
+    product_type?: string;
     liquidLevel: number;
     confidence: number;
     levelReadable?: boolean;
-  }> {
+    matched_product_id?: string | null;
+    is_new_product?: boolean;
+    match_method?: string;
+  } | null> {
     const response = await this.client.post('/scans/analyze', {
       image: imageBase64,
       mode: 'bottle',
