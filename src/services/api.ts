@@ -300,6 +300,28 @@ class ApiService {
     return response.data;
   }
 
+  // Send order emails to distributors (backend delivers via Resend)
+  async sendOrderEmails(payload: {
+    location_name: string;
+    orders: {
+      distributor_id: string;
+      items: { name: string; quantity: number; size?: string }[];
+    }[];
+  }): Promise<{
+    results: {
+      distributor_id: string;
+      distributor_name: string | null;
+      email: string | null;
+      status: 'sent' | 'failed' | 'no_email';
+      error: string | null;
+    }[];
+    sent: number;
+    failed: number;
+  }> {
+    const response = await this.client.post('/orders/email', payload);
+    return response.data;
+  }
+
   // Pre-warm the backend's AI connection so the first scan is as fast as the
   // rest. Fire-and-forget — errors are irrelevant.
   warmScanPath(): void {
