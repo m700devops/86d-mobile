@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Mail, FileText, Printer, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
+import { useLocation } from '../context/LocationContext';
+import { apiService } from '../services/api';
 import { OrderItem, Distributor } from '../types';
 
 interface Props {
@@ -15,6 +17,7 @@ interface Props {
 export default function OrderSummary({ onRestart }: Props) {
   const { bottles, updateBottle } = useInventory();
   const { distributors } = useDistributors();
+  const { currentLocation } = useLocation();
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
   const [checkAnim] = useState(new Animated.Value(0));
@@ -27,8 +30,9 @@ export default function OrderSummary({ onRestart }: Props) {
 
       return {
         bottleId: b.id,
-        bottleName: b.name,
-        name: b.name,
+        // Order lines show the full product: "Sprite Original", "Gatorade Blue Bolt"
+        bottleName: [b.brand, b.name].filter(Boolean).join(' '),
+        name: [b.brand, b.name].filter(Boolean).join(' '),
         quantity: totalQuantity,
         price: b.price || 0,
         category: b.category,
@@ -47,18 +51,57 @@ export default function OrderSummary({ onRestart }: Props) {
 
   const unassignedItems = orderItems.filter(item => !item.distributorId);
 
-  const handleSendOrders = () => {
+  const handleSendOrders = async () => {
+    if (isSending || groupedByDistributor.length === 0) return;
+
     setIsSending(true);
-    setTimeout(() => {
-      setSentDistributors(groupedByDistributor.map(g => g.distributor.id));
+    try {
+      const response = await apiService.sendOrderEmails({
+        location_name: currentLocation?.name ?? 'My Bar',
+        orders: groupedByDistributor.map(g => ({
+          distributor_id: g.distributor.id,
+          items: g.items.map(i => ({
+            name: i.name || i.bottleName,
+            quantity: i.quantity,
+          })),
+        })),
+      });
+
+      const sentIds = response.results
+        .filter(r => r.status === 'sent')
+        .map(r => r.distributor_id);
+      const failures = response.results.filter(r => r.status !== 'sent');
+
+      if (failures.length > 0) {
+        const lines = failures.map(f => {
+          const who = f.distributor_name ?? 'Distributor';
+          return f.status === 'no_email'
+            ? `${who}: no email on file — add one in Settings`
+            : `${who}: ${f.error ?? 'send failed'}`;
+        });
+        Alert.alert(
+          sentIds.length > 0 ? 'Some emails failed' : "Emails didn't send",
+          lines.join('\n')
+        );
+      }
+
+      if (sentIds.length > 0) {
+        setSentDistributors(sentIds);
+        Animated.spring(checkAnim, {
+          toValue: 1,
+          friction: 5,
+          useNativeDriver: true,
+        }).start();
+      }
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      const message = detail?.error === 'email_not_configured'
+        ? "Email sending isn't set up on the server yet (RESEND_API_KEY missing)."
+        : detail?.message ?? "Couldn't reach the server. Check your connection and try again.";
+      Alert.alert('Send failed', message);
+    } finally {
       setIsSending(false);
-      // Animate checkmark
-      Animated.spring(checkAnim, {
-        toValue: 1,
-        friction: 5,
-        useNativeDriver: true,
-      }).start();
-    }, 2000);
+    }
   };
 
   // Empty state
@@ -101,7 +144,7 @@ export default function OrderSummary({ onRestart }: Props) {
           <Text style={styles.successTitle}>Orders Sent!</Text>
 
           <View style={styles.distributorList}>
-            {groupedByDistributor.map(group => (
+            {groupedByDistributor.filter(g => sentDistributors.includes(g.distributor.id)).map(group => (
               <View key={group.distributor.id} style={styles.sentDistributorCard}>
                 <View style={styles.distributorBadge}>
                   <Text style={styles.distributorInitials}>
@@ -290,7 +333,13 @@ export default function OrderSummary({ onRestart }: Props) {
       <View style={styles.footer}>
         {/* Export Buttons */}
         <View style={styles.exportButtons}>
-          <ExportButton icon={<Mail size={20} />} label="Email" />
+          {/* Email triggers the real send; PDF/Print/Copy are not built yet
+              and render dimmed/disabled so they don't pretend to work */}
+          <ExportButton
+            icon={<Mail size={20} />}
+            label="Email"
+            onPress={unassignedItems.length === 0 && !isSending ? handleSendOrders : undefined}
+          />
           <ExportButton icon={<FileText size={20} />} label="PDF" />
           <ExportButton icon={<Printer size={20} />} label="Print" />
           <ExportButton icon={<Copy size={20} />} label="Copy" />
@@ -366,9 +415,14 @@ function OrderItemRow({ item, distributors }: { item: OrderItem; distributors: D
   );
 }
 
-function ExportButton({ icon, label }: { icon: React.ReactNode; label: string }) {
+function ExportButton({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress?: () => void }) {
   return (
-    <TouchableOpacity style={styles.exportButton} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={[styles.exportButton, !onPress && { opacity: 0.4 }]}
+      activeOpacity={0.7}
+      onPress={onPress}
+      disabled={!onPress}
+    >
       {icon}
       <Text style={styles.exportLabel}>{label}</Text>
     </TouchableOpacity>

@@ -344,14 +344,17 @@ function BottleRow({
     <View style={styles.bottleRow}>
       {/* Name + Brand */}
       <View style={styles.bottleInfo}>
+        {/* Brand is the headline (Sprite, Gatorade, Tito's); variant is the
+            small line under it. Rows without a brand (Identifying…/Unknown
+            bottle/manual adds) fall back to the name as the headline. */}
         <Text
           style={[styles.bottleName, bottle.scanStatus === 'pending' && styles.bottleNamePending]}
           numberOfLines={1}
         >
-          {bottle.name}
+          {bottle.brand || bottle.name}
         </Text>
         <Text style={styles.bottleBrand} numberOfLines={1}>
-          {bottle.brand.toUpperCase()}
+          {(bottle.brand ? bottle.name : '').toUpperCase()}
         </Text>
         {bottle.scanStatus === 'failed' && onRetryIdentify && (
           <TouchableOpacity style={styles.retryChip} onPress={onRetryIdentify} activeOpacity={0.7}>
