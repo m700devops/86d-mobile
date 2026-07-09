@@ -9,6 +9,12 @@
     "name": "86'd",
     "slug": "86d-mobile",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/514e311c-b6a4-4702-9ed8-08324144be33"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
