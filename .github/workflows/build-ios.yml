@@ -5,7 +5,7 @@ on:
       profile:
         description: 'Build profile'
         required: true
-        default: 'production'
+        default: 'preview'
         type: choice
         options:
           - development
