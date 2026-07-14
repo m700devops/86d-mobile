@@ -5,6 +5,8 @@ export interface User {
   id: string;
   email: string;
   name: string | null;
+  business_name: string | null;
+  manager_name: string | null;
   subscription_status: string;
   subscription_tier: string;
   trial_ends_at: string | null;

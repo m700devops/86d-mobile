@@ -10,6 +10,7 @@ interface AuthContextType {
   register: (data: RegisterRequest, signal?: AbortSignal) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  updateProfile: (updates: { business_name?: string; manager_name?: string }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -97,6 +98,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateProfile = async (updates: { business_name?: string; manager_name?: string }) => {
+    const userData = await apiService.updateProfile(updates);
+    setUser(userData);
+  };
+
   const value: AuthContextType = {
     user,
     isLoading,
@@ -105,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     register,
     logout,
     refreshUser,
+    updateProfile,
   };
 
   return (

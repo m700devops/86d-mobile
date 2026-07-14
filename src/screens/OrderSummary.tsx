@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert } from 'react-native';
+import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform } from 'react-native';
+import * as Print from 'expo-print';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Mail, FileText, Printer, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X } from 'lucide-react-native';
+import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
+import { useAuth } from '../context/AuthContext';
 import { apiService } from '../services/api';
 import { OrderItem, Distributor } from '../types';
 
@@ -18,10 +20,17 @@ export default function OrderSummary({ onRestart }: Props) {
   const { bottles, updateBottle } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
+  const { user, updateProfile } = useAuth();
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
   const [checkAnim] = useState(new Animated.Value(0));
   const [assigningItem, setAssigningItem] = useState<OrderItem | null>(null);
+  const [showRestaurantSetup, setShowRestaurantSetup] = useState(false);
+  const [restaurantNameInput, setRestaurantNameInput] = useState('');
+  const [managerNameInput, setManagerNameInput] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [showCallList, setShowCallList] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
 
   const orderItems: OrderItem[] = bottles
     .map(b => {
@@ -51,9 +60,38 @@ export default function OrderSummary({ onRestart }: Props) {
 
   const unassignedItems = orderItems.filter(item => !item.distributorId);
 
-  const handleSendOrders = async () => {
+  const handleSendOrders = () => {
     if (isSending || groupedByDistributor.length === 0) return;
 
+    if (!user?.business_name) {
+      setRestaurantNameInput(user?.business_name ?? '');
+      setManagerNameInput(user?.manager_name ?? user?.name ?? '');
+      setShowRestaurantSetup(true);
+      return;
+    }
+
+    performSend();
+  };
+
+  const handleSaveRestaurantInfo = async () => {
+    if (!restaurantNameInput.trim() || savingProfile) return;
+
+    setSavingProfile(true);
+    try {
+      await updateProfile({
+        business_name: restaurantNameInput.trim(),
+        manager_name: managerNameInput.trim() || undefined,
+      });
+      setShowRestaurantSetup(false);
+      performSend();
+    } catch (error: any) {
+      Alert.alert('Save failed', "Couldn't save your restaurant info. Check your connection and try again.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const performSend = async () => {
     setIsSending(true);
     try {
       const response = await apiService.sendOrderEmails({
@@ -102,6 +140,53 @@ export default function OrderSummary({ onRestart }: Props) {
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleCall = (phone?: string | null) => {
+    if (!phone) return;
+    const telUrl = `tel:${phone.replace(/[^0-9+]/g, '')}`;
+    setShowCallList(false);
+    Linking.openURL(telUrl).catch(() => {
+      Alert.alert("Can't place call", 'This device cannot make phone calls.');
+    });
+  };
+
+  const handlePrint = async () => {
+    if (isPrinting) return;
+
+    setIsPrinting(true);
+    try {
+      await Print.printAsync({ html: buildOrderHtml() });
+    } catch (error: any) {
+      if (error?.message && !/cancel/i.test(error.message)) {
+        Alert.alert('Print failed', "Couldn't open the print dialog. Try again.");
+      }
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const buildOrderHtml = () => {
+    const title = user?.business_name || currentLocation?.name || 'Order Summary';
+    const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const sections = groupedByDistributor.map(group => `
+      <h2>${escapeHtml(group.distributor.name)}</h2>
+      <table>
+        <tr><th>Item</th><th>Qty</th></tr>
+        ${group.items.map(item => `<tr><td>${escapeHtml(item.name || item.bottleName)}</td><td>${item.quantity}</td></tr>`).join('')}
+      </table>
+    `).join('');
+
+    return `
+      <html>
+        <head><meta charset="utf-8" /></head>
+        <body style="font-family: -apple-system, sans-serif; padding: 24px;">
+          <h1>${escapeHtml(title)}</h1>
+          <p style="color: #666;">${dateStr}</p>
+          ${sections}
+        </body>
+      </html>
+    `;
   };
 
   // Empty state
@@ -182,7 +267,11 @@ export default function OrderSummary({ onRestart }: Props) {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Order Summary</Text>
         <Text style={styles.headerSubtitle}>
-          {orderItems.length} items to order • Main Bar
+          {orderItems.length} items to order
+          {user?.business_name ? ` • ${user.business_name}` : ''}
+          {currentLocation?.name && currentLocation.name !== user?.business_name
+            ? ` • ${currentLocation.name}`
+            : ''}
         </Text>
       </View>
 
@@ -329,19 +418,138 @@ export default function OrderSummary({ onRestart }: Props) {
         </View>
       </ScrollView>
 
+      {/* Restaurant Setup Modal */}
+      <Modal
+        visible={showRestaurantSetup}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !savingProfile && setShowRestaurantSetup(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Before we send this</Text>
+                <Text style={styles.modalSubtitle}>
+                  Distributors need to know who the order is from
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => !savingProfile && setShowRestaurantSetup(false)}>
+                <X size={20} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.setupForm}>
+              <Text style={styles.setupLabel}>Restaurant / Bar Name</Text>
+              <TextInput
+                style={styles.setupInput}
+                value={restaurantNameInput}
+                onChangeText={setRestaurantNameInput}
+                placeholder="e.g. The Copper Owl"
+                placeholderTextColor={COLORS.textTertiary}
+                autoCapitalize="words"
+                autoFocus
+              />
+              <Text style={styles.setupLabel}>Bar Manager Name</Text>
+              <TextInput
+                style={styles.setupInput}
+                value={managerNameInput}
+                onChangeText={setManagerNameInput}
+                placeholder="e.g. Alex Rivera"
+                placeholderTextColor={COLORS.textTertiary}
+                autoCapitalize="words"
+              />
+              <TouchableOpacity
+                style={[
+                  styles.mainButton,
+                  { marginTop: SPACING.lg },
+                  (!restaurantNameInput.trim() || savingProfile) && styles.mainButtonDisabled,
+                ]}
+                onPress={handleSaveRestaurantInfo}
+                disabled={!restaurantNameInput.trim() || savingProfile}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.mainButtonText}>
+                  {savingProfile ? 'Saving...' : 'Save & Send'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Call Distributors Modal */}
+      <Modal
+        visible={showCallList}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCallList(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowCallList(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Call a Distributor</Text>
+                <Text style={styles.modalSubtitle}>Tap one to call</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowCallList(false)}>
+                <X size={20} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            {groupedByDistributor.map(group => (
+              <TouchableOpacity
+                key={group.distributor.id}
+                style={styles.modalDistRow}
+                activeOpacity={group.distributor.phone ? 0.7 : 1}
+                onPress={() => handleCall(group.distributor.phone)}
+                disabled={!group.distributor.phone}
+              >
+                <View style={styles.modalDistBadge}>
+                  <Text style={styles.modalDistInitials}>
+                    {group.distributor.initials || group.distributor.name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalDistName}>{group.distributor.name}</Text>
+                  <Text style={styles.modalDistPhone}>
+                    {group.distributor.phone || 'No phone on file — add one in Settings'}
+                  </Text>
+                </View>
+                {group.distributor.phone && <Phone size={16} color={COLORS.accentPrimary} />}
+              </TouchableOpacity>
+            ))}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Footer */}
       <View style={styles.footer}>
         {/* Export Buttons */}
         <View style={styles.exportButtons}>
-          {/* Email triggers the real send; PDF/Print/Copy are not built yet
-              and render dimmed/disabled so they don't pretend to work */}
+          {/* Email and Call are wired up; Print uses AirPrint; Copy is not built yet */}
           <ExportButton
             icon={<Mail size={20} />}
             label="Email"
             onPress={unassignedItems.length === 0 && !isSending ? handleSendOrders : undefined}
           />
-          <ExportButton icon={<FileText size={20} />} label="PDF" />
-          <ExportButton icon={<Printer size={20} />} label="Print" />
+          <ExportButton
+            icon={<Phone size={20} />}
+            label="Call"
+            onPress={groupedByDistributor.length > 0 ? () => setShowCallList(true) : undefined}
+          />
+          <ExportButton
+            icon={<Printer size={20} />}
+            label="Print"
+            onPress={!isPrinting ? handlePrint : undefined}
+          />
           <ExportButton icon={<Copy size={20} />} label="Copy" />
         </View>
 
@@ -367,6 +575,14 @@ export default function OrderSummary({ onRestart }: Props) {
       </View>
     </SafeAreaView>
   );
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function OrderItemRow({ item, distributors }: { item: OrderItem; distributors: Distributor[] }) {
@@ -663,6 +879,35 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.textPrimary,
     letterSpacing: LETTER_SPACING,
+  },
+  modalDistPhone: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: 2,
+  },
+  setupForm: {
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.xl,
+  },
+  setupLabel: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textTertiary,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  setupInput: {
+    height: 48,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: SPACING.md,
+    fontSize: FONT_SIZES.base,
+    color: COLORS.textPrimary,
   },
   itemsSection: {
     paddingHorizontal: SPACING.lg,
