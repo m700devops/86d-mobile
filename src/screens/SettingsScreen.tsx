@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Plus, X, Trash2, User, Mail, Hash, Check, Phone } from 'lucide-react-native';
+import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store } from 'lucide-react-native';
 import { useDistributors } from '../context/DistributorContext';
+import { useAuth } from '../context/AuthContext';
 
 interface Props {
   isDarkMode: boolean;
@@ -14,6 +15,7 @@ interface Props {
 
 export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) {
   const { distributors, addDistributor, updateDistributor, removeDistributor } = useDistributors();
+  const { user, updateProfile } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -23,6 +25,35 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
   const [repName, setRepName] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isLeftHanded, setIsLeftHanded] = useState(false);
+
+  const [businessNameInput, setBusinessNameInput] = useState('');
+  const [managerNameInput, setManagerNameInput] = useState('');
+  const [savingRestaurantInfo, setSavingRestaurantInfo] = useState(false);
+
+  useEffect(() => {
+    setBusinessNameInput(user?.business_name || '');
+    setManagerNameInput(user?.manager_name || '');
+  }, [user?.business_name, user?.manager_name]);
+
+  const restaurantInfoDirty =
+    businessNameInput.trim() !== (user?.business_name || '') ||
+    managerNameInput.trim() !== (user?.manager_name || '');
+
+  const handleSaveRestaurantInfo = async () => {
+    if (!businessNameInput.trim() || savingRestaurantInfo) return;
+
+    setSavingRestaurantInfo(true);
+    try {
+      await updateProfile({
+        business_name: businessNameInput.trim(),
+        manager_name: managerNameInput.trim() || undefined,
+      });
+    } catch {
+      Alert.alert('Save failed', "Couldn't save your restaurant info. Check your connection and try again.");
+    } finally {
+      setSavingRestaurantInfo(false);
+    }
+  };
 
   const modalAnim = useRef(new Animated.Value(0)).current;
 
@@ -173,6 +204,57 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+
+        {/* Restaurant Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>RESTAURANT</Text>
+          <View style={styles.modalForm}>
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>RESTAURANT / BAR NAME</Text>
+              <View style={styles.inputWithIcon}>
+                <Store size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="e.g. The Copper Owl"
+                  placeholderTextColor={COLORS.textTertiary}
+                  value={businessNameInput}
+                  onChangeText={setBusinessNameInput}
+                  autoCapitalize="words"
+                />
+              </View>
+            </View>
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>BAR MANAGER NAME</Text>
+              <View style={styles.inputWithIcon}>
+                <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="e.g. Alex Rivera"
+                  placeholderTextColor={COLORS.textTertiary}
+                  value={managerNameInput}
+                  onChangeText={setManagerNameInput}
+                  autoCapitalize="words"
+                />
+              </View>
+            </View>
+          </View>
+          {restaurantInfoDirty && (
+            <TouchableOpacity
+              style={[
+                styles.saveButton,
+                (!businessNameInput.trim() || savingRestaurantInfo) && styles.saveButtonDisabled,
+              ]}
+              onPress={handleSaveRestaurantInfo}
+              disabled={!businessNameInput.trim() || savingRestaurantInfo}
+              activeOpacity={0.8}
+            >
+              <Check size={18} color="#FFFFFF" />
+              <Text style={styles.saveButtonText}>
+                {savingRestaurantInfo ? 'Saving...' : 'Save'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* General Section */}
