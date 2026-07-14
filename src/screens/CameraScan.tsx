@@ -9,6 +9,7 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -1109,9 +1110,10 @@ const styles = StyleSheet.create({
   },
   shutterText: {
     fontSize: 12,
+    fontFamily: Platform.select({ ios: 'AvenirNext-DemiBold', default: undefined }),
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.primaryDark,
-    letterSpacing: 1,
+    letterSpacing: 1.5,
   },
 
   // --- Stock number pad ---
