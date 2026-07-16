@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { Bottle } from '../types';
 import { useLocation } from './LocationContext';
 import { apiService } from '../services/api';
@@ -19,7 +21,8 @@ interface InventoryContextType {
   updateBottle: (id: string, updates: Partial<Bottle>) => void;
   removeBottle: (id: string) => void;
   resolveScan: (id: string, info: ResolvedScanInfo) => void;
-  markScanFailed: (id: string) => void;
+  markScanFailed: (id: string, reason?: 'network' | 'other') => void;
+  retryScan: (bottle: Bottle) => Promise<void>;
   clearBottles: () => void;
 }
 
@@ -48,9 +51,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     let cancelled = false;
     setIsHydrated(false);
 
+    // A row stuck "pending" when the app died is worth an automatic retry —
+    // we still have its photo, and there's no reason to believe it would fail
+    // again — so route it through the same 'network' auto-retry path rather
+    // than leaving it for a manual tap.
     const recoverPending = (list: Bottle[]) =>
       list.map(b =>
-        b.scanStatus === 'pending' ? { ...b, scanStatus: 'failed' as const, name: 'Unknown bottle' } : b
+        b.scanStatus === 'pending'
+          ? { ...b, scanStatus: 'failed' as const, failureReason: 'network' as const, name: 'Unknown bottle' }
+          : b
       );
 
     (async () => {
@@ -156,11 +165,87 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   };
 
-  const markScanFailed = (id: string) => {
+  const markScanFailed = (id: string, reason: 'network' | 'other' = 'other') => {
     setBottles(prev => prev.map(b =>
-      b.id === id ? { ...b, scanStatus: 'failed' as const, name: 'Unknown bottle' } : b
+      b.id === id ? { ...b, scanStatus: 'failed' as const, failureReason: reason, name: 'Unknown bottle' } : b
     ));
   };
+
+  // Re-run identification for a failed row using the photo captured at scan
+  // time. Shared by the manual "retry" chip in Review and the automatic
+  // retry-on-reconnect below, so both go through the exact same path.
+  const retryScan = async (bottle: Bottle) => {
+    if (!bottle.imageUrl) return;
+    setBottles(prev => prev.map(b =>
+      b.id === bottle.id ? { ...b, scanStatus: 'pending' as const, name: 'Identifying…' } : b
+    ));
+    try {
+      const resized = await ImageManipulator.manipulateAsync(
+        bottle.imageUrl,
+        [{ resize: { width: 800 } }],
+        { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      const result = resized.base64 ? await apiService.analyzeBottleImage(resized.base64) : null;
+      if (result && result.matched_product_id) {
+        resolveScan(bottle.id, {
+          productId: result.matched_product_id,
+          name: result.name,
+          brand: result.brand,
+          category: result.category,
+        });
+      } else {
+        markScanFailed(bottle.id, 'other');
+      }
+    } catch (err: any) {
+      const isNetwork = err?.code === 'ECONNABORTED' || err?.message?.includes('timeout') ||
+        !!err?.request || err?.message?.includes('Network');
+      markScanFailed(bottle.id, isNetwork ? 'network' : 'other');
+    }
+  };
+
+  // Auto-retry scans that failed for connectivity reasons once we're back
+  // online — sequential, not parallel, so a burst of queued retries doesn't
+  // hammer the API all at once.
+  const retryingRef = useRef(false);
+  const runNetworkRetries = async () => {
+    if (retryingRef.current) return;
+    const pending = bottlesRef.current.filter(b => b.scanStatus === 'failed' && b.failureReason === 'network');
+    if (pending.length === 0) return;
+    retryingRef.current = true;
+    try {
+      for (const bottle of pending) {
+        await retryScan(bottle);
+      }
+    } finally {
+      retryingRef.current = false;
+    }
+  };
+
+  // Check once on launch (in case network-failed rows were recovered from a
+  // saved draft and we're already online), then again on every reconnect.
+  useEffect(() => {
+    if (!isHydrated) return;
+    NetInfo.fetch().then(state => {
+      if (state.isConnected && state.isInternetReachable !== false) runNetworkRetries();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHydrated]);
+
+  useEffect(() => {
+    let wasOffline = false;
+    const unsubscribe = NetInfo.addEventListener(state => {
+      const isOnline = !!state.isConnected && state.isInternetReachable !== false;
+      if (!isOnline) {
+        wasOffline = true;
+        return;
+      }
+      if (!wasOffline) return;
+      wasOffline = false;
+      runNetworkRetries();
+    });
+    return () => unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Called once an order's been successfully sent — that draft is done,
   // don't let it resurface (and get accidentally re-sent) on the next scan.
@@ -174,7 +259,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   return (
     <InventoryContext.Provider
-      value={{ bottles, isHydrated, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed, clearBottles }}
+      value={{ bottles, isHydrated, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed, retryScan, clearBottles }}
     >
       {children}
     </InventoryContext.Provider>

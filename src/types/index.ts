@@ -151,6 +151,9 @@ export interface Bottle {
   // Fire-and-forget scans: 'pending' while the AI identifies in the background,
   // 'failed' when identification didn't land (row shows a retry action)
   scanStatus?: 'pending' | 'failed';
+  // Why a 'failed' scan failed — 'network' failures auto-retry when connectivity
+  // returns; 'other' (e.g. bottle genuinely not recognized) only retries manually
+  failureReason?: 'network' | 'other';
 }
 
 export interface ProductDistributorAssignment {

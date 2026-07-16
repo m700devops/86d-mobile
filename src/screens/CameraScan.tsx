@@ -371,10 +371,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
 
-      // Fire-and-forget: flag the saved row so it can be retried from Review
+      // Fire-and-forget: flag the saved row so it can be retried from Review.
+      // Network/timeout failures also auto-retry once connectivity returns.
       if (committedRowId !== undefined) {
         pendingCommits.current.delete(token);
-        markScanFailed(committedRowId);
+        markScanFailed(committedRowId, errorType === 'network' || errorType === 'timeout' ? 'network' : 'other');
         return;
       }
 
