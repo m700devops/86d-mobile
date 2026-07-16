@@ -449,6 +449,7 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
                       })}
                       {orderDetail.business_name ? ` · ${orderDetail.business_name}` : ''}
                       {formatCost(orderDetail.estimated_cost) ? ` · ${formatCost(orderDetail.estimated_cost)}` : ''}
+                      {orderDetail.staff_name ? ` · Counted by ${orderDetail.staff_name}` : ''}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => setSelectedOrderId(null)}>
@@ -669,6 +670,7 @@ function OrderRow({ order, onPress }: { order: Order; onPress: () => void }) {
         <Text style={styles.orderRowMeta}>
           {order.total_items} item{order.total_items === 1 ? '' : 's'} · {sentCount}/{order.distributors.length} sent
           {costStr ? ` · ${costStr}` : ''}
+          {order.staff_name ? ` · ${order.staff_name}` : ''}
         </Text>
       </View>
       <ChevronRight size={18} color={COLORS.textTertiary} />

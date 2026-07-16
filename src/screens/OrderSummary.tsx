@@ -10,6 +10,7 @@ import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
+import { useStaff } from '../context/StaffContext';
 import { apiService } from '../services/api';
 import { OrderItem, Distributor, OrderDistributorSummary } from '../types';
 
@@ -26,6 +27,8 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
   const { user, updateProfile } = useAuth();
+  const { staff } = useStaff();
+  const [countedBy, setCountedBy] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
   const [checkAnim] = useState(new Animated.Value(0));
@@ -124,6 +127,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       const response = await apiService.sendOrderEmails({
         location_id: currentLocation.id,
         location_name: currentLocation.name ?? 'My Bar',
+        staff_name: countedBy ?? undefined,
         orders: groupedByDistributor.map(g => ({
           distributor_id: g.distributor.id,
           items: g.items.map(i => ({
@@ -340,8 +344,28 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         </Text>
       </View>
 
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
+      {staff.length > 0 && (
+        <View style={styles.countedByRow}>
+          <Text style={styles.countedByLabel}>Counted by:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.countedByChips}>
+            {staff.map(name => (
+              <TouchableOpacity
+                key={name}
+                style={[styles.countedByChip, countedBy === name && styles.countedByChipActive]}
+                onPress={() => setCountedBy(countedBy === name ? null : name)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.countedByChipText, countedBy === name && styles.countedByChipTextActive]}>
+                  {name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Distributor Breakdown (Sidebar on desktop, top on mobile) */}
@@ -741,6 +765,43 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
     marginTop: SPACING.xs,
+  },
+  countedByRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
+  },
+  countedByLabel: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textTertiary,
+    letterSpacing: 1,
+  },
+  countedByChips: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  countedByChip: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  countedByChipActive: {
+    backgroundColor: COLORS.accentPrimary,
+    borderColor: COLORS.accentPrimary,
+  },
+  countedByChipText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
+  },
+  countedByChipTextActive: {
+    color: '#FFFFFF',
   },
   scrollContent: {
     paddingBottom: 280,

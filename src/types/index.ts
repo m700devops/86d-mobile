@@ -227,6 +227,7 @@ export interface Order {
   location_name: string | null;
   business_name: string | null;
   manager_name: string | null;
+  staff_name?: string | null;
   distributors: OrderDistributorSummary[];
   total_items: number;
   estimated_cost: number | null;
@@ -242,6 +243,7 @@ export interface OrderDetail {
   location: { id: string; name: string; address?: string | null; timezone?: string | null };
   business_name: string | null;
   manager_name: string | null;
+  staff_name?: string | null;
   distributors: OrderDistributorSummary[];
   total_items: number;
   estimated_cost: number | null;

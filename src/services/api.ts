@@ -352,6 +352,7 @@ class ApiService {
   async sendOrderEmails(payload: {
     location_id: string;
     location_name: string;
+    staff_name?: string;
     orders: {
       distributor_id: string;
       items: { name: string; quantity: number; size?: string; price?: number }[];
