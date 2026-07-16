@@ -519,6 +519,19 @@ export default function CameraScan({ onReview, onBack }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // One-tap retake — for a failed scan (glare, bad angle) or a synchronously
+  // "ok" result that just got the wrong bottle. Discards the current photo
+  // and result, then immediately re-opens the shutter instead of making the
+  // user close the pad and find the capture button themselves.
+  const handleRetakePhoto = useCallback(() => {
+    deleteScanPhoto(photoUriRef.current);
+    scanSeq.current++;   // invalidate the in-flight/finished scan
+    setPadVisible(false);
+    resetToIdle();
+    setTimeout(() => { triggerCapture(); }, 350);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [triggerCapture]);
+
   const handleKeyPress = useCallback((key: string) => {
     Haptics.selectionAsync();
     setStockInput(prev => {
@@ -833,6 +846,14 @@ export default function CameraScan({ onReview, onBack }: Props) {
               )}
             </View>
 
+            {/* Synchronous "ok" result can still be the wrong bottle (glare,
+                similar label) — offer a one-tap way out before it's committed. */}
+            {identifyStatus === 'ok' && (
+              <TouchableOpacity onPress={handleRetakePhoto} activeOpacity={0.7} hitSlop={8} style={styles.padRetakeRow}>
+                <Text style={styles.padRetakeLink}>Wrong bottle? Retake photo</Text>
+              </TouchableOpacity>
+            )}
+
             {/* While the AI works, tell new users to keep going — the scan runs itself */}
             {identifyStatus === 'pending' && (
               <Text style={styles.padHintNote}>
@@ -887,12 +908,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
                   styles.padAddButton,
                   stockInput === '' && identifyStatus !== 'failed' && styles.padAddButtonDisabled,
                 ]}
-                onPress={handlePadAdd}
+                onPress={identifyStatus === 'failed' ? handleRetakePhoto : handlePadAdd}
                 disabled={stockInput === '' && identifyStatus !== 'failed'}
                 activeOpacity={0.8}
               >
                 <Text style={styles.padAddText}>
-                  {identifyStatus === 'failed' ? 'Close'
+                  {identifyStatus === 'failed' ? 'Retake Photo'
                     : existingBottle ? 'Update Count'
                     : 'Add Bottle'}
                 </Text>
@@ -1187,6 +1208,17 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     letterSpacing: LETTER_SPACING,
     textAlign: 'center',
+  },
+  padRetakeRow: {
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  padRetakeLink: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.accentPrimary,
+    letterSpacing: LETTER_SPACING,
+    textDecorationLine: 'underline',
   },
   padDuplicateNote: {
     fontSize: FONT_SIZES.xs,
