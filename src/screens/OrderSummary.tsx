@@ -10,14 +10,17 @@ import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { apiService } from '../services/api';
-import { OrderItem, Distributor } from '../types';
+import { OrderItem, Distributor, OrderDistributorSummary } from '../types';
 
 interface Props {
   onRestart: () => void;
   onViewOrders: () => void;
+  // Only `distributors` is read — accepts both the list-row Order shape and
+  // the fuller OrderDetail shape returned by GET /orders/{id}.
+  presetOrder?: { distributors: OrderDistributorSummary[] } | null;
 }
 
-export default function OrderSummary({ onRestart, onViewOrders }: Props) {
+export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
   const { bottles, updateBottle } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
@@ -33,24 +36,39 @@ export default function OrderSummary({ onRestart, onViewOrders }: Props) {
   const [showCallList, setShowCallList] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
 
-  const orderItems: OrderItem[] = bottles
-    .map(b => {
-      // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole bottles, round up
-      const totalQuantity = Math.max(0, Math.ceil(b.parLevel - (b.currentStock || 0)));
+  // Reordering a past order skips the bottles/par-level derivation entirely —
+  // the items and quantities come straight from what was ordered before.
+  const orderItems: OrderItem[] = presetOrder
+    ? presetOrder.distributors.flatMap((dist, di) =>
+        dist.items.map((item, ii) => ({
+          bottleId: `reorder-${di}-${ii}`,
+          bottleName: item.name,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price || 0,
+          category: 'Other',
+          urgency: 'normal' as OrderItem['urgency'],
+          distributorId: dist.distributor_id || undefined,
+        }))
+      )
+    : bottles
+        .map(b => {
+          // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole bottles, round up
+          const totalQuantity = Math.max(0, Math.ceil(b.parLevel - (b.currentStock || 0)));
 
-      return {
-        bottleId: b.id,
-        // Order lines show the full product: "Sprite Original", "Gatorade Blue Bolt"
-        bottleName: [b.brand, b.name].filter(Boolean).join(' '),
-        name: [b.brand, b.name].filter(Boolean).join(' '),
-        quantity: totalQuantity,
-        price: b.price || 0,
-        category: b.category,
-        urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
-        distributorId: b.distributorId,
-      };
-    })
-    .filter(b => b.quantity > 0);
+          return {
+            bottleId: b.id,
+            // Order lines show the full product: "Sprite Original", "Gatorade Blue Bolt"
+            bottleName: [b.brand, b.name].filter(Boolean).join(' '),
+            name: [b.brand, b.name].filter(Boolean).join(' '),
+            quantity: totalQuantity,
+            price: b.price || 0,
+            category: b.category,
+            urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
+            distributorId: b.distributorId,
+          };
+        })
+        .filter(b => b.quantity > 0);
 
   const groupedByDistributor = distributors
     .map(dist => ({
@@ -110,6 +128,7 @@ export default function OrderSummary({ onRestart, onViewOrders }: Props) {
           items: g.items.map(i => ({
             name: i.name || i.bottleName,
             quantity: i.quantity,
+            price: i.price || undefined,
           })),
         })),
       });

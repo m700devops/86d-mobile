@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { LocationProvider } from './context/LocationContext';
 import { InventoryProvider } from './context/InventoryContext';
 import { DistributorProvider } from './context/DistributorContext';
-import { AppScreen } from './types';
+import { AppScreen, OrderDistributorSummary } from './types';
 import { LoginScreen } from './screens/LoginScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
 import Onboarding from './screens/Onboarding';
@@ -17,6 +17,8 @@ import SettingsScreen from './screens/SettingsScreen';
 import ManualAdd from './components/ManualAdd';
 import Sidebar from './components/Sidebar';
 
+type ReorderSource = { distributors: OrderDistributorSummary[] };
+
 // Auth-aware app content
 function AppContent() {
   const { isAuthenticated, isLoading, logout } = useAuth();
@@ -24,9 +26,16 @@ function AppContent() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
 
   const navigate = (screen: AppScreen | 'login' | 'register') => {
+    setReorderOrder(null);
     setCurrentScreen(screen);
+  };
+
+  const navigateToReorder = (order: ReorderSource) => {
+    setReorderOrder(order);
+    setCurrentScreen('order');
   };
 
   // Show loading state while checking auth
@@ -91,10 +100,16 @@ function AppContent() {
           <OrderSummary
             onRestart={() => navigate('camera')}
             onViewOrders={() => navigate('orders')}
+            presetOrder={reorderOrder}
           />
         );
       case 'orders':
-        return <OrderHistory onBack={() => navigate('camera')} />;
+        return (
+          <OrderHistory
+            onBack={() => navigate('camera')}
+            onReorder={navigateToReorder}
+          />
+        );
       case 'settings':
         return (
           <SettingsScreen

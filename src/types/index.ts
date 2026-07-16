@@ -201,6 +201,7 @@ export interface OrderLineItem {
   name: string;
   quantity: number;
   size?: string | null;
+  price?: number | null;
 }
 
 export interface OrderDistributorSummary {
@@ -220,6 +221,7 @@ export interface Order {
   manager_name: string | null;
   distributors: OrderDistributorSummary[];
   total_items: number;
+  estimated_cost: number | null;
   created_at: string;
   exported_at: string | null;
   export_format: string | null;
@@ -234,6 +236,7 @@ export interface OrderDetail {
   manager_name: string | null;
   distributors: OrderDistributorSummary[];
   total_items: number;
+  estimated_cost: number | null;
   created_at: string;
   exported_at: string | null;
   export_format: string | null;

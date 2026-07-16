@@ -314,7 +314,7 @@ class ApiService {
     location_name: string;
     orders: {
       distributor_id: string;
-      items: { name: string; quantity: number; size?: string }[];
+      items: { name: string; quantity: number; size?: string; price?: number }[];
     }[];
   }): Promise<{
     order_id: string;
@@ -333,11 +333,22 @@ class ApiService {
   }
 
   // Order history
-  async getOrders(locationId?: string, limit = 20, offset = 0): Promise<{ orders: Order[]; total: number }> {
+  async getOrders(options: {
+    locationId?: string;
+    limit?: number;
+    offset?: number;
+    q?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {}): Promise<{ orders: Order[]; total: number }> {
+    const { locationId, limit = 20, offset = 0, q, startDate, endDate } = options;
     const params = new URLSearchParams();
     if (locationId) params.append('location_id', locationId);
     params.append('limit', limit.toString());
     params.append('offset', offset.toString());
+    if (q) params.append('q', q);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
 
     const response = await this.client.get<{ orders: Order[]; total: number }>(`/orders?${params}`);
     return response.data;
