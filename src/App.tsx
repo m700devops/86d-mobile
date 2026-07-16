@@ -3,7 +3,7 @@ import { StyleSheet, View, TouchableOpacity, Text, ActivityIndicator } from 'rea
 import { COLORS } from './constants/colors';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LocationProvider } from './context/LocationContext';
-import { InventoryProvider } from './context/InventoryContext';
+import { InventoryProvider, useInventory } from './context/InventoryContext';
 import { DistributorProvider } from './context/DistributorContext';
 import { AppScreen, OrderDistributorSummary } from './types';
 import { LoginScreen } from './screens/LoginScreen';
@@ -23,6 +23,7 @@ type ReorderSource = { distributors: OrderDistributorSummary[] };
 // Auth-aware app content
 function AppContent() {
   const { isAuthenticated, isLoading, logout } = useAuth();
+  const { addBottle } = useInventory();
   const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
@@ -127,53 +128,48 @@ function AppContent() {
   };
 
   return (
-    <LocationProvider>
-      <InventoryProvider>
-        <DistributorProvider>
-          <View style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
-            {/* Main Screen */}
-            {renderScreen()}
+    <View style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+      {/* Main Screen */}
+      {renderScreen()}
 
-            {/* Sidebar Navigation - only show when authenticated */}
-            {isAuthenticated && (
-              <Sidebar
-                isOpen={isSidebarOpen}
-                onClose={() => setIsSidebarOpen(false)}
-                currentScreen={currentScreen as AppScreen}
-                onNavigate={(screen) => navigate(screen as AppScreen)}
-                onSignOut={async () => {
-                  await logout();
-                  setCurrentScreen('login');
-                  setIsSidebarOpen(false);
-                }}
-              />
-            )}
+      {/* Sidebar Navigation - only show when authenticated */}
+      {isAuthenticated && (
+        <Sidebar
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          currentScreen={currentScreen as AppScreen}
+          onNavigate={(screen) => navigate(screen as AppScreen)}
+          onSignOut={async () => {
+            await logout();
+            setCurrentScreen('login');
+            setIsSidebarOpen(false);
+          }}
+        />
+      )}
 
-            {/* Manual Add Modal */}
-            {isManualAddOpen && (
-              <ManualAdd
-                onClose={() => setIsManualAddOpen(false)}
-                onAdd={(bottle) => {
-                  setIsManualAddOpen(false);
-                }}
-              />
-            )}
+      {/* Manual Add Modal */}
+      {isManualAddOpen && (
+        <ManualAdd
+          onClose={() => setIsManualAddOpen(false)}
+          onAdd={(bottle) => {
+            addBottle(bottle);
+            setIsManualAddOpen(false);
+          }}
+        />
+      )}
 
-            {/* Hamburger Menu Button - only when authenticated and not on onboarding/camera */}
-            {isAuthenticated && currentScreen !== 'onboarding' && currentScreen !== 'camera' && (
-              <TouchableOpacity
-                style={styles.hamburgerButton}
-                onPress={() => setIsSidebarOpen(true)}
-              >
-                <View style={styles.hamburgerLine} />
-                <View style={styles.hamburgerLine} />
-                <View style={styles.hamburgerLine} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </DistributorProvider>
-      </InventoryProvider>
-    </LocationProvider>
+      {/* Hamburger Menu Button - only when authenticated and not on onboarding/camera */}
+      {isAuthenticated && currentScreen !== 'onboarding' && currentScreen !== 'camera' && (
+        <TouchableOpacity
+          style={styles.hamburgerButton}
+          onPress={() => setIsSidebarOpen(true)}
+        >
+          <View style={styles.hamburgerLine} />
+          <View style={styles.hamburgerLine} />
+          <View style={styles.hamburgerLine} />
+        </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
@@ -181,7 +177,13 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <LocationProvider>
+        <InventoryProvider>
+          <DistributorProvider>
+            <AppContent />
+          </DistributorProvider>
+        </InventoryProvider>
+      </LocationProvider>
     </AuthProvider>
   );
 }
