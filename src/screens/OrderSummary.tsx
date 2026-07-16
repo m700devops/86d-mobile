@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform } from 'react-native';
 import * as Print from 'expo-print';
+import * as Clipboard from 'expo-clipboard';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
@@ -198,6 +199,28 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     } finally {
       setIsPrinting(false);
     }
+  };
+
+  const handleCopy = async () => {
+    try {
+      await Clipboard.setStringAsync(buildOrderText());
+      Alert.alert('Copied', 'Order summary copied — paste it anywhere (Notes, Messages, another printing app).');
+    } catch {
+      Alert.alert("Couldn't copy", 'Try again.');
+    }
+  };
+
+  // Plain-text mirror of buildOrderHtml — the universal fallback that works
+  // regardless of what printer (or lack of one) a distributor/client has.
+  const buildOrderText = () => {
+    const title = user?.business_name || currentLocation?.name || 'Order Summary';
+    const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const sections = groupedByDistributor.map(group => {
+      const lines = group.items.map(item => `  - ${item.name || item.bottleName} x${item.quantity}`).join('\n');
+      return `${group.distributor.name}\n${lines}`;
+    }).join('\n\n');
+
+    return `${title}\n${dateStr}\n\n${sections}`;
   };
 
   const buildOrderHtml = () => {
@@ -576,7 +599,8 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       <View style={styles.footer}>
         {/* Export Buttons */}
         <View style={styles.exportButtons}>
-          {/* Email and Call are wired up; Print uses AirPrint; Copy is not built yet */}
+          {/* Email/Call/Print are wired up; Copy is the universal fallback for
+              distributors/clients whose printer isn't AirPrint compatible */}
           <ExportButton
             icon={<Mail size={20} />}
             label="Email"
@@ -592,7 +616,11 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             label="Print"
             onPress={!isPrinting ? handlePrint : undefined}
           />
-          <ExportButton icon={<Copy size={20} />} label="Copy" />
+          <ExportButton
+            icon={<Copy size={20} />}
+            label="Copy"
+            onPress={groupedByDistributor.length > 0 ? handleCopy : undefined}
+          />
         </View>
 
         {/* Main Action Button */}
