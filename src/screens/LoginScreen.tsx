@@ -143,7 +143,6 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    autoFocus
                     returnKeyType="next"
                     onSubmitEditing={() => passwordRef.current?.focus()}
                     blurOnSubmit={false}
