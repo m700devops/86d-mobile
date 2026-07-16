@@ -14,9 +14,10 @@ import { OrderItem, Distributor } from '../types';
 
 interface Props {
   onRestart: () => void;
+  onViewOrders: () => void;
 }
 
-export default function OrderSummary({ onRestart }: Props) {
+export default function OrderSummary({ onRestart, onViewOrders }: Props) {
   const { bottles, updateBottle } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
@@ -63,6 +64,11 @@ export default function OrderSummary({ onRestart }: Props) {
   const handleSendOrders = () => {
     if (isSending || groupedByDistributor.length === 0) return;
 
+    if (!currentLocation) {
+      Alert.alert("Can't send yet", 'Still loading your bar location — try again in a moment.');
+      return;
+    }
+
     if (!user?.business_name) {
       setRestaurantNameInput(user?.business_name ?? '');
       setManagerNameInput(user?.manager_name ?? user?.name ?? '');
@@ -92,10 +98,13 @@ export default function OrderSummary({ onRestart }: Props) {
   };
 
   const performSend = async () => {
+    if (!currentLocation) return;
+
     setIsSending(true);
     try {
       const response = await apiService.sendOrderEmails({
-        location_name: currentLocation?.name ?? 'My Bar',
+        location_id: currentLocation.id,
+        location_name: currentLocation.name ?? 'My Bar',
         orders: groupedByDistributor.map(g => ({
           distributor_id: g.distributor.id,
           items: g.items.map(i => ({
@@ -251,10 +260,18 @@ export default function OrderSummary({ onRestart }: Props) {
 
           <TouchableOpacity
             style={[styles.button, { marginTop: SPACING.xl }]}
-            onPress={onRestart}
+            onPress={onViewOrders}
             activeOpacity={0.8}
           >
-            <Text style={styles.buttonText}>Return to Dashboard</Text>
+            <Text style={styles.buttonText}>View All Orders</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryLink}
+            onPress={onRestart}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.secondaryLinkText}>Start a New Scan</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -1183,6 +1200,16 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.lg,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
+  },
+  secondaryLink: {
+    marginTop: SPACING.lg,
+    paddingVertical: SPACING.md,
+  },
+  secondaryLinkText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
     letterSpacing: LETTER_SPACING,
   },
 });

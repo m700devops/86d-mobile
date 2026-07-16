@@ -194,4 +194,48 @@ export type AppScreen =
   | 'camera'
   | 'review'
   | 'order'
+  | 'orders'
   | 'settings';
+
+export interface OrderLineItem {
+  name: string;
+  quantity: number;
+  size?: string | null;
+}
+
+export interface OrderDistributorSummary {
+  distributor_id: string | null;
+  distributor_name: string | null;
+  email: string | null;
+  status: 'sent' | 'failed' | 'no_email';
+  items: OrderLineItem[];
+}
+
+export interface Order {
+  id: string;
+  session_id: string;
+  location_id: string;
+  location_name: string | null;
+  business_name: string | null;
+  manager_name: string | null;
+  distributors: OrderDistributorSummary[];
+  total_items: number;
+  created_at: string;
+  exported_at: string | null;
+  export_format: string | null;
+  export_destination: string | null;
+}
+
+export interface OrderDetail {
+  id: string;
+  session_id: string;
+  location: { id: string; name: string; address?: string | null; timezone?: string | null };
+  business_name: string | null;
+  manager_name: string | null;
+  distributors: OrderDistributorSummary[];
+  total_items: number;
+  created_at: string;
+  exported_at: string | null;
+  export_format: string | null;
+  export_destination: string | null;
+}

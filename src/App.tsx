@@ -12,6 +12,7 @@ import Onboarding from './screens/Onboarding';
 import CameraScan from './screens/CameraScan';
 import ReviewGrid from './screens/ReviewGrid';
 import OrderSummary from './screens/OrderSummary';
+import OrderHistory from './screens/OrderHistory';
 import SettingsScreen from './screens/SettingsScreen';
 import ManualAdd from './components/ManualAdd';
 import Sidebar from './components/Sidebar';
@@ -86,7 +87,14 @@ function AppContent() {
           />
         );
       case 'order':
-        return <OrderSummary onRestart={() => navigate('camera')} />;
+        return (
+          <OrderSummary
+            onRestart={() => navigate('camera')}
+            onViewOrders={() => navigate('orders')}
+          />
+        );
+      case 'orders':
+        return <OrderHistory onBack={() => navigate('camera')} />;
       case 'settings':
         return (
           <SettingsScreen

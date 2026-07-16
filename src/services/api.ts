@@ -17,7 +17,9 @@ import {
   ScanResponse,
   Distributor,
   ProductDistributorAssignment,
-  ApiError
+  ApiError,
+  Order,
+  OrderDetail
 } from '../types';
 
 class ApiService {
@@ -308,12 +310,14 @@ class ApiService {
 
   // Send order emails to distributors (backend delivers via Resend)
   async sendOrderEmails(payload: {
+    location_id: string;
     location_name: string;
     orders: {
       distributor_id: string;
       items: { name: string; quantity: number; size?: string }[];
     }[];
   }): Promise<{
+    order_id: string;
     results: {
       distributor_id: string;
       distributor_name: string | null;
@@ -326,6 +330,22 @@ class ApiService {
   }> {
     const response = await this.client.post('/orders/email', payload);
     return response.data;
+  }
+
+  // Order history
+  async getOrders(locationId?: string, limit = 20, offset = 0): Promise<{ orders: Order[]; total: number }> {
+    const params = new URLSearchParams();
+    if (locationId) params.append('location_id', locationId);
+    params.append('limit', limit.toString());
+    params.append('offset', offset.toString());
+
+    const response = await this.client.get<{ orders: Order[]; total: number }>(`/orders?${params}`);
+    return response.data;
+  }
+
+  async getOrder(orderId: string): Promise<OrderDetail> {
+    const response = await this.client.get<{ order: OrderDetail }>(`/orders/${orderId}`);
+    return response.data.order;
   }
 
   // Pre-warm the backend's AI connection so the first scan is as fast as the

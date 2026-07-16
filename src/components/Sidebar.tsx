@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Modal, Animated
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { X, Camera, LayoutGrid, Settings, LogOut } from 'lucide-react-native';
+import { X, Camera, LayoutGrid, History, Settings, LogOut } from 'lucide-react-native';
 import SidebarItem from './SidebarItem';
 
 const { width } = Dimensions.get('window');
@@ -104,6 +104,12 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
                 label="Review & Par"
                 active={currentScreen === 'review'}
                 onPress={() => handleNavigate('review')}
+              />
+              <SidebarItem
+                icon={<History size={18} color={currentScreen === 'orders' ? '#FFFFFF' : COLORS.accentPrimary} />}
+                label="Order History"
+                active={currentScreen === 'orders'}
+                onPress={() => handleNavigate('orders')}
               />
 
               <View style={styles.divider} />
