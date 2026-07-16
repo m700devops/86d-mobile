@@ -18,7 +18,7 @@ import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import {
-  CheckCircle2, XCircle, MailX, ChevronRight, X, Inbox, Search, RotateCcw, Share2, Printer,
+  CheckCircle2, XCircle, MailX, ChevronRight, X, Inbox, Search, RotateCcw, Share2, Printer, TrendingUp,
 } from 'lucide-react-native';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
@@ -94,12 +94,15 @@ interface Props {
 
 export default function OrderHistory({ onBack, onReorder }: Props) {
   const { currentLocation } = useLocation();
+  const [viewMode, setViewMode] = useState<'history' | 'trends'>('history');
   const [searchInput, setSearchInput] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [trendOrders, setTrendOrders] = useState<Order[] | null>(null);
+  const [trendsLoading, setTrendsLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
@@ -141,6 +144,29 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
       });
     return () => { cancelled = true; };
   }, [currentLocation, activeFilter, debouncedQuery]);
+
+  // Trends pulls up to 100 orders in range and aggregates client-side — the
+  // list endpoint already returns full item/distributor data per order (from
+  // the stored order_data blob), so no new backend work is needed for a v1
+  // usage view. Real order history, not the old pen-era scans/usage_history
+  // tables, which are never written to.
+  useEffect(() => {
+    if (viewMode !== 'trends' || !currentLocation) return;
+    let cancelled = false;
+    setTrendsLoading(true);
+    const { start, end } = getDateRange(activeFilter);
+    apiService.getOrders({
+      locationId: currentLocation.id,
+      limit: 100,
+      offset: 0,
+      startDate: start,
+      endDate: end,
+    })
+      .then(res => { if (!cancelled) setTrendOrders(res.orders); })
+      .catch(() => { if (!cancelled) setTrendOrders([]); })
+      .finally(() => { if (!cancelled) setTrendsLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewMode, currentLocation, activeFilter]);
 
   const handleLoadMore = async () => {
     if (!currentLocation || loadingMore || orders.length >= total) return;
@@ -257,6 +283,51 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
         <Text style={styles.headerSubtitle}>What you've ordered, and when</Text>
       </View>
 
+      <View style={styles.tabRow}>
+        <TouchableOpacity
+          style={[styles.tabButton, viewMode === 'history' && styles.tabButtonActive]}
+          onPress={() => setViewMode('history')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabButtonText, viewMode === 'history' && styles.tabButtonTextActive]}>History</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabButton, viewMode === 'trends' && styles.tabButtonActive]}
+          onPress={() => setViewMode('trends')}
+          activeOpacity={0.8}
+        >
+          <TrendingUp size={14} color={viewMode === 'trends' ? '#FFFFFF' : COLORS.textSecondary} />
+          <Text style={[styles.tabButtonText, viewMode === 'trends' && styles.tabButtonTextActive]}>Trends</Text>
+        </TouchableOpacity>
+      </View>
+
+      {viewMode === 'trends' ? (
+        <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
+          >
+            {FILTERS.map(f => (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.filterChip, activeFilter === f.key && styles.filterChipActive]}
+                onPress={() => setActiveFilter(f.key)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.filterChipText, activeFilter === f.key && styles.filterChipTextActive]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <TrendsView orders={trendOrders} loading={trendsLoading} />
+          <TouchableOpacity style={styles.backLink} onPress={onBack} activeOpacity={0.7}>
+            <Text style={styles.backLinkText}>Back to Scanning</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+      <>
       <View style={styles.searchRow}>
         <Search size={16} color={COLORS.textTertiary} />
         <TextInput
@@ -341,6 +412,8 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
       <TouchableOpacity style={styles.backLink} onPress={onBack} activeOpacity={0.7}>
         <Text style={styles.backLinkText}>Back to Scanning</Text>
       </TouchableOpacity>
+      </>
+      )}
 
       {/* Order Detail Modal */}
       <Modal
@@ -446,6 +519,113 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
   );
 }
 
+// Aggregates real order history into a lightweight usage view — most-ordered
+// items and spend by distributor. Deliberately not theft/variance detection:
+// this app has no per-scan usage log (the old pen-era scans/usage_history
+// tables are never written to), so the only trustworthy signal is what was
+// actually ordered.
+function TrendsView({ orders, loading }: { orders: Order[] | null; loading: boolean }) {
+  if (loading || orders === null) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color={COLORS.accentPrimary} />
+      </View>
+    );
+  }
+
+  if (orders.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <TrendingUp size={40} color={COLORS.textTertiary} />
+        <Text style={styles.emptyTitle}>No data yet</Text>
+        <Text style={styles.emptyText}>Send a few orders and trends will show up here.</Text>
+      </View>
+    );
+  }
+
+  const totalSpend = orders.reduce((sum, o) => sum + (o.estimated_cost || 0), 0);
+  const avgPerOrder = orders.length > 0 ? totalSpend / orders.length : 0;
+
+  const itemTotals = new Map<string, number>();
+  const distTotals = new Map<string, number>();
+  orders.forEach(o => {
+    o.distributors.forEach(d => {
+      const distName = d.distributor_name || 'Unassigned';
+      const distSpend = d.items.reduce((s, i) => s + (i.price ? i.price * i.quantity : 0), 0);
+      distTotals.set(distName, (distTotals.get(distName) || 0) + distSpend);
+      d.items.forEach(i => {
+        itemTotals.set(i.name, (itemTotals.get(i.name) || 0) + i.quantity);
+      });
+    });
+  });
+
+  const topItems = Array.from(itemTotals.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const topDistributors = Array.from(distTotals.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const maxItemQty = topItems[0]?.[1] || 1;
+  const maxDistSpend = topDistributors[0]?.[1] || 1;
+
+  return (
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={styles.trendsContent}
+      showsVerticalScrollIndicator={false}
+    >
+      {orders.length >= 100 && (
+        <Text style={styles.trendsCapNote}>Based on your most recent 100 orders in this range</Text>
+      )}
+
+      <View style={styles.statRow}>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{orders.length}</Text>
+          <Text style={styles.statLabel}>ORDERS</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{formatCost(totalSpend) || '$0.00'}</Text>
+          <Text style={styles.statLabel}>TOTAL SPEND</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{formatCost(avgPerOrder) || '$0.00'}</Text>
+          <Text style={styles.statLabel}>AVG/ORDER</Text>
+        </View>
+      </View>
+
+      {topItems.length > 0 && (
+        <>
+          <Text style={styles.trendsSectionTitle}>Most Ordered</Text>
+          <View style={styles.barList}>
+            {topItems.map(([name, qty]) => (
+              <View key={name} style={styles.barRow}>
+                <Text style={styles.barLabel} numberOfLines={1}>{name}</Text>
+                <View style={styles.barTrack}>
+                  <View style={[styles.barFill, { width: `${Math.max(4, (qty / maxItemQty) * 100)}%` }]} />
+                </View>
+                <Text style={styles.barValue}>{qty}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+
+      {topDistributors.length > 0 && (
+        <>
+          <Text style={styles.trendsSectionTitle}>Spend by Distributor</Text>
+          <View style={styles.barList}>
+            {topDistributors.map(([name, spend]) => (
+              <View key={name} style={styles.barRow}>
+                <Text style={styles.barLabel} numberOfLines={1}>{name}</Text>
+                <View style={styles.barTrack}>
+                  <View style={[styles.barFill, styles.barFillAlt, { width: `${Math.max(4, (spend / maxDistSpend) * 100)}%` }]} />
+                </View>
+                <Text style={styles.barValue}>{formatCost(spend)}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
 function StatusBadge({ status }: { status: 'sent' | 'failed' | 'no_email' }) {
   if (status === 'sent') {
     return (
@@ -516,6 +696,115 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
     marginTop: SPACING.xs,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.md,
+  },
+  tabButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 8,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  tabButtonActive: {
+    backgroundColor: COLORS.accentPrimary,
+    borderColor: COLORS.accentPrimary,
+  },
+  tabButtonText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textSecondary,
+  },
+  tabButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  trendsContent: {
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING.xl,
+  },
+  trendsCapNote: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    textAlign: 'center',
+    marginBottom: SPACING.md,
+  },
+  statRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginBottom: SPACING.xl,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingVertical: SPACING.md,
+    alignItems: 'center',
+    gap: 4,
+  },
+  statValue: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+  },
+  statLabel: {
+    fontSize: 9,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textTertiary,
+    letterSpacing: 1,
+  },
+  trendsSectionTitle: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textTertiary,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    marginBottom: SPACING.sm,
+  },
+  barList: {
+    gap: SPACING.sm,
+    marginBottom: SPACING.xl,
+  },
+  barRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  barLabel: {
+    width: 110,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textSecondary,
+  },
+  barTrack: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.surface,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: COLORS.accentPrimary,
+  },
+  barFillAlt: {
+    backgroundColor: COLORS.accentSecondary,
+  },
+  barValue: {
+    width: 56,
+    textAlign: 'right',
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
   },
   searchRow: {
     flexDirection: 'row',
