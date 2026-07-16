@@ -7,14 +7,15 @@ export const LEVELS = [
   { value: 'full', label: 'Full', percent: 100 },
 ];
 
+// Must match the backend's ProductBase.category pattern exactly (lowercase) —
+// these are stored on Product rows and validated server-side on create.
 export const CATEGORIES = [
-  'Vodka',
-  'Gin',
-  'Rum',
-  'Whiskey',
-  'Tequila',
-  'Liqueur',
-  'Beer',
-  'Wine',
-  'Other',
+  'spirits',
+  'beer',
+  'wine',
+  'soda',
+  'mixer',
+  'water',
+  'juice',
+  'other',
 ];

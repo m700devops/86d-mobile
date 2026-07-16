@@ -461,20 +461,25 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           </Modal>
         </View>
 
-        {/* Items by Category */}
+        {/* Items by Category — bottle.category comes back lowercase from both
+            the AI scan (backend normalizes it) and Manual Add, so group on
+            that raw value and only capitalize for display. A hardcoded
+            Title-Case bucket list here previously matched nothing and
+            silently dropped every scanned item from this section. */}
         <View style={styles.itemsSection}>
-          {['Spirits', 'Beer', 'Wine', 'Other'].map(cat => {
+          {Array.from(new Set(orderItems.map(i => i.category))).sort().map(cat => {
             const catItems = orderItems.filter(i => i.category === cat);
             if (catItems.length === 0) return null;
+            const label = cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : 'Other';
 
             return (
               <View key={cat} style={styles.categorySection}>
-                <Text style={styles.categoryHeader}>{cat}</Text>
+                <Text style={styles.categoryHeader}>{label}</Text>
                 {catItems.map(item => (
-                  <OrderItemRow 
-                    key={item.bottleId} 
-                    item={item} 
-                    distributors={distributors} 
+                  <OrderItemRow
+                    key={item.bottleId}
+                    item={item}
+                    distributors={distributors}
                   />
                 ))}
               </View>

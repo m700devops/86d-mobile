@@ -16,7 +16,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Check, ChevronLeft, Zap, Camera, Delete } from 'lucide-react-native';
+import { Check, ChevronLeft, Zap, Camera, Delete, Barcode } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
@@ -24,6 +24,7 @@ import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { Bottle } from '../types';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 // --- Types ---
 
@@ -84,6 +85,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
   // Set when the scanned product is already in this session — commit updates
   // that row's count instead of adding a duplicate
   const [existingBottle, setExistingBottle] = useState<Bottle | null>(null);
+
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  // A barcode miss has no photo to retake — the fallback action is to try
+  // the normal camera scan instead, so the pad button needs different copy.
+  const [failedViaBarcode, setFailedViaBarcode] = useState(false);
 
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
@@ -237,6 +243,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
       setIdentifiedLabel(null);
       setFailMessage(null);
       setExistingBottle(null);
+      setFailedViaBarcode(false);
       setPadVisible(true);
 
       // Downscale before upload — full-res photos are several MB of base64,
@@ -532,6 +539,85 @@ export default function CameraScan({ onReview, onBack }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [triggerCapture]);
 
+  // Barcode path: skip the AI vision call entirely and look the UPC straight
+  // up in the catalog. No photo is involved, so there's nothing to retry —
+  // a miss just tells the user to add it via Manual Add (which registers
+  // the barcode for next time).
+  const handleBarcodeScanned = useCallback(async (code: string) => {
+    setShowBarcodeScanner(false);
+    const token = ++scanSeq.current;
+    photoUriRef.current = null;
+    scanResultRef.current = null;
+    setStockInput('');
+    setIdentifyStatus('pending');
+    setIdentifiedLabel(null);
+    setFailMessage(null);
+    setExistingBottle(null);
+    setFailedViaBarcode(false);
+    setPadVisible(true);
+
+    try {
+      const product = await apiService.getProductByBarcode(code);
+
+      // The user may have already hit "Add Bottle" while this was in flight
+      // (fire-and-forget) — fill in that saved row instead of the pad UI.
+      const committedRowId = pendingCommits.current.get(token);
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        if (product) {
+          resolveScan(committedRowId, {
+            productId: product.id,
+            name: product.name,
+            brand: product.brand ?? '',
+            category: product.category,
+          });
+        } else {
+          markScanFailed(committedRowId, 'other');
+        }
+        return;
+      }
+
+      if (token !== scanSeq.current) return;
+
+      if (!product) {
+        setFailedViaBarcode(true);
+        failScan(token, "Not in catalog — add it via Add Manual in Review");
+        return;
+      }
+
+      const result: ScanApiResult = {
+        name: product.name,
+        brand: product.brand ?? '',
+        category: product.category,
+        liquidLevel: 1,
+        confidence: 1,
+        matched_product_id: product.id,
+        is_new_product: false,
+      };
+
+      const existing = bottles.find(b =>
+        b.scanStatus === undefined && b.productId === product.id
+      );
+      setExistingBottle(existing ?? null);
+
+      scanResultRef.current = result;
+      identifyStatusRef.current = 'ok';
+      setIdentifiedLabel([result.brand, result.name].filter(Boolean).join(' — '));
+      setIdentifyStatus('ok');
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {
+      const committedRowId = pendingCommits.current.get(token);
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        markScanFailed(committedRowId, 'other');
+        return;
+      }
+      if (token !== scanSeq.current) return;
+      setFailedViaBarcode(true);
+      failScan(token, 'Barcode lookup failed — check your connection');
+    }
+  }, [bottles, failScan, resolveScan, markScanFailed]);
+
   const handleKeyPress = useCallback((key: string) => {
     Haptics.selectionAsync();
     setStockInput(prev => {
@@ -693,6 +779,14 @@ export default function CameraScan({ onReview, onBack }: Props) {
               ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
               : 'Scanning'}
         </Text>
+        <TouchableOpacity
+          style={styles.barcodeToggleButton}
+          onPress={() => setShowBarcodeScanner(true)}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Barcode size={18} color={COLORS.textSecondary} />
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.pauseButton}
           onPress={handlePauseResume}
@@ -913,7 +1007,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
                 activeOpacity={0.8}
               >
                 <Text style={styles.padAddText}>
-                  {identifyStatus === 'failed' ? 'Retake Photo'
+                  {identifyStatus === 'failed' ? (failedViaBarcode ? 'Try Camera Scan' : 'Retake Photo')
                     : existingBottle ? 'Update Count'
                     : 'Add Bottle'}
                 </Text>
@@ -922,6 +1016,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
           </View>
         </View>
       </Modal>
+
+      <BarcodeScannerModal
+        visible={showBarcodeScanner}
+        onClose={() => setShowBarcodeScanner(false)}
+        onScanned={handleBarcodeScanned}
+      />
 
     </SafeAreaView>
   );
@@ -1002,6 +1102,17 @@ const styles = StyleSheet.create({
   },
   counterTextActive: {
     color: COLORS.success,
+  },
+  barcodeToggleButton: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginRight: SPACING.sm,
   },
   pauseButton: {
     paddingHorizontal: SPACING.md,

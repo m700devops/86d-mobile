@@ -8,19 +8,19 @@ import { CATEGORIES } from '../constants';
 import * as ImagePicker from 'expo-image-picker';
 import { apiService } from '../services/api';
 import { Bottle, Product } from '../types';
+import BarcodeScannerModal from './BarcodeScannerModal';
 
 interface Props {
   onClose: () => void;
   onAdd: (bottle: Bottle) => void;
-  onScanBarcode?: () => void;
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
 
-export default function ManualAdd({ onClose, onAdd, onScanBarcode }: Props) {
+export default function ManualAdd({ onClose, onAdd }: Props) {
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
-  const [category, setCategory] = useState('Spirits');
+  const [category, setCategory] = useState('spirits');
   const [stock, setStock] = useState('');
   const [isVisible, setIsVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -31,6 +31,11 @@ export default function ManualAdd({ onClose, onAdd, onScanBarcode }: Props) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchSeq = useRef(0);
+
+  const [showScanner, setShowScanner] = useState(false);
+  const [scannedUpc, setScannedUpc] = useState<string | undefined>(undefined);
+  const [isLookingUpBarcode, setIsLookingUpBarcode] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const slideAnim = useRef(new Animated.Value(500)).current;
 
@@ -91,19 +96,70 @@ export default function ManualAdd({ onClose, onAdd, onScanBarcode }: Props) {
     if (product.category) setCategory(product.category);
     if (product.image_url) setSelectedImage(product.image_url);
     setMatchedProductId(product.id);
+    setScannedUpc(undefined);
     setShowSuggestions(false);
     setSuggestions([]);
   };
 
+  const handleBarcodeScanned = async (code: string) => {
+    setShowScanner(false);
+    setIsLookingUpBarcode(true);
+    setMatchedProductId(undefined);
+    try {
+      const product = await apiService.getProductByBarcode(code);
+      if (product) {
+        setName(product.name);
+        setBrand(product.brand ?? '');
+        if (product.category) setCategory(product.category);
+        if (product.image_url) setSelectedImage(product.image_url);
+        setMatchedProductId(product.id);
+        setScannedUpc(undefined);
+      } else {
+        // Not in the catalog yet — keep the barcode so submitting registers
+        // it, but leave name/brand for the user to fill in themselves.
+        setName('');
+        setBrand('');
+        setScannedUpc(code);
+      }
+    } catch {
+      // Lookup failed (offline, server hiccup) — still worth keeping the
+      // barcode so a manual entry can register it once they hit submit.
+      setScannedUpc(code);
+    } finally {
+      setIsLookingUpBarcode(false);
+    }
+  };
+
   const stockValue = parseFloat(stock);
   const isStockValid = stock.trim() !== '' && !isNaN(stockValue) && stockValue >= 0;
-  const canSubmit = !!name.trim() && !!brand.trim() && isStockValid;
+  const canSubmit = !!name.trim() && !!brand.trim() && isStockValid && !isSubmitting;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!canSubmit) return;
+    setIsSubmitting(true);
+
+    let productId = matchedProductId;
+
+    // A scanned barcode that missed the catalog — register it now so the
+    // next scan of this same physical bottle is recognized automatically.
+    if (scannedUpc && !productId) {
+      try {
+        const created = await apiService.createProduct({
+          name: name.trim(),
+          brand: brand.trim(),
+          category,
+          upc: scannedUpc,
+        });
+        productId = created.id;
+      } catch {
+        // Registration failed (offline, etc.) — don't lose the count the
+        // user already typed in, just add the bottle without a catalog link.
+      }
+    }
+
     const bottle: Bottle = {
       id: `bottle_${Date.now()}`,
-      productId: matchedProductId,
+      productId,
       name: name.trim(),
       brand: brand.trim(),
       category,
@@ -112,8 +168,10 @@ export default function ManualAdd({ onClose, onAdd, onScanBarcode }: Props) {
       parLevel: 1,
       currentStock: stockValue,
       imageUrl: selectedImage ?? undefined,
+      upc: scannedUpc,
     };
     onAdd(bottle);
+    setIsSubmitting(false);
     handleClose();
   };
 
@@ -181,6 +239,17 @@ export default function ManualAdd({ onClose, onAdd, onScanBarcode }: Props) {
                   }}
                   onFocus={() => setShowSuggestions(true)}
                 />
+                {isLookingUpBarcode && (
+                  <View style={styles.suggestionRow}>
+                    <ActivityIndicator size="small" color={COLORS.accentPrimary} />
+                    <Text style={styles.suggestionSubtext}>Looking up barcode…</Text>
+                  </View>
+                )}
+                {!isLookingUpBarcode && scannedUpc && !matchedProductId && (
+                  <Text style={styles.barcodeHint}>
+                    New barcode ({scannedUpc}) — fill in the details to add it to the catalog.
+                  </Text>
+                )}
                 {showSuggestions && (isSearching || suggestions.length > 0) && (
                   <View style={styles.suggestionsBox}>
                     {isSearching && suggestions.length === 0 ? (
@@ -254,7 +323,7 @@ export default function ManualAdd({ onClose, onAdd, onScanBarcode }: Props) {
                           category === cat && styles.categoryButtonTextSelected,
                         ]}
                       >
-                        {cat}
+                        {cat.charAt(0).toUpperCase() + cat.slice(1)}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -262,12 +331,10 @@ export default function ManualAdd({ onClose, onAdd, onScanBarcode }: Props) {
               </View>
 
               {/* Barcode Scanner */}
-              {onScanBarcode && (
-                <TouchableOpacity style={styles.barcodeButton} activeOpacity={0.8} onPress={onScanBarcode}>
-                  <Barcode size={20} color={COLORS.textSecondary} />
-                  <Text style={styles.barcodeButtonText}>Scan Barcode Instead</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity style={styles.barcodeButton} activeOpacity={0.8} onPress={() => setShowScanner(true)}>
+                <Barcode size={20} color={COLORS.textSecondary} />
+                <Text style={styles.barcodeButtonText}>Scan Barcode Instead</Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
 
@@ -282,12 +349,24 @@ export default function ManualAdd({ onClose, onAdd, onScanBarcode }: Props) {
               disabled={!canSubmit}
               activeOpacity={0.8}
             >
-              <Check size={20} color="#FFFFFF" />
-              <Text style={styles.submitButtonText}>Add to Inventory</Text>
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Check size={20} color="#FFFFFF" />
+                  <Text style={styles.submitButtonText}>Add to Inventory</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
         </SafeAreaView>
       </Animated.View>
+
+      <BarcodeScannerModal
+        visible={showScanner}
+        onClose={() => setShowScanner(false)}
+        onScanned={handleBarcodeScanned}
+      />
     </Modal>
   );
 }
@@ -387,6 +466,12 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontSize: FONT_SIZES.base,
     letterSpacing: LETTER_SPACING,
+  },
+  barcodeHint: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.accentPrimary,
+    marginTop: SPACING.xs,
   },
   suggestionsBox: {
     backgroundColor: COLORS.surface,

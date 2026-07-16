@@ -209,6 +209,23 @@ class ApiService {
     }
   }
 
+  // Registers a product the barcode scanner couldn't find in the catalog.
+  // A 409 means someone else registered the same UPC in the meantime (or
+  // the earlier lookup raced with a create) — the backend hands back the
+  // existing row instead of erroring twice, so callers can just use it.
+  async createProduct(product: { name: string; brand?: string; category: string; upc?: string }): Promise<Product> {
+    try {
+      const response = await this.client.post<{ product: Product }>('/products', product);
+      return response.data.product;
+    } catch (error) {
+      const axiosError = error as AxiosError<{ detail?: { error?: string; existing_product?: Product } }>;
+      if (axiosError.response?.status === 409 && axiosError.response.data?.detail?.existing_product) {
+        return axiosError.response.data.detail.existing_product;
+      }
+      throw error;
+    }
+  }
+
   // Location methods
   async getLocations(): Promise<Location[]> {
     const response = await this.client.get<{ locations: Location[] }>('/locations');
