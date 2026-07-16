@@ -141,6 +141,11 @@ export interface Bottle {
   size: string;
   currentLevel: number;
   parLevel: number;
+  // Every new scan defaults parLevel to 1 — this tracks whether a human
+  // actually confirmed that number (via the Review stepper) versus it
+  // just being the untouched default, so Review/Order Summary can warn
+  // before ordering off a number nobody set.
+  parLevelSet?: boolean;
   distributorId?: string;
   upc?: string;
   imageUrl?: string;

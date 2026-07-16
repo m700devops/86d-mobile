@@ -47,6 +47,28 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     b => b.scanStatus === 'failed' && b.failureReason === 'network'
   ).length;
 
+  const unsetParCount = bottles.filter(
+    b => b.scanStatus === undefined && !b.parLevelSet
+  ).length;
+
+  // Orders are quantity = par − current stock, so an untouched default par
+  // silently produces a wrong order quantity instead of an obviously-broken
+  // one — worth a confirmation instead of letting it slide through quietly.
+  const handleGenerateOrder = () => {
+    if (unsetParCount === 0) {
+      onGenerateOrder();
+      return;
+    }
+    Alert.alert(
+      'Par levels not set',
+      `${unsetParCount} item${unsetParCount === 1 ? '' : 's'} still ${unsetParCount === 1 ? 'has' : 'have'} the default par level (1) — order quantities for ${unsetParCount === 1 ? 'it' : 'them'} may be wrong. Review before ordering?`,
+      [
+        { text: 'Review Items', style: 'cancel' },
+        { text: 'Order Anyway', style: 'destructive', onPress: onGenerateOrder },
+      ]
+    );
+  };
+
   // Debounced write-through: rapid stepper taps / long-press repeats collapse
   // into one PATCH per bottle once the value settles.
   const handleBottleUpdate = (bottle: Bottle, updates: Partial<Bottle>) => {
@@ -257,13 +279,17 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
       <View style={styles.footer}>
         <TouchableOpacity
           style={styles.generateButton}
-          onPress={onGenerateOrder}
+          onPress={handleGenerateOrder}
           activeOpacity={0.8}
         >
           <Text style={styles.generateButtonText}>Generate Order Summary</Text>
           <ChevronRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.footerText}>Finalize inventory and par levels</Text>
+        <Text style={[styles.footerText, unsetParCount > 0 && styles.footerTextWarning]}>
+          {unsetParCount > 0
+            ? `${unsetParCount} item${unsetParCount === 1 ? '' : 's'} missing a par level`
+            : 'Finalize inventory and par levels'}
+        </Text>
       </View>
     </SafeAreaView>
   );
@@ -393,19 +419,22 @@ function BottleRow({
         <View style={[styles.stepperBox, styles.parBox]}>
           <TouchableOpacity
             style={styles.stepperButton}
-            onPress={() => onUpdate({ parLevel: Math.max(0, bottle.parLevel - 1) })}
+            onPress={() => onUpdate({ parLevel: Math.max(0, bottle.parLevel - 1), parLevelSet: true })}
           >
             <Minus size={10} color={COLORS.accentPrimary} />
           </TouchableOpacity>
           <Text style={[styles.stepperValue, styles.parValue]}>{bottle.parLevel}</Text>
           <TouchableOpacity
             style={styles.stepperButton}
-            onPress={() => onUpdate({ parLevel: bottle.parLevel + 1 })}
+            onPress={() => onUpdate({ parLevel: bottle.parLevel + 1, parLevelSet: true })}
           >
             <Plus size={10} color={COLORS.accentPrimary} />
           </TouchableOpacity>
         </View>
         <Text style={styles.parLabel}>PAR</Text>
+        {!bottle.parLevelSet && bottle.scanStatus === undefined && (
+          <Text style={styles.parUnsetBadge}>Not set</Text>
+        )}
       </View>
 
       {/* Delete */}
@@ -637,6 +666,13 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginTop: 3,
   },
+  parUnsetBadge: {
+    fontSize: 8,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.error,
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
   deleteButton: {
     padding: SPACING.sm,
   },
@@ -679,6 +715,9 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  footerTextWarning: {
+    color: COLORS.error,
   },
   sectionHeaderHint: {
     fontSize: FONT_SIZES.xs,
