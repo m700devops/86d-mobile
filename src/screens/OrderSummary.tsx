@@ -21,7 +21,7 @@ interface Props {
 }
 
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
-  const { bottles, updateBottle } = useInventory();
+  const { bottles, updateBottle, clearBottles } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
   const { user, updateProfile } = useAuth();
@@ -158,6 +158,12 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           friction: 5,
           useNativeDriver: true,
         }).start();
+        // Only clear the scan draft for a normal send — a Reorder doesn't
+        // touch `bottles` at all, and clearing here would wipe an unrelated
+        // in-progress scan the user might have going.
+        if (!presetOrder) {
+          clearBottles();
+        }
       }
     } catch (error: any) {
       const detail = error?.response?.data?.detail;

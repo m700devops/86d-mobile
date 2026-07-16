@@ -284,6 +284,21 @@ class ApiService {
     return response.data.session;
   }
 
+  // Server-side backup of the in-progress scan draft, on top of local AsyncStorage —
+  // protects against a lost/reinstalled device, not just an app-kill mid-shift.
+  async saveInventoryDraft(locationId: string, bottles: unknown[]): Promise<void> {
+    await this.client.put('/inventory/draft', { location_id: locationId, bottles });
+  }
+
+  async getInventoryDraft(locationId: string): Promise<{ bottles: any[] | null; updated_at: string | null }> {
+    const response = await this.client.get(`/inventory/draft?location_id=${encodeURIComponent(locationId)}`);
+    return response.data;
+  }
+
+  async deleteInventoryDraft(locationId: string): Promise<void> {
+    await this.client.delete(`/inventory/draft?location_id=${encodeURIComponent(locationId)}`);
+  }
+
   // Distributor methods
   async getDistributors(): Promise<Distributor[]> {
     const response = await this.client.get<{ distributors: Distributor[] }>('/distributors');
