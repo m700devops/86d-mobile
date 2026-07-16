@@ -5,6 +5,8 @@ import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typograph
 import { SPACING } from '../constants/spacing';
 import { X, Camera, LayoutGrid, History, Settings, LogOut } from 'lucide-react-native';
 import SidebarItem from './SidebarItem';
+import { useAuth } from '../context/AuthContext';
+import { useLocation } from '../context/LocationContext';
 
 const { width } = Dimensions.get('window');
 const SIDEBAR_WIDTH = 288;
@@ -18,6 +20,16 @@ interface Props {
 }
 
 export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, onSignOut }: Props) {
+  const { user } = useAuth();
+  const { currentLocation } = useLocation();
+  const displayName = currentLocation?.name || user?.business_name || 'My Bar';
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w.charAt(0).toUpperCase())
+    .join('') || '86';
+
   const slideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -127,11 +139,11 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
             <View style={styles.footer}>
               <View style={styles.userCard}>
                 <View style={styles.userAvatar}>
-                  <Text style={styles.userInitials}>MB</Text>
+                  <Text style={styles.userInitials}>{initials}</Text>
                 </View>
                 <View style={styles.userInfo}>
-                  <Text style={styles.userName}>Main Bar</Text>
-                  <Text style={styles.userEmail}>m700devops@gmail.com</Text>
+                  <Text style={styles.userName} numberOfLines={1}>{displayName}</Text>
+                  <Text style={styles.userEmail} numberOfLines={1}>{user?.email ?? ''}</Text>
                 </View>
               </View>
 

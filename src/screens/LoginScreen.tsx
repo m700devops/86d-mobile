@@ -23,9 +23,10 @@ const LOGIN_MAX_ATTEMPTS = 4;
 interface LoginScreenProps {
   onNavigateToRegister: () => void;
   onLoginSuccess: () => void;
+  onForgotPassword: () => void;
 }
 
-export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScreenProps) {
+export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPassword }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -193,7 +194,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess }: LoginScree
               </View>
 
               {/* Forgot password */}
-              <TouchableOpacity style={styles.forgotLink}>
+              <TouchableOpacity style={styles.forgotLink} onPress={onForgotPassword}>
                 <Text style={styles.forgotText}>Forgot password?</Text>
               </TouchableOpacity>
 

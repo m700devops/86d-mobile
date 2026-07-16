@@ -8,6 +8,7 @@ import { DistributorProvider } from './context/DistributorContext';
 import { AppScreen, OrderDistributorSummary } from './types';
 import { LoginScreen } from './screens/LoginScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
+import { ForgotPasswordScreen } from './screens/ForgotPasswordScreen';
 import Onboarding from './screens/Onboarding';
 import CameraScan from './screens/CameraScan';
 import ReviewGrid from './screens/ReviewGrid';
@@ -22,13 +23,13 @@ type ReorderSource = { distributors: OrderDistributorSummary[] };
 // Auth-aware app content
 function AppContent() {
   const { isAuthenticated, isLoading, logout } = useAuth();
-  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register'>('onboarding');
+  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
 
-  const navigate = (screen: AppScreen | 'login' | 'register') => {
+  const navigate = (screen: AppScreen | 'login' | 'register' | 'forgot-password') => {
     setReorderOrder(null);
     setCurrentScreen(screen);
   };
@@ -61,12 +62,15 @@ function AppContent() {
               onRegisterSuccess={() => navigate('onboarding')}
             />
           );
+        case 'forgot-password':
+          return <ForgotPasswordScreen onBackToLogin={() => navigate('login')} />;
         case 'login':
         default:
           return (
             <LoginScreen
               onNavigateToRegister={() => navigate('register')}
               onLoginSuccess={() => navigate('onboarding')}
+              onForgotPassword={() => navigate('forgot-password')}
             />
           );
       }

@@ -126,6 +126,14 @@ class ApiService {
     return response.data;
   }
 
+  async forgotPassword(email: string): Promise<void> {
+    await this.client.post('/auth/forgot-password', { email });
+  }
+
+  async resetPassword(email: string, token: string, newPassword: string): Promise<void> {
+    await this.client.post('/auth/reset-password', { email, token, new_password: newPassword });
+  }
+
   async refreshAccessToken(): Promise<string> {
     // Prevent multiple simultaneous refresh requests
     if (this.refreshPromise) {
