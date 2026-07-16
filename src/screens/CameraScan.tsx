@@ -20,6 +20,7 @@ import { Check, ChevronLeft, Zap, Camera, Delete } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
+import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { Bottle } from '../types';
@@ -221,6 +222,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
       photoUriRef.current = photo.uri;
+      // Camera captures land in the OS cache dir, which iOS can evict under
+      // memory pressure — copy to durable storage in the background so a
+      // later retry (this session or after a relaunch) can still find it.
+      // Non-blocking: if the user hits "Add" before this lands, the
+      // fire-and-forget path below just gets the ephemeral URI instead —
+      // same behavior as before this existed, not a regression.
+      persistScanPhoto(photo.uri).then(persisted => { photoUriRef.current = persisted; }).catch(() => {});
 
       // Open the number pad immediately — the user types their back-up count
       // while the AI identifies the bottle in the background.
@@ -391,6 +399,10 @@ export default function CameraScan({ onReview, onBack }: Props) {
   // --- Number pad: commit / fail / cancel ---
 
   const closePadWithFail = useCallback(() => {
+    // Not-yet-committed failure — no bottle row exists for this attempt, so
+    // nothing will ever reference this photo. (A fire-and-forget row that's
+    // already saved keeps its own imageUrl and isn't touched by this.)
+    deleteScanPhoto(photoUriRef.current);
     scanSeq.current++;
     const message = failMessage ?? 'Scan failed — try again';
     setPadVisible(false);
@@ -412,6 +424,10 @@ export default function CameraScan({ onReview, onBack }: Props) {
     const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
     const label = [result.brand, result.name].filter(Boolean).join(', ');
 
+    // Identified synchronously (before the user hit Add) — this row will
+    // never need a retry, so there's nothing worth keeping the photo for.
+    deleteScanPhoto(photoUriRef.current);
+
     if (existingBottle) {
       // Re-scan of a product already in the session — replace its count
       updateBottle(existingBottle.id, { currentStock: stock });
@@ -428,7 +444,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
         currentLevel: 1,
         parLevel: 1,
         currentStock: stock,       // typed on the pad — total back-up bottles
-        imageUrl: photoUriRef.current ?? undefined,
         distributorId: (result as any).distributorId,
       };
       addBottle(newBottle);
@@ -495,6 +510,9 @@ export default function CameraScan({ onReview, onBack }: Props) {
   }, [identifyStatus, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen]);
 
   const handlePadCancel = useCallback(() => {
+    // No bottle row was ever created for this attempt (fire-and-forget
+    // commits happen in handlePadAdd, not here), so the photo is orphaned.
+    deleteScanPhoto(photoUriRef.current);
     scanSeq.current++;   // invalidate the in-flight scan
     setPadVisible(false);
     resetToIdle();

@@ -6,6 +6,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Bottle } from '../types';
 import { useLocation } from './LocationContext';
 import { apiService } from '../services/api';
+import { deleteScanPhoto } from '../utils/scanPhotos';
 
 interface ResolvedScanInfo {
   productId?: string;
@@ -93,15 +94,25 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return () => { cancelled = true; };
   }, [currentLocation]);
 
-  // Persist on every change, debounced — skipped until hydration for the
-  // current location has landed, so we don't clobber a saved draft with []
-  // in the gap before the read above resolves.
+  // Local write on every change, undebounced — a hard crash doesn't fire any
+  // JS event we could hook (AppState 'background' only fires on a graceful
+  // transition), so the only real protection against losing the *latest*
+  // change is not delaying the write in the first place. AsyncStorage writes
+  // for a small JSON array are cheap enough that this isn't a perf concern.
+  useEffect(() => {
+    if (!currentLocation || !isHydrated || hydratedLocationId.current !== currentLocation.id) return;
+    AsyncStorage.setItem(draftKey(currentLocation.id), JSON.stringify(bottles)).catch(() => {});
+  }, [bottles, currentLocation, isHydrated]);
+
+  // Backend sync, debounced — this is belt-and-suspenders for device loss,
+  // not crash recovery (the local write above already covers that), so it's
+  // fine for it to lag slightly behind in exchange for not firing a network
+  // request on every single scan during a fast-moving session.
   useEffect(() => {
     if (!currentLocation || !isHydrated || hydratedLocationId.current !== currentLocation.id) return;
 
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      AsyncStorage.setItem(draftKey(currentLocation.id), JSON.stringify(bottles)).catch(() => {});
       apiService.saveInventoryDraft(currentLocation.id, bottles).catch(() => {});
     }, SAVE_DEBOUNCE_MS);
 
@@ -110,15 +121,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, [bottles, currentLocation, isHydrated]);
 
-  // Belt-and-suspenders: the debounce above closes almost all of the data-loss
-  // window, but iOS backgrounding the app is the one moment we know a kill
-  // might follow — flush immediately rather than waiting out the debounce.
+  // Flush the backend debounce immediately when backgrounding — the one
+  // moment we know a kill might follow, so it's worth not waiting it out.
   useEffect(() => {
     const sub = AppState.addEventListener('change', nextState => {
       if (nextState !== 'background' && nextState !== 'inactive') return;
       if (!currentLocation || !isHydrated || hydratedLocationId.current !== currentLocation.id) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      AsyncStorage.setItem(draftKey(currentLocation.id), JSON.stringify(bottlesRef.current)).catch(() => {});
       apiService.saveInventoryDraft(currentLocation.id, bottlesRef.current).catch(() => {});
     });
     return () => sub.remove();
@@ -133,7 +142,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const removeBottle = (id: string) => {
-    setBottles(prev => prev.filter(b => b.id !== id));
+    setBottles(prev => {
+      const row = prev.find(b => b.id === id);
+      if (row?.imageUrl) deleteScanPhoto(row.imageUrl);
+      return prev.filter(b => b.id !== id);
+    });
   };
 
   // Fill in a fire-and-forget row once background identification lands.
@@ -143,6 +156,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setBottles(prev => {
       const row = prev.find(b => b.id === id);
       if (!row) return prev; // row was undone/deleted before the result landed
+
+      // Fully identified now — the photo was only ever needed in case this
+      // row needed a retry, so it's safe to clean up once it succeeds.
+      if (row.imageUrl) deleteScanPhoto(row.imageUrl);
 
       // Same product already identified in this session? Merge — the newer
       // typed count becomes the total, and the placeholder row disappears.
@@ -160,7 +177,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
 
       return prev.map(b =>
-        b.id === id ? { ...b, ...info, scanStatus: undefined } : b
+        b.id === id ? { ...b, ...info, scanStatus: undefined, imageUrl: undefined } : b
       );
     });
   };
@@ -250,6 +267,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // Called once an order's been successfully sent — that draft is done,
   // don't let it resurface (and get accidentally re-sent) on the next scan.
   const clearBottles = () => {
+    // Failed rows that never got resolved before the order was sent still
+    // hold a photo — nothing will retry them once the draft is cleared.
+    bottlesRef.current.forEach(b => { if (b.imageUrl) deleteScanPhoto(b.imageUrl); });
     setBottles([]);
     if (currentLocation) {
       AsyncStorage.removeItem(draftKey(currentLocation.id)).catch(() => {});
