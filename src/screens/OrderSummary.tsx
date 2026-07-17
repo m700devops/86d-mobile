@@ -93,7 +93,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
 
     if (!user?.business_name) {
       setRestaurantNameInput(user?.business_name ?? '');
-      setManagerNameInput(user?.manager_name ?? user?.name ?? '');
+      setManagerNameInput(user?.manager_name ?? '');
       setShowRestaurantSetup(true);
       return;
     }
