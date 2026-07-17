@@ -49,7 +49,8 @@
         {
           "cameraPermission": "Allow 86'd to access your camera to scan bottles."
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }

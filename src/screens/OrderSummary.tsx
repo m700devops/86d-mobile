@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform } from 'react-native';
 import * as Print from 'expo-print';
+import * as Clipboard from 'expo-clipboard';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
@@ -9,18 +10,25 @@ import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
+import { useStaff } from '../context/StaffContext';
 import { apiService } from '../services/api';
-import { OrderItem, Distributor } from '../types';
+import { OrderItem, Distributor, OrderDistributorSummary } from '../types';
 
 interface Props {
   onRestart: () => void;
+  onViewOrders: () => void;
+  // Only `distributors` is read — accepts both the list-row Order shape and
+  // the fuller OrderDetail shape returned by GET /orders/{id}.
+  presetOrder?: { distributors: OrderDistributorSummary[] } | null;
 }
 
-export default function OrderSummary({ onRestart }: Props) {
-  const { bottles, updateBottle } = useInventory();
+export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
+  const { bottles, updateBottle, clearBottles } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
   const { user, updateProfile } = useAuth();
+  const { staff } = useStaff();
+  const [countedBy, setCountedBy] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
   const [checkAnim] = useState(new Animated.Value(0));
@@ -32,24 +40,39 @@ export default function OrderSummary({ onRestart }: Props) {
   const [showCallList, setShowCallList] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
 
-  const orderItems: OrderItem[] = bottles
-    .map(b => {
-      // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole bottles, round up
-      const totalQuantity = Math.max(0, Math.ceil(b.parLevel - (b.currentStock || 0)));
+  // Reordering a past order skips the bottles/par-level derivation entirely —
+  // the items and quantities come straight from what was ordered before.
+  const orderItems: OrderItem[] = presetOrder
+    ? presetOrder.distributors.flatMap((dist, di) =>
+        dist.items.map((item, ii) => ({
+          bottleId: `reorder-${di}-${ii}`,
+          bottleName: item.name,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price || 0,
+          category: 'Other',
+          urgency: 'normal' as OrderItem['urgency'],
+          distributorId: dist.distributor_id || undefined,
+        }))
+      )
+    : bottles
+        .map(b => {
+          // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole bottles, round up
+          const totalQuantity = Math.max(0, Math.ceil(b.parLevel - (b.currentStock || 0)));
 
-      return {
-        bottleId: b.id,
-        // Order lines show the full product: "Sprite Original", "Gatorade Blue Bolt"
-        bottleName: [b.brand, b.name].filter(Boolean).join(' '),
-        name: [b.brand, b.name].filter(Boolean).join(' '),
-        quantity: totalQuantity,
-        price: b.price || 0,
-        category: b.category,
-        urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
-        distributorId: b.distributorId,
-      };
-    })
-    .filter(b => b.quantity > 0);
+          return {
+            bottleId: b.id,
+            // Order lines show the full product: "Sprite Original", "Gatorade Blue Bolt"
+            bottleName: [b.brand, b.name].filter(Boolean).join(' '),
+            name: [b.brand, b.name].filter(Boolean).join(' '),
+            quantity: totalQuantity,
+            price: b.price || 0,
+            category: b.category,
+            urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
+            distributorId: b.distributorId,
+          };
+        })
+        .filter(b => b.quantity > 0);
 
   const groupedByDistributor = distributors
     .map(dist => ({
@@ -62,6 +85,11 @@ export default function OrderSummary({ onRestart }: Props) {
 
   const handleSendOrders = () => {
     if (isSending || groupedByDistributor.length === 0) return;
+
+    if (!currentLocation) {
+      Alert.alert("Can't send yet", 'Still loading your bar location — try again in a moment.');
+      return;
+    }
 
     if (!user?.business_name) {
       setRestaurantNameInput(user?.business_name ?? '');
@@ -92,15 +120,20 @@ export default function OrderSummary({ onRestart }: Props) {
   };
 
   const performSend = async () => {
+    if (!currentLocation) return;
+
     setIsSending(true);
     try {
       const response = await apiService.sendOrderEmails({
-        location_name: currentLocation?.name ?? 'My Bar',
+        location_id: currentLocation.id,
+        location_name: currentLocation.name ?? 'My Bar',
+        staff_name: countedBy ?? undefined,
         orders: groupedByDistributor.map(g => ({
           distributor_id: g.distributor.id,
           items: g.items.map(i => ({
             name: i.name || i.bottleName,
             quantity: i.quantity,
+            price: i.price || undefined,
           })),
         })),
       });
@@ -130,6 +163,12 @@ export default function OrderSummary({ onRestart }: Props) {
           friction: 5,
           useNativeDriver: true,
         }).start();
+        // Only clear the scan draft for a normal send — a Reorder doesn't
+        // touch `bottles` at all, and clearing here would wipe an unrelated
+        // in-progress scan the user might have going.
+        if (!presetOrder) {
+          clearBottles();
+        }
       }
     } catch (error: any) {
       const detail = error?.response?.data?.detail;
@@ -164,6 +203,28 @@ export default function OrderSummary({ onRestart }: Props) {
     } finally {
       setIsPrinting(false);
     }
+  };
+
+  const handleCopy = async () => {
+    try {
+      await Clipboard.setStringAsync(buildOrderText());
+      Alert.alert('Copied', 'Order summary copied — paste it anywhere (Notes, Messages, another printing app).');
+    } catch {
+      Alert.alert("Couldn't copy", 'Try again.');
+    }
+  };
+
+  // Plain-text mirror of buildOrderHtml — the universal fallback that works
+  // regardless of what printer (or lack of one) a distributor/client has.
+  const buildOrderText = () => {
+    const title = user?.business_name || currentLocation?.name || 'Order Summary';
+    const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const sections = groupedByDistributor.map(group => {
+      const lines = group.items.map(item => `  - ${item.name || item.bottleName} x${item.quantity}`).join('\n');
+      return `${group.distributor.name}\n${lines}`;
+    }).join('\n\n');
+
+    return `${title}\n${dateStr}\n\n${sections}`;
   };
 
   const buildOrderHtml = () => {
@@ -251,10 +312,18 @@ export default function OrderSummary({ onRestart }: Props) {
 
           <TouchableOpacity
             style={[styles.button, { marginTop: SPACING.xl }]}
-            onPress={onRestart}
+            onPress={onViewOrders}
             activeOpacity={0.8}
           >
-            <Text style={styles.buttonText}>Return to Dashboard</Text>
+            <Text style={styles.buttonText}>View All Orders</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryLink}
+            onPress={onRestart}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.secondaryLinkText}>Start a New Scan</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -275,8 +344,28 @@ export default function OrderSummary({ onRestart }: Props) {
         </Text>
       </View>
 
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
+      {staff.length > 0 && (
+        <View style={styles.countedByRow}>
+          <Text style={styles.countedByLabel}>Counted by:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.countedByChips}>
+            {staff.map(name => (
+              <TouchableOpacity
+                key={name}
+                style={[styles.countedByChip, countedBy === name && styles.countedByChipActive]}
+                onPress={() => setCountedBy(countedBy === name ? null : name)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.countedByChipText, countedBy === name && styles.countedByChipTextActive]}>
+                  {name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Distributor Breakdown (Sidebar on desktop, top on mobile) */}
@@ -396,20 +485,25 @@ export default function OrderSummary({ onRestart }: Props) {
           </Modal>
         </View>
 
-        {/* Items by Category */}
+        {/* Items by Category — bottle.category comes back lowercase from both
+            the AI scan (backend normalizes it) and Manual Add, so group on
+            that raw value and only capitalize for display. A hardcoded
+            Title-Case bucket list here previously matched nothing and
+            silently dropped every scanned item from this section. */}
         <View style={styles.itemsSection}>
-          {['Spirits', 'Beer', 'Wine', 'Other'].map(cat => {
+          {Array.from(new Set(orderItems.map(i => i.category))).sort().map(cat => {
             const catItems = orderItems.filter(i => i.category === cat);
             if (catItems.length === 0) return null;
+            const label = cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : 'Other';
 
             return (
               <View key={cat} style={styles.categorySection}>
-                <Text style={styles.categoryHeader}>{cat}</Text>
+                <Text style={styles.categoryHeader}>{label}</Text>
                 {catItems.map(item => (
-                  <OrderItemRow 
-                    key={item.bottleId} 
-                    item={item} 
-                    distributors={distributors} 
+                  <OrderItemRow
+                    key={item.bottleId}
+                    item={item}
+                    distributors={distributors}
                   />
                 ))}
               </View>
@@ -534,7 +628,8 @@ export default function OrderSummary({ onRestart }: Props) {
       <View style={styles.footer}>
         {/* Export Buttons */}
         <View style={styles.exportButtons}>
-          {/* Email and Call are wired up; Print uses AirPrint; Copy is not built yet */}
+          {/* Email/Call/Print are wired up; Copy is the universal fallback for
+              distributors/clients whose printer isn't AirPrint compatible */}
           <ExportButton
             icon={<Mail size={20} />}
             label="Email"
@@ -550,7 +645,11 @@ export default function OrderSummary({ onRestart }: Props) {
             label="Print"
             onPress={!isPrinting ? handlePrint : undefined}
           />
-          <ExportButton icon={<Copy size={20} />} label="Copy" />
+          <ExportButton
+            icon={<Copy size={20} />}
+            label="Copy"
+            onPress={groupedByDistributor.length > 0 ? handleCopy : undefined}
+          />
         </View>
 
         {/* Main Action Button */}
@@ -666,6 +765,43 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
     marginTop: SPACING.xs,
+  },
+  countedByRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
+  },
+  countedByLabel: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textTertiary,
+    letterSpacing: 1,
+  },
+  countedByChips: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  countedByChip: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  countedByChipActive: {
+    backgroundColor: COLORS.accentPrimary,
+    borderColor: COLORS.accentPrimary,
+  },
+  countedByChipText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
+  },
+  countedByChipTextActive: {
+    color: '#FFFFFF',
   },
   scrollContent: {
     paddingBottom: 280,
@@ -1183,6 +1319,16 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.lg,
     fontWeight: FONT_WEIGHTS.semibold,
     color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
+  },
+  secondaryLink: {
+    marginTop: SPACING.lg,
+    paddingVertical: SPACING.md,
+  },
+  secondaryLinkText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
     letterSpacing: LETTER_SPACING,
   },
 });

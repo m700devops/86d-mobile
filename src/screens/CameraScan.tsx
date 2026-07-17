@@ -16,13 +16,15 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Check, ChevronLeft, Zap, Camera, Delete } from 'lucide-react-native';
+import { Check, ChevronLeft, Zap, Camera, Delete, Barcode } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
+import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { Bottle } from '../types';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 // --- Types ---
 
@@ -83,6 +85,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
   // Set when the scanned product is already in this session — commit updates
   // that row's count instead of adding a duplicate
   const [existingBottle, setExistingBottle] = useState<Bottle | null>(null);
+
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  // A barcode miss has no photo to retake — the fallback action is to try
+  // the normal camera scan instead, so the pad button needs different copy.
+  const [failedViaBarcode, setFailedViaBarcode] = useState(false);
 
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
@@ -221,6 +228,13 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
       photoUriRef.current = photo.uri;
+      // Camera captures land in the OS cache dir, which iOS can evict under
+      // memory pressure — copy to durable storage in the background so a
+      // later retry (this session or after a relaunch) can still find it.
+      // Non-blocking: if the user hits "Add" before this lands, the
+      // fire-and-forget path below just gets the ephemeral URI instead —
+      // same behavior as before this existed, not a regression.
+      persistScanPhoto(photo.uri).then(persisted => { photoUriRef.current = persisted; }).catch(() => {});
 
       // Open the number pad immediately — the user types their back-up count
       // while the AI identifies the bottle in the background.
@@ -229,6 +243,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
       setIdentifiedLabel(null);
       setFailMessage(null);
       setExistingBottle(null);
+      setFailedViaBarcode(false);
       setPadVisible(true);
 
       // Downscale before upload — full-res photos are several MB of base64,
@@ -371,10 +386,11 @@ export default function CameraScan({ onReview, onBack }: Props) {
         return;
       }
 
-      // Fire-and-forget: flag the saved row so it can be retried from Review
+      // Fire-and-forget: flag the saved row so it can be retried from Review.
+      // Network/timeout failures also auto-retry once connectivity returns.
       if (committedRowId !== undefined) {
         pendingCommits.current.delete(token);
-        markScanFailed(committedRowId);
+        markScanFailed(committedRowId, errorType === 'network' || errorType === 'timeout' ? 'network' : 'other');
         return;
       }
 
@@ -390,6 +406,10 @@ export default function CameraScan({ onReview, onBack }: Props) {
   // --- Number pad: commit / fail / cancel ---
 
   const closePadWithFail = useCallback(() => {
+    // Not-yet-committed failure — no bottle row exists for this attempt, so
+    // nothing will ever reference this photo. (A fire-and-forget row that's
+    // already saved keeps its own imageUrl and isn't touched by this.)
+    deleteScanPhoto(photoUriRef.current);
     scanSeq.current++;
     const message = failMessage ?? 'Scan failed — try again';
     setPadVisible(false);
@@ -411,6 +431,10 @@ export default function CameraScan({ onReview, onBack }: Props) {
     const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
     const label = [result.brand, result.name].filter(Boolean).join(', ');
 
+    // Identified synchronously (before the user hit Add) — this row will
+    // never need a retry, so there's nothing worth keeping the photo for.
+    deleteScanPhoto(photoUriRef.current);
+
     if (existingBottle) {
       // Re-scan of a product already in the session — replace its count
       updateBottle(existingBottle.id, { currentStock: stock });
@@ -427,7 +451,6 @@ export default function CameraScan({ onReview, onBack }: Props) {
         currentLevel: 1,
         parLevel: 1,
         currentStock: stock,       // typed on the pad — total back-up bottles
-        imageUrl: photoUriRef.current ?? undefined,
         distributorId: (result as any).distributorId,
       };
       addBottle(newBottle);
@@ -494,11 +517,106 @@ export default function CameraScan({ onReview, onBack }: Props) {
   }, [identifyStatus, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen]);
 
   const handlePadCancel = useCallback(() => {
+    // No bottle row was ever created for this attempt (fire-and-forget
+    // commits happen in handlePadAdd, not here), so the photo is orphaned.
+    deleteScanPhoto(photoUriRef.current);
     scanSeq.current++;   // invalidate the in-flight scan
     setPadVisible(false);
     resetToIdle();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // One-tap retake — for a failed scan (glare, bad angle) or a synchronously
+  // "ok" result that just got the wrong bottle. Discards the current photo
+  // and result, then immediately re-opens the shutter instead of making the
+  // user close the pad and find the capture button themselves.
+  const handleRetakePhoto = useCallback(() => {
+    deleteScanPhoto(photoUriRef.current);
+    scanSeq.current++;   // invalidate the in-flight/finished scan
+    setPadVisible(false);
+    resetToIdle();
+    setTimeout(() => { triggerCapture(); }, 350);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [triggerCapture]);
+
+  // Barcode path: skip the AI vision call entirely and look the UPC straight
+  // up in the catalog. No photo is involved, so there's nothing to retry —
+  // a miss just tells the user to add it via Manual Add (which registers
+  // the barcode for next time).
+  const handleBarcodeScanned = useCallback(async (code: string) => {
+    setShowBarcodeScanner(false);
+    const token = ++scanSeq.current;
+    photoUriRef.current = null;
+    scanResultRef.current = null;
+    setStockInput('');
+    setIdentifyStatus('pending');
+    setIdentifiedLabel(null);
+    setFailMessage(null);
+    setExistingBottle(null);
+    setFailedViaBarcode(false);
+    setPadVisible(true);
+
+    try {
+      const product = await apiService.getProductByBarcode(code);
+
+      // The user may have already hit "Add Bottle" while this was in flight
+      // (fire-and-forget) — fill in that saved row instead of the pad UI.
+      const committedRowId = pendingCommits.current.get(token);
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        if (product) {
+          resolveScan(committedRowId, {
+            productId: product.id,
+            name: product.name,
+            brand: product.brand ?? '',
+            category: product.category,
+          });
+        } else {
+          markScanFailed(committedRowId, 'other');
+        }
+        return;
+      }
+
+      if (token !== scanSeq.current) return;
+
+      if (!product) {
+        setFailedViaBarcode(true);
+        failScan(token, "Not in catalog — add it via Add Manual in Review");
+        return;
+      }
+
+      const result: ScanApiResult = {
+        name: product.name,
+        brand: product.brand ?? '',
+        category: product.category,
+        liquidLevel: 1,
+        confidence: 1,
+        matched_product_id: product.id,
+        is_new_product: false,
+      };
+
+      const existing = bottles.find(b =>
+        b.scanStatus === undefined && b.productId === product.id
+      );
+      setExistingBottle(existing ?? null);
+
+      scanResultRef.current = result;
+      identifyStatusRef.current = 'ok';
+      setIdentifiedLabel([result.brand, result.name].filter(Boolean).join(' — '));
+      setIdentifyStatus('ok');
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {
+      const committedRowId = pendingCommits.current.get(token);
+      if (committedRowId !== undefined) {
+        pendingCommits.current.delete(token);
+        markScanFailed(committedRowId, 'other');
+        return;
+      }
+      if (token !== scanSeq.current) return;
+      setFailedViaBarcode(true);
+      failScan(token, 'Barcode lookup failed — check your connection');
+    }
+  }, [bottles, failScan, resolveScan, markScanFailed]);
 
   const handleKeyPress = useCallback((key: string) => {
     Haptics.selectionAsync();
@@ -662,6 +780,14 @@ export default function CameraScan({ onReview, onBack }: Props) {
               : 'Scanning'}
         </Text>
         <TouchableOpacity
+          style={styles.barcodeToggleButton}
+          onPress={() => setShowBarcodeScanner(true)}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Barcode size={18} color={COLORS.textSecondary} />
+        </TouchableOpacity>
+        <TouchableOpacity
           style={styles.pauseButton}
           onPress={handlePauseResume}
           activeOpacity={0.7}
@@ -814,6 +940,14 @@ export default function CameraScan({ onReview, onBack }: Props) {
               )}
             </View>
 
+            {/* Synchronous "ok" result can still be the wrong bottle (glare,
+                similar label) — offer a one-tap way out before it's committed. */}
+            {identifyStatus === 'ok' && (
+              <TouchableOpacity onPress={handleRetakePhoto} activeOpacity={0.7} hitSlop={8} style={styles.padRetakeRow}>
+                <Text style={styles.padRetakeLink}>Wrong bottle? Retake photo</Text>
+              </TouchableOpacity>
+            )}
+
             {/* While the AI works, tell new users to keep going — the scan runs itself */}
             {identifyStatus === 'pending' && (
               <Text style={styles.padHintNote}>
@@ -868,12 +1002,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
                   styles.padAddButton,
                   stockInput === '' && identifyStatus !== 'failed' && styles.padAddButtonDisabled,
                 ]}
-                onPress={handlePadAdd}
+                onPress={identifyStatus === 'failed' ? handleRetakePhoto : handlePadAdd}
                 disabled={stockInput === '' && identifyStatus !== 'failed'}
                 activeOpacity={0.8}
               >
                 <Text style={styles.padAddText}>
-                  {identifyStatus === 'failed' ? 'Close'
+                  {identifyStatus === 'failed' ? (failedViaBarcode ? 'Try Camera Scan' : 'Retake Photo')
                     : existingBottle ? 'Update Count'
                     : 'Add Bottle'}
                 </Text>
@@ -882,6 +1016,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
           </View>
         </View>
       </Modal>
+
+      <BarcodeScannerModal
+        visible={showBarcodeScanner}
+        onClose={() => setShowBarcodeScanner(false)}
+        onScanned={handleBarcodeScanned}
+      />
 
     </SafeAreaView>
   );
@@ -962,6 +1102,17 @@ const styles = StyleSheet.create({
   },
   counterTextActive: {
     color: COLORS.success,
+  },
+  barcodeToggleButton: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginRight: SPACING.sm,
   },
   pauseButton: {
     paddingHorizontal: SPACING.md,
@@ -1168,6 +1319,17 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     letterSpacing: LETTER_SPACING,
     textAlign: 'center',
+  },
+  padRetakeRow: {
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  padRetakeLink: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.accentPrimary,
+    letterSpacing: LETTER_SPACING,
+    textDecorationLine: 'underline',
   },
   padDuplicateNote: {
     fontSize: FONT_SIZES.xs,

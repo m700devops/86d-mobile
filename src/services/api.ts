@@ -17,7 +17,9 @@ import {
   ScanResponse,
   Distributor,
   ProductDistributorAssignment,
-  ApiError
+  ApiError,
+  Order,
+  OrderDetail
 } from '../types';
 
 class ApiService {
@@ -124,6 +126,14 @@ class ApiService {
     return response.data;
   }
 
+  async forgotPassword(email: string): Promise<void> {
+    await this.client.post('/auth/forgot-password', { email });
+  }
+
+  async resetPassword(email: string, token: string, newPassword: string): Promise<void> {
+    await this.client.post('/auth/reset-password', { email, token, new_password: newPassword });
+  }
+
   async refreshAccessToken(): Promise<string> {
     // Prevent multiple simultaneous refresh requests
     if (this.refreshPromise) {
@@ -194,6 +204,23 @@ class ApiService {
     } catch (error) {
       if ((error as AxiosError).response?.status === 404) {
         return null;
+      }
+      throw error;
+    }
+  }
+
+  // Registers a product the barcode scanner couldn't find in the catalog.
+  // A 409 means someone else registered the same UPC in the meantime (or
+  // the earlier lookup raced with a create) — the backend hands back the
+  // existing row instead of erroring twice, so callers can just use it.
+  async createProduct(product: { name: string; brand?: string; category: string; upc?: string }): Promise<Product> {
+    try {
+      const response = await this.client.post<{ product: Product }>('/products', product);
+      return response.data.product;
+    } catch (error) {
+      const axiosError = error as AxiosError<{ detail?: { error?: string; existing_product?: Product } }>;
+      if (axiosError.response?.status === 409 && axiosError.response.data?.detail?.existing_product) {
+        return axiosError.response.data.detail.existing_product;
       }
       throw error;
     }
@@ -274,6 +301,21 @@ class ApiService {
     return response.data.session;
   }
 
+  // Server-side backup of the in-progress scan draft, on top of local AsyncStorage —
+  // protects against a lost/reinstalled device, not just an app-kill mid-shift.
+  async saveInventoryDraft(locationId: string, bottles: unknown[]): Promise<void> {
+    await this.client.put('/inventory/draft', { location_id: locationId, bottles });
+  }
+
+  async getInventoryDraft(locationId: string): Promise<{ bottles: any[] | null; updated_at: string | null }> {
+    const response = await this.client.get(`/inventory/draft?location_id=${encodeURIComponent(locationId)}`);
+    return response.data;
+  }
+
+  async deleteInventoryDraft(locationId: string): Promise<void> {
+    await this.client.delete(`/inventory/draft?location_id=${encodeURIComponent(locationId)}`);
+  }
+
   // Distributor methods
   async getDistributors(): Promise<Distributor[]> {
     const response = await this.client.get<{ distributors: Distributor[] }>('/distributors');
@@ -308,12 +350,15 @@ class ApiService {
 
   // Send order emails to distributors (backend delivers via Resend)
   async sendOrderEmails(payload: {
+    location_id: string;
     location_name: string;
+    staff_name?: string;
     orders: {
       distributor_id: string;
-      items: { name: string; quantity: number; size?: string }[];
+      items: { name: string; quantity: number; size?: string; price?: number }[];
     }[];
   }): Promise<{
+    order_id: string;
     results: {
       distributor_id: string;
       distributor_name: string | null;
@@ -326,6 +371,33 @@ class ApiService {
   }> {
     const response = await this.client.post('/orders/email', payload);
     return response.data;
+  }
+
+  // Order history
+  async getOrders(options: {
+    locationId?: string;
+    limit?: number;
+    offset?: number;
+    q?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {}): Promise<{ orders: Order[]; total: number }> {
+    const { locationId, limit = 20, offset = 0, q, startDate, endDate } = options;
+    const params = new URLSearchParams();
+    if (locationId) params.append('location_id', locationId);
+    params.append('limit', limit.toString());
+    params.append('offset', offset.toString());
+    if (q) params.append('q', q);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const response = await this.client.get<{ orders: Order[]; total: number }>(`/orders?${params}`);
+    return response.data;
+  }
+
+  async getOrder(orderId: string): Promise<OrderDetail> {
+    const response = await this.client.get<{ order: OrderDetail }>(`/orders/${orderId}`);
+    return response.data.order;
   }
 
   // Pre-warm the backend's AI connection so the first scan is as fast as the

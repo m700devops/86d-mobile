@@ -3,29 +3,42 @@ import { StyleSheet, View, TouchableOpacity, Text, ActivityIndicator } from 'rea
 import { COLORS } from './constants/colors';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LocationProvider } from './context/LocationContext';
-import { InventoryProvider } from './context/InventoryContext';
+import { InventoryProvider, useInventory } from './context/InventoryContext';
 import { DistributorProvider } from './context/DistributorContext';
-import { AppScreen } from './types';
+import { StaffProvider } from './context/StaffContext';
+import { AppScreen, OrderDistributorSummary } from './types';
 import { LoginScreen } from './screens/LoginScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
+import { ForgotPasswordScreen } from './screens/ForgotPasswordScreen';
 import Onboarding from './screens/Onboarding';
 import CameraScan from './screens/CameraScan';
 import ReviewGrid from './screens/ReviewGrid';
 import OrderSummary from './screens/OrderSummary';
+import OrderHistory from './screens/OrderHistory';
 import SettingsScreen from './screens/SettingsScreen';
 import ManualAdd from './components/ManualAdd';
 import Sidebar from './components/Sidebar';
 
+type ReorderSource = { distributors: OrderDistributorSummary[] };
+
 // Auth-aware app content
 function AppContent() {
   const { isAuthenticated, isLoading, logout } = useAuth();
-  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register'>('onboarding');
+  const { addBottle } = useInventory();
+  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
 
-  const navigate = (screen: AppScreen | 'login' | 'register') => {
+  const navigate = (screen: AppScreen | 'login' | 'register' | 'forgot-password') => {
+    setReorderOrder(null);
     setCurrentScreen(screen);
+  };
+
+  const navigateToReorder = (order: ReorderSource) => {
+    setReorderOrder(order);
+    setCurrentScreen('order');
   };
 
   // Show loading state while checking auth
@@ -51,12 +64,15 @@ function AppContent() {
               onRegisterSuccess={() => navigate('onboarding')}
             />
           );
+        case 'forgot-password':
+          return <ForgotPasswordScreen onBackToLogin={() => navigate('login')} />;
         case 'login':
         default:
           return (
             <LoginScreen
               onNavigateToRegister={() => navigate('register')}
               onLoginSuccess={() => navigate('onboarding')}
+              onForgotPassword={() => navigate('forgot-password')}
             />
           );
       }
@@ -86,7 +102,20 @@ function AppContent() {
           />
         );
       case 'order':
-        return <OrderSummary onRestart={() => navigate('camera')} />;
+        return (
+          <OrderSummary
+            onRestart={() => navigate('camera')}
+            onViewOrders={() => navigate('orders')}
+            presetOrder={reorderOrder}
+          />
+        );
+      case 'orders':
+        return (
+          <OrderHistory
+            onBack={() => navigate('camera')}
+            onReorder={navigateToReorder}
+          />
+        );
       case 'settings':
         return (
           <SettingsScreen
@@ -100,53 +129,48 @@ function AppContent() {
   };
 
   return (
-    <LocationProvider>
-      <InventoryProvider>
-        <DistributorProvider>
-          <View style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
-            {/* Main Screen */}
-            {renderScreen()}
+    <View style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+      {/* Main Screen */}
+      {renderScreen()}
 
-            {/* Sidebar Navigation - only show when authenticated */}
-            {isAuthenticated && (
-              <Sidebar
-                isOpen={isSidebarOpen}
-                onClose={() => setIsSidebarOpen(false)}
-                currentScreen={currentScreen as AppScreen}
-                onNavigate={(screen) => navigate(screen as AppScreen)}
-                onSignOut={async () => {
-                  await logout();
-                  setCurrentScreen('login');
-                  setIsSidebarOpen(false);
-                }}
-              />
-            )}
+      {/* Sidebar Navigation - only show when authenticated */}
+      {isAuthenticated && (
+        <Sidebar
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          currentScreen={currentScreen as AppScreen}
+          onNavigate={(screen) => navigate(screen as AppScreen)}
+          onSignOut={async () => {
+            await logout();
+            setCurrentScreen('login');
+            setIsSidebarOpen(false);
+          }}
+        />
+      )}
 
-            {/* Manual Add Modal */}
-            {isManualAddOpen && (
-              <ManualAdd
-                onClose={() => setIsManualAddOpen(false)}
-                onAdd={(bottle) => {
-                  setIsManualAddOpen(false);
-                }}
-              />
-            )}
+      {/* Manual Add Modal */}
+      {isManualAddOpen && (
+        <ManualAdd
+          onClose={() => setIsManualAddOpen(false)}
+          onAdd={(bottle) => {
+            addBottle(bottle);
+            setIsManualAddOpen(false);
+          }}
+        />
+      )}
 
-            {/* Hamburger Menu Button - only when authenticated and not on onboarding/camera */}
-            {isAuthenticated && currentScreen !== 'onboarding' && currentScreen !== 'camera' && (
-              <TouchableOpacity
-                style={styles.hamburgerButton}
-                onPress={() => setIsSidebarOpen(true)}
-              >
-                <View style={styles.hamburgerLine} />
-                <View style={styles.hamburgerLine} />
-                <View style={styles.hamburgerLine} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </DistributorProvider>
-      </InventoryProvider>
-    </LocationProvider>
+      {/* Hamburger Menu Button - only when authenticated and not on onboarding/camera */}
+      {isAuthenticated && currentScreen !== 'onboarding' && currentScreen !== 'camera' && (
+        <TouchableOpacity
+          style={styles.hamburgerButton}
+          onPress={() => setIsSidebarOpen(true)}
+        >
+          <View style={styles.hamburgerLine} />
+          <View style={styles.hamburgerLine} />
+          <View style={styles.hamburgerLine} />
+        </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
@@ -154,7 +178,15 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <LocationProvider>
+        <InventoryProvider>
+          <DistributorProvider>
+            <StaffProvider>
+              <AppContent />
+            </StaffProvider>
+          </DistributorProvider>
+        </InventoryProvider>
+      </LocationProvider>
     </AuthProvider>
   );
 }

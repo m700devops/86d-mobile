@@ -7,6 +7,7 @@ import { SPACING } from '../constants/spacing';
 import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store } from 'lucide-react-native';
 import { useDistributors } from '../context/DistributorContext';
 import { useAuth } from '../context/AuthContext';
+import { useStaff } from '../context/StaffContext';
 
 interface Props {
   isDarkMode: boolean;
@@ -16,6 +17,14 @@ interface Props {
 export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) {
   const { distributors, addDistributor, updateDistributor, removeDistributor } = useDistributors();
   const { user, updateProfile } = useAuth();
+  const { staff, addStaff, removeStaff } = useStaff();
+  const [staffInput, setStaffInput] = useState('');
+
+  const handleAddStaff = () => {
+    if (!staffInput.trim()) return;
+    addStaff(staffInput);
+    setStaffInput('');
+  };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -204,6 +213,46 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+
+        {/* Staff Section — a named list for "who counted this", not a login */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>STAFF</Text>
+          <Text style={styles.sectionHint}>Shown on orders — not a separate login</Text>
+          <View style={styles.staffInputRow}>
+            <View style={[styles.inputWithIcon, { flex: 1 }]}>
+              <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Add staff name"
+                placeholderTextColor={COLORS.textTertiary}
+                value={staffInput}
+                onChangeText={setStaffInput}
+                onSubmitEditing={handleAddStaff}
+                returnKeyType="done"
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.staffAddButton, !staffInput.trim() && styles.saveButtonDisabled]}
+              onPress={handleAddStaff}
+              disabled={!staffInput.trim()}
+              activeOpacity={0.8}
+            >
+              <Plus size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+          {staff.length > 0 && (
+            <View style={styles.staffChipRow}>
+              {staff.map(name => (
+                <View key={name} style={styles.staffChip}>
+                  <Text style={styles.staffChipText}>{name}</Text>
+                  <TouchableOpacity onPress={() => removeStaff(name)} hitSlop={8}>
+                    <X size={12} color={COLORS.textTertiary} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Restaurant Section */}
@@ -518,6 +567,46 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     padding: SPACING.md,
+  },
+  sectionHint: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: -SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  staffInputRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  staffAddButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: COLORS.accentPrimary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  staffChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  staffChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 20,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  staffChipText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
   },
   settingCard: {
     backgroundColor: COLORS.surface,

@@ -6,8 +6,7 @@ import {
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Search, Plus, ChevronRight, Trash2, Minus } from 'lucide-react-native';
-import * as ImageManipulator from 'expo-image-manipulator';
+import { Search, Plus, ChevronRight, Trash2, Minus, WifiOff } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
@@ -37,12 +36,38 @@ function formatStock(value: number): string {
 }
 
 export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
-  const { bottles, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
+  const { bottles, updateBottle, removeBottle, retryScan } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [assigningBottle, setAssigningBottle] = useState<Bottle | null>(null);
   const stockSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const pendingNetworkRetries = bottles.filter(
+    b => b.scanStatus === 'failed' && b.failureReason === 'network'
+  ).length;
+
+  const unsetParCount = bottles.filter(
+    b => b.scanStatus === undefined && !b.parLevelSet
+  ).length;
+
+  // Orders are quantity = par − current stock, so an untouched default par
+  // silently produces a wrong order quantity instead of an obviously-broken
+  // one — worth a confirmation instead of letting it slide through quietly.
+  const handleGenerateOrder = () => {
+    if (unsetParCount === 0) {
+      onGenerateOrder();
+      return;
+    }
+    Alert.alert(
+      'Par levels not set',
+      `${unsetParCount} item${unsetParCount === 1 ? '' : 's'} still ${unsetParCount === 1 ? 'has' : 'have'} the default par level (1) — order quantities for ${unsetParCount === 1 ? 'it' : 'them'} may be wrong. Review before ordering?`,
+      [
+        { text: 'Review Items', style: 'cancel' },
+        { text: 'Order Anyway', style: 'destructive', onPress: onGenerateOrder },
+      ]
+    );
+  };
 
   // Debounced write-through: rapid stepper taps / long-press repeats collapse
   // into one PATCH per bottle once the value settles.
@@ -58,34 +83,6 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
       apiService.updateProductStock(locationId, productId, { current_stock: value })
         .catch(err => console.error('[ReviewGrid] failed to save stock:', err));
     }, 600);
-  };
-
-  // Re-run identification for a fire-and-forget row that failed, using the
-  // photo captured at scan time.
-  const retryIdentify = async (bottle: Bottle) => {
-    if (!bottle.imageUrl) return;
-    updateBottle(bottle.id, { scanStatus: 'pending', name: 'Identifying…' });
-    try {
-      const resized = await ImageManipulator.manipulateAsync(
-        bottle.imageUrl,
-        [{ resize: { width: 800 } }],
-        { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-      );
-      const result = resized.base64 ? await apiService.analyzeBottleImage(resized.base64) : null;
-      if (result && result.matched_product_id) {
-        resolveScan(bottle.id, {
-          productId: result.matched_product_id,
-          name: result.name,
-          brand: result.brand,
-          category: result.category,
-        });
-      } else {
-        markScanFailed(bottle.id);
-      }
-    } catch (err) {
-      console.error('[ReviewGrid] retry identify failed:', err);
-      markScanFailed(bottle.id);
-    }
   };
 
   // Load saved distributor assignments from the backend on mount
@@ -164,6 +161,15 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         </TouchableOpacity>
       </View>
 
+      {pendingNetworkRetries > 0 && (
+        <View style={styles.offlineBanner}>
+          <WifiOff size={14} color={COLORS.warning} />
+          <Text style={styles.offlineBannerText}>
+            {pendingNetworkRetries} scan{pendingNetworkRetries === 1 ? '' : 's'} waiting for connection — will retry automatically
+          </Text>
+        </View>
+      )}
+
       {/* Bottle List */}
       <SectionList
         sections={sections}
@@ -183,7 +189,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
             bottle={item}
             onUpdate={(updates) => handleBottleUpdate(item, updates)}
             onRemove={() => removeBottle(item.id)}
-            onRetryIdentify={item.scanStatus === 'failed' ? () => retryIdentify(item) : undefined}
+            onRetryIdentify={item.scanStatus === 'failed' ? () => retryScan(item) : undefined}
             onAssign={!item.distributorId ? () => {
               if (!currentLocation) {
                 Alert.alert('Location Required', 'Set up a location in Settings before assigning distributors.');
@@ -273,13 +279,17 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
       <View style={styles.footer}>
         <TouchableOpacity
           style={styles.generateButton}
-          onPress={onGenerateOrder}
+          onPress={handleGenerateOrder}
           activeOpacity={0.8}
         >
           <Text style={styles.generateButtonText}>Generate Order Summary</Text>
           <ChevronRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.footerText}>Finalize inventory and par levels</Text>
+        <Text style={[styles.footerText, unsetParCount > 0 && styles.footerTextWarning]}>
+          {unsetParCount > 0
+            ? `${unsetParCount} item${unsetParCount === 1 ? '' : 's'} missing a par level`
+            : 'Finalize inventory and par levels'}
+        </Text>
       </View>
     </SafeAreaView>
   );
@@ -409,19 +419,22 @@ function BottleRow({
         <View style={[styles.stepperBox, styles.parBox]}>
           <TouchableOpacity
             style={styles.stepperButton}
-            onPress={() => onUpdate({ parLevel: Math.max(0, bottle.parLevel - 1) })}
+            onPress={() => onUpdate({ parLevel: Math.max(0, bottle.parLevel - 1), parLevelSet: true })}
           >
             <Minus size={10} color={COLORS.accentPrimary} />
           </TouchableOpacity>
           <Text style={[styles.stepperValue, styles.parValue]}>{bottle.parLevel}</Text>
           <TouchableOpacity
             style={styles.stepperButton}
-            onPress={() => onUpdate({ parLevel: bottle.parLevel + 1 })}
+            onPress={() => onUpdate({ parLevel: bottle.parLevel + 1, parLevelSet: true })}
           >
             <Plus size={10} color={COLORS.accentPrimary} />
           </TouchableOpacity>
         </View>
         <Text style={styles.parLabel}>PAR</Text>
+        {!bottle.parLevelSet && bottle.scanStatus === undefined && (
+          <Text style={styles.parUnsetBadge}>Not set</Text>
+        )}
       </View>
 
       {/* Delete */}
@@ -509,6 +522,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 6,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: `${COLORS.warning}12`,
+    borderWidth: 1,
+    borderColor: `${COLORS.warning}30`,
+    borderRadius: 10,
+  },
+  offlineBannerText: {
+    flex: 1,
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.warning,
   },
   sectionHeader: {
     paddingHorizontal: SPACING.lg,
@@ -634,6 +666,13 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginTop: 3,
   },
+  parUnsetBadge: {
+    fontSize: 8,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.error,
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
   deleteButton: {
     padding: SPACING.sm,
   },
@@ -676,6 +715,9 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  footerTextWarning: {
+    color: COLORS.error,
   },
   sectionHeaderHint: {
     fontSize: FONT_SIZES.xs,

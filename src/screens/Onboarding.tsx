@@ -11,7 +11,7 @@ import {
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Zap, Camera, ShieldCheck, BarChart3, ChevronRight } from 'lucide-react-native';
+import { Zap, Camera, Calculator, BarChart3, ChevronRight } from 'lucide-react-native';
 
 interface Props {
   onComplete: () => void;
@@ -98,9 +98,9 @@ export default function Onboarding({ onComplete }: Props) {
               desc="Point your camera, detect bottles instantly."
             />
             <FeatureItem
-              icon={<ShieldCheck size={18} color="#FFB800" />}
-              title="Liquid Detection"
-              desc="AI-powered level estimation with pen guide."
+              icon={<Calculator size={18} color="#FFB800" />}
+              title="Instant Count Entry"
+              desc="AI names the bottle — you just tap in the count."
             />
             <FeatureItem
               icon={<BarChart3 size={18} color="#4CAF50" />}
