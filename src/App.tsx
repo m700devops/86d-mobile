@@ -168,8 +168,8 @@ function AppContent() {
         />
       )}
 
-      {/* Hamburger Menu Button - only when authenticated and not on onboarding/camera */}
-      {isAuthenticated && currentScreen !== 'onboarding' && currentScreen !== 'camera' && (
+      {/* Hamburger Menu Button - only when authenticated and not on camera (which has its own header) */}
+      {isAuthenticated && currentScreen !== 'camera' && (
         <TouchableOpacity
           style={styles.hamburgerButton}
           onPress={() => setIsSidebarOpen(true)}
