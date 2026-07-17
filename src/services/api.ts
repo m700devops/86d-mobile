@@ -241,6 +241,11 @@ class ApiService {
     return response.data.location;
   }
 
+  async updateLocation(locationId: string, updates: { order_rounding_mode?: 'up' | 'nearest' }): Promise<Location> {
+    const response = await this.client.patch<Location>(`/locations/${locationId}`, updates);
+    return response.data;
+  }
+
   async updateProductStock(
     locationId: string,
     productId: string,

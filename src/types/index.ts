@@ -173,6 +173,10 @@ export interface Location {
   name: string;
   address?: string;
   isCurrent?: boolean;
+  // 'up' (default) always rounds an order shortfall up to the next whole
+  // bottle; 'nearest' skips ordering when the shortfall is under half a
+  // bottle. Per-location — set in Settings.
+  order_rounding_mode?: 'up' | 'nearest';
 }
 
 export interface Distributor {

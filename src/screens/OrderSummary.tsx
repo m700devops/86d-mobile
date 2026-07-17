@@ -57,8 +57,14 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       )
     : bottles
         .map(b => {
-          // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole bottles, round up
-          const totalQuantity = Math.max(0, Math.ceil(b.parLevel - (b.currentStock || 0)));
+          // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole
+          // bottles. 'nearest' (default) skips ordering for a shortfall under
+          // half a bottle; 'up' always rounds up so it never under-orders.
+          const shortfall = b.parLevel - (b.currentStock || 0);
+          const roundedShortfall = currentLocation?.order_rounding_mode === 'up'
+            ? Math.ceil(shortfall)
+            : Math.round(shortfall);
+          const totalQuantity = Math.max(0, roundedShortfall);
 
           return {
             bottleId: b.id,

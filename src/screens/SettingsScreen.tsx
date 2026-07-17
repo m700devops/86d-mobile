@@ -8,6 +8,7 @@ import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store } from 'lucide-r
 import { useDistributors } from '../context/DistributorContext';
 import { useAuth } from '../context/AuthContext';
 import { useStaff } from '../context/StaffContext';
+import { useLocation } from '../context/LocationContext';
 
 interface Props {
   isDarkMode: boolean;
@@ -18,6 +19,22 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
   const { distributors, addDistributor, updateDistributor, removeDistributor } = useDistributors();
   const { user, updateProfile } = useAuth();
   const { staff, addStaff, removeStaff } = useStaff();
+  const { currentLocation, updateOrderRoundingMode } = useLocation();
+  const [savingRoundingMode, setSavingRoundingMode] = useState(false);
+  const orderRoundingMode = currentLocation?.order_rounding_mode ?? 'nearest';
+
+  const handleToggleRoundingMode = async () => {
+    if (!currentLocation || savingRoundingMode) return;
+    const next = orderRoundingMode === 'up' ? 'nearest' : 'up';
+    setSavingRoundingMode(true);
+    try {
+      await updateOrderRoundingMode(next);
+    } catch {
+      Alert.alert('Save failed', "Couldn't update this setting. Check your connection and try again.");
+    } finally {
+      setSavingRoundingMode(false);
+    }
+  };
   const [staffInput, setStaffInput] = useState('');
 
   const handleAddStaff = () => {
@@ -330,6 +347,29 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
               activeOpacity={0.8}
             >
               <View style={[styles.toggleKnob, isLeftHanded && styles.toggleKnobActive]} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Ordering Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ORDERING</Text>
+          <View style={styles.settingCard}>
+            <View style={{ flex: 1, marginRight: 16 }}>
+              <Text style={styles.settingLabel}>Always Round Up</Text>
+              <Text style={styles.settingSubLabel}>
+                {orderRoundingMode === 'up'
+                  ? 'Orders a bottle for any shortfall, even a sip short'
+                  : 'Skips ordering when under half a bottle short'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.toggle, orderRoundingMode === 'up' && styles.toggleActive]}
+              onPress={handleToggleRoundingMode}
+              disabled={savingRoundingMode}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.toggleKnob, orderRoundingMode === 'up' && styles.toggleKnobActive]} />
             </TouchableOpacity>
           </View>
         </View>
