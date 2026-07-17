@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, SafeAreaView,
-  SectionList, TextInput, Modal, Alert,
+  SectionList, TextInput, Modal, Alert, ActivityIndicator,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
@@ -36,7 +36,7 @@ function formatStock(value: number): string {
 }
 
 export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
-  const { bottles, updateBottle, removeBottle, retryScan } = useInventory();
+  const { bottles, isHydrated, updateBottle, removeBottle, retryScan } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -133,6 +133,17 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
 
     return result;
   }, [filtered, distributors]);
+
+  // Bottles load asynchronously (local draft, then a server fallback) —
+  // without this, resuming straight into Review after a killed app would
+  // flash an empty list before the real data lands.
+  if (!isHydrated) {
+    return (
+      <SafeAreaView style={[styles.container, styles.loadingCentered]}>
+        <ActivityIndicator color={COLORS.accentPrimary} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -454,6 +465,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.primaryDark,
+  },
+  loadingCentered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',

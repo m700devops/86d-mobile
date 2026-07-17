@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import * as Print from 'expo-print';
 import * as Clipboard from 'expo-clipboard';
 import { COLORS } from '../constants/colors';
@@ -23,7 +23,7 @@ interface Props {
 }
 
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
-  const { bottles, updateBottle, clearBottles } = useInventory();
+  const { bottles, isHydrated, updateBottle, clearBottles } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
   const { user, updateProfile } = useAuth();
@@ -249,6 +249,18 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       </html>
     `;
   };
+
+  // Bottles load asynchronously (local draft, then a server fallback) — a
+  // preset Reorder doesn't depend on that at all, but a live order does, and
+  // without this a resumed app (or a fresh screen mount before hydration
+  // lands) would flash "All Stocked!" instead of the real order.
+  if (!presetOrder && !isHydrated) {
+    return (
+      <SafeAreaView style={[styles.container, styles.loadingCentered]}>
+        <ActivityIndicator color={COLORS.accentPrimary} />
+      </SafeAreaView>
+    );
+  }
 
   // Empty state
   if (orderItems.length === 0) {
@@ -748,6 +760,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.primaryDark,
+  },
+  loadingCentered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     paddingHorizontal: SPACING.lg,

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, TouchableOpacity, Text, ActivityIndicator, SafeAreaView } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from './constants/colors';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LocationProvider } from './context/LocationContext';
@@ -24,6 +25,13 @@ import { isEntitled, trialDaysLeft } from './utils/entitlements';
 
 type ReorderSource = { distributors: OrderDistributorSummary[] };
 
+// A killed app (call comes in, phone gets put away, iOS reclaims memory)
+// shouldn't dump someone back on the onboarding screen mid-order — resume
+// whichever main screen they were actually on. Onboarding/login/etc. aren't
+// meaningful "resume points", so they're deliberately excluded.
+const LAST_SCREEN_KEY = '@86d_last_screen';
+const RESUMABLE_SCREENS: AppScreen[] = ['camera', 'review', 'order', 'orders', 'settings'];
+
 // Auth-aware app content
 function AppContent() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
@@ -33,6 +41,7 @@ function AppContent() {
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
+  const [isRestoringScreen, setIsRestoringScreen] = useState(true);
   const trialDays = trialDaysLeft(user);
 
   const navigate = (screen: AppScreen | 'login' | 'register' | 'forgot-password') => {
@@ -45,8 +54,33 @@ function AppContent() {
     setCurrentScreen('order');
   };
 
+  // Once auth has settled, resume the last main screen for an authenticated
+  // user — nothing to resume for a signed-out session.
+  useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated) {
+      setIsRestoringScreen(false);
+      return;
+    }
+    AsyncStorage.getItem(LAST_SCREEN_KEY)
+      .then(saved => {
+        if (saved && (RESUMABLE_SCREENS as string[]).includes(saved)) {
+          setCurrentScreen(saved as AppScreen);
+        }
+      })
+      .finally(() => setIsRestoringScreen(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, isAuthenticated]);
+
+  // Keep the last resumable screen written to disk as it changes.
+  useEffect(() => {
+    if ((RESUMABLE_SCREENS as string[]).includes(currentScreen)) {
+      AsyncStorage.setItem(LAST_SCREEN_KEY, currentScreen).catch(() => {});
+    }
+  }, [currentScreen]);
+
   // Show loading state while checking auth
-  if (isLoading) {
+  if (isLoading || isRestoringScreen) {
     return (
       <View style={[styles.container, styles.centered, { backgroundColor: COLORS.primaryDark }]}>
         <View style={styles.loadingBox}>
@@ -160,6 +194,7 @@ function AppContent() {
           onNavigate={(screen) => navigate(screen as AppScreen)}
           onSignOut={async () => {
             await logout();
+            await AsyncStorage.removeItem(LAST_SCREEN_KEY);
             setCurrentScreen('login');
             setIsSidebarOpen(false);
           }}
