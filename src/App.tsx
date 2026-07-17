@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, TouchableOpacity, Text, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Text, ActivityIndicator, SafeAreaView } from 'react-native';
 import { COLORS } from './constants/colors';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LocationProvider } from './context/LocationContext';
@@ -19,7 +19,8 @@ import SettingsScreen from './screens/SettingsScreen';
 import PaywallScreen from './screens/PaywallScreen';
 import ManualAdd from './components/ManualAdd';
 import Sidebar from './components/Sidebar';
-import { isEntitled } from './utils/entitlements';
+import TrialBanner from './components/TrialBanner';
+import { isEntitled, trialDaysLeft } from './utils/entitlements';
 
 type ReorderSource = { distributors: OrderDistributorSummary[] };
 
@@ -32,6 +33,7 @@ function AppContent() {
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
+  const trialDays = trialDaysLeft(user);
 
   const navigate = (screen: AppScreen | 'login' | 'register' | 'forgot-password') => {
     setReorderOrder(null);
@@ -139,6 +141,13 @@ function AppContent() {
 
   return (
     <View style={[styles.container, { backgroundColor: COLORS.primaryDark }]}>
+      {/* Trial-ending heads-up — everywhere except the live camera view */}
+      {isAuthenticated && currentScreen !== 'camera' && trialDays !== null && trialDays <= 5 && (
+        <SafeAreaView style={{ backgroundColor: COLORS.accentSecondary }}>
+          <TrialBanner daysLeft={trialDays} />
+        </SafeAreaView>
+      )}
+
       {/* Main Screen */}
       {renderScreen()}
 
