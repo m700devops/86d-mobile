@@ -264,10 +264,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           </Text>
           <TouchableOpacity
             style={styles.emptyButton}
-            onPress={onRestart}
+            onPress={onViewOrders}
             activeOpacity={0.8}
           >
-            <Text style={styles.emptyButtonText}>Back to Dashboard</Text>
+            <Text style={styles.emptyButtonText}>View Order History</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>

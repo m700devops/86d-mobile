@@ -45,7 +45,7 @@ function isSameDay(a: Date, b: Date): boolean {
 }
 
 function groupLabel(d: Date, now: Date): string {
-  if (isSameDay(d, now)) return 'Today';
+  if (isSameDay(d, now)) return 'Most Recent';
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   if (isSameDay(d, yesterday)) return 'Yesterday';
@@ -346,25 +346,8 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
         )}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-      >
-        {FILTERS.map(f => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.filterChip, activeFilter === f.key && styles.filterChipActive]}
-            onPress={() => setActiveFilter(f.key)}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.filterChipText, activeFilter === f.key && styles.filterChipTextActive]}>
-              {f.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
+      {/* Most recent orders first — the filter/browse controls for going
+          further back sit below the list, not in front of it. */}
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator color={COLORS.accentPrimary} />
@@ -408,6 +391,25 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
           }
         />
       )}
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRow}
+      >
+        {FILTERS.map(f => (
+          <TouchableOpacity
+            key={f.key}
+            style={[styles.filterChip, activeFilter === f.key && styles.filterChipActive]}
+            onPress={() => setActiveFilter(f.key)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.filterChipText, activeFilter === f.key && styles.filterChipTextActive]}>
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       <TouchableOpacity style={styles.backLink} onPress={onBack} activeOpacity={0.7}>
         <Text style={styles.backLinkText}>Back to Scanning</Text>
@@ -684,7 +686,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryDark,
   },
   header: {
-    paddingHorizontal: SPACING.lg,
+    paddingLeft: 70,
+    paddingRight: SPACING.lg,
     paddingTop: SPACING.lg,
     paddingBottom: SPACING.md,
   },
