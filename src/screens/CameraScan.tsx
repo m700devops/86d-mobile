@@ -66,7 +66,7 @@ const KEYPAD_ROWS: string[][] = [
 export default function CameraScan({ onReview, onBack }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
-  const { logout } = useAuth();
+  const { logout, refreshUser } = useAuth();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
@@ -370,6 +370,19 @@ export default function CameraScan({ onReview, onBack }: Props) {
       });
 
       const committedRowId = pendingCommits.current.get(token);
+
+      // Trial ended / no active subscription — refresh the cached user so
+      // App.tsx's entitlement check swaps in the paywall, rather than
+      // surfacing this as a generic "scan failed" error.
+      if (httpStatus === 402) {
+        if (committedRowId !== undefined) {
+          pendingCommits.current.delete(token);
+          markScanFailed(committedRowId);
+        }
+        setPadVisible(false);
+        refreshUser();
+        return;
+      }
 
       if (errorType === 'auth_error') {
         if (committedRowId !== undefined) {

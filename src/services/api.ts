@@ -400,6 +400,13 @@ class ApiService {
     return response.data.order;
   }
 
+  // Billing — returns a Stripe Checkout URL to open in the system browser.
+  // No Stripe SDK/keys ever live in the app itself.
+  async createCheckoutSession(): Promise<{ checkout_url: string }> {
+    const response = await this.client.post<{ checkout_url: string }>('/billing/create-checkout-session');
+    return response.data;
+  }
+
   // Pre-warm the backend's AI connection so the first scan is as fast as the
   // rest. Fire-and-forget — errors are irrelevant.
   warmScanPath(): void {

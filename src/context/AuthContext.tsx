@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { AppState } from 'react-native';
 import { apiService } from '../services/api';
 import { User, LoginRequest, RegisterRequest } from '../types';
 
@@ -97,6 +98,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
     }
   };
+
+  // Subscribing happens in Safari (Stripe Checkout), not in-app — refetch on
+  // return so the paywall clears the moment the webhook has landed, without
+  // making the user manually tap "refresh".
+  const userRef = useRef(user);
+  userRef.current = user;
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active' && userRef.current) {
+        apiService.getCurrentUser().then(setUser).catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   const updateProfile = async (updates: { business_name?: string; manager_name?: string }) => {
     const userData = await apiService.updateProfile(updates);

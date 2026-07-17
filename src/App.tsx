@@ -16,14 +16,16 @@ import ReviewGrid from './screens/ReviewGrid';
 import OrderSummary from './screens/OrderSummary';
 import OrderHistory from './screens/OrderHistory';
 import SettingsScreen from './screens/SettingsScreen';
+import PaywallScreen from './screens/PaywallScreen';
 import ManualAdd from './components/ManualAdd';
 import Sidebar from './components/Sidebar';
+import { isEntitled } from './utils/entitlements';
 
 type ReorderSource = { distributors: OrderDistributorSummary[] };
 
 // Auth-aware app content
 function AppContent() {
-  const { isAuthenticated, isLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
   const { addBottle } = useInventory();
   const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -79,6 +81,13 @@ function AppContent() {
     }
 
     // Authenticated - show normal app flow
+    // Trial expired / no active subscription — block everything except the
+    // paywall itself (which has its own sign-out). A brand-new account is
+    // always entitled (trial just started), so this never blocks onboarding.
+    if (!isEntitled(user)) {
+      return <PaywallScreen />;
+    }
+
     // If coming from login/register, redirect to onboarding
     if (currentScreen === 'login' || currentScreen === 'register') {
       return <Onboarding onComplete={() => navigate('camera')} />;
