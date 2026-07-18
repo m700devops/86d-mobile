@@ -577,20 +577,32 @@ function TrendsView({ orders, loading }: { orders: Order[] | null; loading: bool
         <Text style={styles.trendsCapNote}>Based on your most recent 100 orders in this range</Text>
       )}
 
+      {/* Spend numbers only exist once bottle prices have been entered in
+          Review — until then showing "$0.00" reads as broken, not empty. */}
       <View style={styles.statRow}>
         <View style={styles.statCard}>
           <Text style={styles.statValue}>{orders.length}</Text>
           <Text style={styles.statLabel}>ORDERS</Text>
         </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{formatCost(totalSpend) || '$0.00'}</Text>
-          <Text style={styles.statLabel}>TOTAL SPEND</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{formatCost(avgPerOrder) || '$0.00'}</Text>
-          <Text style={styles.statLabel}>AVG/ORDER</Text>
-        </View>
+        {totalSpend > 0 && (
+          <>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{formatCost(totalSpend)}</Text>
+              <Text style={styles.statLabel}>TOTAL SPEND</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{formatCost(avgPerOrder)}</Text>
+              <Text style={styles.statLabel}>AVG/ORDER</Text>
+            </View>
+          </>
+        )}
       </View>
+
+      {totalSpend === 0 && (
+        <Text style={styles.trendsCapNote}>
+          Add bottle prices in Review to see spend totals here.
+        </Text>
+      )}
 
       {topItems.length > 0 && (
         <>
@@ -609,7 +621,7 @@ function TrendsView({ orders, loading }: { orders: Order[] | null; loading: bool
         </>
       )}
 
-      {topDistributors.length > 0 && (
+      {totalSpend > 0 && topDistributors.length > 0 && (
         <>
           <Text style={styles.trendsSectionTitle}>Spend by Distributor</Text>
           <View style={styles.barList}>

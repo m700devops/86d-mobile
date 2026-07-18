@@ -39,7 +39,6 @@ function AppContent() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(true);
   const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
   const [isRestoringScreen, setIsRestoringScreen] = useState(true);
   const trialDays = trialDaysLeft(user);
@@ -162,12 +161,7 @@ function AppContent() {
           />
         );
       case 'settings':
-        return (
-          <SettingsScreen
-            isDarkMode={isDarkMode}
-            onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
-          />
-        );
+        return <SettingsScreen />;
       default:
         return <Onboarding onComplete={() => navigate('camera')} />;
     }

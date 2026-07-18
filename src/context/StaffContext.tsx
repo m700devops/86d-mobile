@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocation } from './LocationContext';
+import { apiService } from '../services/api';
 
 interface StaffContextType {
   staff: string[];
@@ -12,13 +13,15 @@ const StaffContext = createContext<StaffContextType | undefined>(undefined);
 
 const staffKey = (locationId: string) => `@86d_staff_${locationId}`;
 
-// Deliberately local-only (AsyncStorage), not a backend table — this is a
-// named list for "who counted this", not real per-user accounts. No
-// passwords, no server sync; if that ever needs to work across devices for
-// the same bar, that's a real backend feature, not this.
+// Names for "who counted this", not accounts — no passwords, no logins.
+// Synced to the location server-side so every phone on the account sees the
+// same list; AsyncStorage is kept as an offline cache and as the migration
+// path for lists created before server sync existed.
 export const StaffProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentLocation } = useLocation();
   const [staff, setStaff] = useState<string[]>([]);
+  const staffRef = useRef(staff);
+  staffRef.current = staff;
 
   useEffect(() => {
     if (!currentLocation) {
@@ -26,35 +29,50 @@ export const StaffProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
     let cancelled = false;
-    AsyncStorage.getItem(staffKey(currentLocation.id))
-      .then(raw => {
-        if (cancelled) return;
-        setStaff(raw ? JSON.parse(raw) : []);
-      })
-      .catch(() => {
-        if (!cancelled) setStaff([]);
-      });
+    (async () => {
+      let cached: string[] = [];
+      try {
+        const raw = await AsyncStorage.getItem(staffKey(currentLocation.id));
+        if (raw) cached = JSON.parse(raw);
+      } catch {
+        cached = [];
+      }
+      if (cancelled) return;
+
+      const server = currentLocation.staff_names ?? [];
+      if (server.length > 0) {
+        setStaff(server);
+        AsyncStorage.setItem(staffKey(currentLocation.id), JSON.stringify(server)).catch(() => {});
+      } else if (cached.length > 0) {
+        // Pre-sync local list — adopt it and push it up so other devices get it
+        setStaff(cached);
+        apiService.updateLocation(currentLocation.id, { staff_names: cached }).catch(() => {});
+      } else {
+        setStaff([]);
+      }
+    })();
     return () => { cancelled = true; };
   }, [currentLocation]);
 
+  // Optimistic local update + cache + best-effort server push. A failed push
+  // (offline) still leaves the list usable on this device; the next app
+  // launch's adopt-and-push covers eventual sync.
+  const persist = (next: string[]) => {
+    setStaff(next);
+    if (!currentLocation) return;
+    AsyncStorage.setItem(staffKey(currentLocation.id), JSON.stringify(next)).catch(() => {});
+    apiService.updateLocation(currentLocation.id, { staff_names: next }).catch(() => {});
+  };
+
   const addStaff = (name: string) => {
     const trimmed = name.trim();
-    if (!trimmed || !currentLocation) return;
-    setStaff(prev => {
-      if (prev.some(s => s.toLowerCase() === trimmed.toLowerCase())) return prev;
-      const next = [...prev, trimmed];
-      AsyncStorage.setItem(staffKey(currentLocation.id), JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    if (!trimmed) return;
+    if (staffRef.current.some(s => s.toLowerCase() === trimmed.toLowerCase())) return;
+    persist([...staffRef.current, trimmed]);
   };
 
   const removeStaff = (name: string) => {
-    if (!currentLocation) return;
-    setStaff(prev => {
-      const next = prev.filter(s => s !== name);
-      AsyncStorage.setItem(staffKey(currentLocation.id), JSON.stringify(next)).catch(() => {});
-      return next;
-    });
+    persist(staffRef.current.filter(s => s !== name));
   };
 
   return (

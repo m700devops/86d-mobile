@@ -328,8 +328,14 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             ))}
           </View>
 
+          {/* "Sent" means the email service accepted it, not that a human
+              read it — nudge toward confirming the first order by phone. */}
+          <Text style={styles.successHint}>
+            First order with a distributor? A quick call to confirm they got it never hurts.
+          </Text>
+
           <TouchableOpacity
-            style={[styles.button, { marginTop: SPACING.xl }]}
+            style={[styles.button, { marginTop: SPACING.lg }]}
             onPress={onViewOrders}
             activeOpacity={0.8}
           >
@@ -1268,6 +1274,13 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     marginBottom: SPACING.xl,
     letterSpacing: LETTER_SPACING,
+  },
+  successHint: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    textAlign: 'center',
+    marginTop: SPACING.lg,
+    paddingHorizontal: SPACING.xl,
   },
   distributorList: {
     width: '100%',

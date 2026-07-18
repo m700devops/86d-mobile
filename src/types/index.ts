@@ -91,6 +91,8 @@ export interface ParLevel {
   product_id: string;
   product?: Product;
   par_quantity: number;
+  // Per-location bottle price — what this bar pays, set from Review
+  price?: number | null;
   updated_at: string;
 }
 
@@ -173,10 +175,13 @@ export interface Location {
   name: string;
   address?: string;
   isCurrent?: boolean;
-  // 'up' (default) always rounds an order shortfall up to the next whole
-  // bottle; 'nearest' skips ordering when the shortfall is under half a
-  // bottle. Per-location — set in Settings.
+  // 'nearest' (default) skips ordering when the shortfall is under half a
+  // bottle; 'up' always rounds up to the next whole bottle. Per-location —
+  // set in Settings.
   order_rounding_mode?: 'up' | 'nearest';
+  // Named staff list for "who counted" attribution — synced server-side so
+  // every device on the account sees the same list
+  staff_names?: string[];
 }
 
 export interface Distributor {

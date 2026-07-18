@@ -241,16 +241,23 @@ class ApiService {
     return response.data.location;
   }
 
-  async updateLocation(locationId: string, updates: { order_rounding_mode?: 'up' | 'nearest' }): Promise<Location> {
+  async updateLocation(
+    locationId: string,
+    updates: { order_rounding_mode?: 'up' | 'nearest'; staff_names?: string[] }
+  ): Promise<Location> {
     const response = await this.client.patch<Location>(`/locations/${locationId}`, updates);
     return response.data;
+  }
+
+  async deleteAccount(password: string): Promise<void> {
+    await this.client.delete('/users/me', { data: { password } });
   }
 
   async updateProductStock(
     locationId: string,
     productId: string,
-    updates: { full?: number; current_stock?: number; par?: number }
-  ): Promise<{ location_id: string; product_id: string; full: number; current_stock: number; par: number | null; updated_at: string }> {
+    updates: { full?: number; current_stock?: number; par?: number; price?: number }
+  ): Promise<{ location_id: string; product_id: string; full: number; current_stock: number; par: number | null; price: number | null; updated_at: string }> {
     const response = await this.client.patch(
       `/locations/${locationId}/products/${productId}`,
       updates

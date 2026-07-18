@@ -1,25 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store } from 'lucide-react-native';
+import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store, MapPin } from 'lucide-react-native';
 import { useDistributors } from '../context/DistributorContext';
 import { useAuth } from '../context/AuthContext';
 import { useStaff } from '../context/StaffContext';
 import { useLocation } from '../context/LocationContext';
+import { apiService } from '../services/api';
 
-interface Props {
-  isDarkMode: boolean;
-  onToggleDarkMode: () => void;
-}
-
-export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) {
+export default function SettingsScreen() {
   const { distributors, addDistributor, updateDistributor, removeDistributor } = useDistributors();
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, logout } = useAuth();
   const { staff, addStaff, removeStaff } = useStaff();
-  const { currentLocation, updateOrderRoundingMode } = useLocation();
+  const { currentLocation, locations, setCurrentLocation, addLocation, updateOrderRoundingMode } = useLocation();
   const [savingRoundingMode, setSavingRoundingMode] = useState(false);
   const orderRoundingMode = currentLocation?.order_rounding_mode ?? 'nearest';
 
@@ -34,6 +29,70 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
     } finally {
       setSavingRoundingMode(false);
     }
+  };
+
+  const handleAddBar = () => {
+    Alert.prompt(
+      'Add a Bar',
+      'Each bar keeps its own inventory, staff, and settings.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Add',
+          onPress: (name?: string) => {
+            const trimmed = (name ?? '').trim();
+            if (!trimmed) return;
+            addLocation(trimmed).catch(() =>
+              Alert.alert("Couldn't add bar", 'Check your connection and try again.')
+            );
+          },
+        },
+      ],
+      'plain-text'
+    );
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account?',
+      'This permanently deletes your account, inventory, and order history. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            Alert.prompt(
+              'Confirm Password',
+              'Enter your password to permanently delete your account.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete Forever',
+                  style: 'destructive',
+                  onPress: async (password?: string) => {
+                    if (!password) return;
+                    try {
+                      await apiService.deleteAccount(password);
+                      await logout();
+                    } catch (error: any) {
+                      const detail = error?.response?.data?.detail;
+                      Alert.alert(
+                        "Couldn't delete account",
+                        detail?.error === 'invalid_password'
+                          ? 'That password is incorrect.'
+                          : 'Check your connection and try again.'
+                      );
+                    }
+                  },
+                },
+              ],
+              'secure-text'
+            );
+          },
+        },
+      ]
+    );
   };
   const [staffInput, setStaffInput] = useState('');
 
@@ -50,7 +109,6 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
   const [phone, setPhone] = useState('');
   const [repName, setRepName] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [isLeftHanded, setIsLeftHanded] = useState(false);
 
   const [businessNameInput, setBusinessNameInput] = useState('');
   const [managerNameInput, setManagerNameInput] = useState('');
@@ -82,18 +140,6 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
   };
 
   const modalAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    AsyncStorage.getItem('@leftHanded').then(val => {
-      if (val === 'true') setIsLeftHanded(true);
-    });
-  }, []);
-
-  const handleToggleLeftHanded = () => {
-    const next = !isLeftHanded;
-    setIsLeftHanded(next);
-    AsyncStorage.setItem('@leftHanded', next ? 'true' : 'false');
-  };
 
   useEffect(() => {
     if (isModalOpen) {
@@ -323,31 +369,35 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
           )}
         </View>
 
-        {/* General Section */}
+        {/* Bars Section — switch between locations, add a new one */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>GENERAL</Text>
-          <View style={styles.settingCard}>
-            <Text style={styles.settingLabel}>Dark Mode</Text>
-            <TouchableOpacity
-              style={[styles.toggle, isDarkMode && styles.toggleActive]}
-              onPress={onToggleDarkMode}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.toggleKnob, isDarkMode && styles.toggleKnobActive]} />
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>BARS</Text>
+            <TouchableOpacity onPress={handleAddBar} style={styles.addNewButton} activeOpacity={0.7}>
+              <Plus size={14} color={COLORS.accentPrimary} />
+              <Text style={styles.addNewText}>Add Bar</Text>
             </TouchableOpacity>
           </View>
-          <View style={[styles.settingCard, { marginTop: 12 }]}>
-            <View style={{ flex: 1, marginRight: 16 }}>
-              <Text style={styles.settingLabel}>Left-Handed Mode</Text>
-              <Text style={styles.settingSubLabel}>Moves the level bar to the left side of the screen</Text>
-            </View>
-            <TouchableOpacity
-              style={[styles.toggle, isLeftHanded && styles.toggleActive]}
-              onPress={handleToggleLeftHanded}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.toggleKnob, isLeftHanded && styles.toggleKnobActive]} />
-            </TouchableOpacity>
+          <View style={styles.distributorsList}>
+            {locations.map(loc => {
+              const isCurrent = loc.id === currentLocation?.id;
+              return (
+                <TouchableOpacity
+                  key={loc.id}
+                  style={[styles.settingCard, isCurrent && styles.barCardActive]}
+                  onPress={() => setCurrentLocation(loc.id)}
+                  activeOpacity={0.8}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md, flex: 1 }}>
+                    <MapPin size={16} color={isCurrent ? COLORS.accentPrimary : COLORS.textTertiary} />
+                    <Text style={[styles.settingLabel, isCurrent && { color: COLORS.accentPrimary }]}>
+                      {loc.name}
+                    </Text>
+                  </View>
+                  {isCurrent && <Check size={16} color={COLORS.accentPrimary} />}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
@@ -372,6 +422,18 @@ export default function SettingsScreen({ isDarkMode, onToggleDarkMode }: Props) 
               <View style={[styles.toggleKnob, orderRoundingMode === 'up' && styles.toggleKnobActive]} />
             </TouchableOpacity>
           </View>
+        </View>
+
+        {/* Account Section — App Store guideline 5.1.1 requires in-app deletion */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ACCOUNT</Text>
+          <TouchableOpacity style={styles.deleteAccountCard} onPress={handleDeleteAccount} activeOpacity={0.8}>
+            <Trash2 size={16} color={COLORS.error} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deleteAccountLabel}>Delete Account</Text>
+              <Text style={styles.settingSubLabel}>Permanently removes your account and all data</Text>
+            </View>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -647,6 +709,25 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.textPrimary,
+  },
+  barCardActive: {
+    borderColor: `${COLORS.accentPrimary}60`,
+  },
+  deleteAccountCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: `${COLORS.error}40`,
+    borderRadius: 16,
+    padding: SPACING.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+  },
+  deleteAccountLabel: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.error,
+    letterSpacing: LETTER_SPACING,
   },
   settingCard: {
     backgroundColor: COLORS.surface,

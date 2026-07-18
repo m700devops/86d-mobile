@@ -22,6 +22,7 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
   const [brand, setBrand] = useState('');
   const [category, setCategory] = useState('spirits');
   const [stock, setStock] = useState('');
+  const [priceInput, setPriceInput] = useState('');
   const [isVisible, setIsVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [matchedProductId, setMatchedProductId] = useState<string | undefined>(undefined);
@@ -157,6 +158,7 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
       }
     }
 
+    const priceValue = parseFloat(priceInput);
     const bottle: Bottle = {
       id: `bottle_${Date.now()}`,
       productId,
@@ -167,6 +169,7 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
       currentLevel: 1,
       parLevel: 1,
       currentStock: stockValue,
+      price: !Number.isNaN(priceValue) && priceValue > 0 ? Math.round(priceValue * 100) / 100 : undefined,
       imageUrl: selectedImage ?? undefined,
       upc: scannedUpc,
     };
@@ -299,6 +302,19 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
                   placeholderTextColor={COLORS.textTertiary}
                   value={stock}
                   onChangeText={(text) => setStock(text.replace(/[^0-9.]/g, ''))}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+
+              {/* Price (optional) */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>PRICE PER BOTTLE (OPTIONAL)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. 24.99"
+                  placeholderTextColor={COLORS.textTertiary}
+                  value={priceInput}
+                  onChangeText={(text) => setPriceInput(text.replace(/[^0-9.]/g, ''))}
                   keyboardType="decimal-pad"
                 />
               </View>

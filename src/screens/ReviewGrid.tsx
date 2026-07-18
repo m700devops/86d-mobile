@@ -73,19 +73,46 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   // into one PATCH per bottle once the value settles.
   const handleBottleUpdate = (bottle: Bottle, updates: Partial<Bottle>) => {
     updateBottle(bottle.id, updates);
-    if (updates.currentStock === undefined || !bottle.productId || !currentLocation) return;
-    const value = updates.currentStock;
+    if ((updates.currentStock === undefined && updates.price === undefined) || !bottle.productId || !currentLocation) return;
     const productId = bottle.productId;
     const locationId = currentLocation.id;
+    const patch: { current_stock?: number; price?: number } = {};
+    if (updates.currentStock !== undefined) patch.current_stock = updates.currentStock;
+    if (updates.price !== undefined) patch.price = updates.price;
     if (stockSaveTimers.current[bottle.id]) clearTimeout(stockSaveTimers.current[bottle.id]);
     stockSaveTimers.current[bottle.id] = setTimeout(() => {
       delete stockSaveTimers.current[bottle.id];
-      apiService.updateProductStock(locationId, productId, { current_stock: value })
+      apiService.updateProductStock(locationId, productId, patch)
         .catch(err => console.error('[ReviewGrid] failed to save stock:', err));
     }, 600);
   };
 
-  // Load saved distributor assignments from the backend on mount
+  // Ask for a bottle's price with a plain iOS prompt — no new screen, no
+  // required field. Prices power the order's estimated cost and the Trends
+  // spend view; without one the item still orders fine, it just costs "$0".
+  const promptForPrice = (bottle: Bottle) => {
+    Alert.prompt(
+      bottle.brand || bottle.name,
+      'What do you pay per bottle?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: (text?: string) => {
+            const value = parseFloat((text ?? '').replace(/[^0-9.]/g, ''));
+            if (Number.isNaN(value) || value < 0) return;
+            handleBottleUpdate(bottle, { price: Math.round(value * 100) / 100 });
+          },
+        },
+      ],
+      'plain-text',
+      bottle.price ? String(bottle.price) : '',
+      'decimal-pad'
+    );
+  };
+
+  // Load saved distributor assignments + per-location prices on mount, so a
+  // price set in a past session comes back automatically on the next count.
   useEffect(() => {
     if (!currentLocation) return;
     apiService.getProductDistributors(currentLocation.id)
@@ -98,6 +125,17 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         });
       })
       .catch(err => console.error('[ReviewGrid] failed to load assignments:', err));
+    apiService.getParLevels(currentLocation.id)
+      .then(parLevels => {
+        parLevels.forEach(pl => {
+          if (!pl.price) return;
+          const bottle = bottles.find(b => b.productId === pl.product_id && !b.price);
+          if (bottle) {
+            updateBottle(bottle.id, { price: pl.price });
+          }
+        });
+      })
+      .catch(err => console.error('[ReviewGrid] failed to load prices:', err));
   }, [currentLocation]);
 
   const filtered = bottles.filter(b =>
@@ -200,6 +238,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
             bottle={item}
             onUpdate={(updates) => handleBottleUpdate(item, updates)}
             onRemove={() => removeBottle(item.id)}
+            onSetPrice={item.scanStatus === undefined ? () => promptForPrice(item) : undefined}
             onRetryIdentify={item.scanStatus === 'failed' ? () => retryScan(item) : undefined}
             onAssign={!item.distributorId ? () => {
               if (!currentLocation) {
@@ -311,12 +350,14 @@ function BottleRow({
   onUpdate,
   onRemove,
   onAssign,
+  onSetPrice,
   onRetryIdentify,
 }: {
   bottle: Bottle;
   onUpdate: (updates: Partial<Bottle>) => void;
   onRemove: () => void;
   onAssign?: () => void;
+  onSetPrice?: () => void;
   onRetryIdentify?: () => void;
 }) {
   const [deletePressed, setDeletePressed] = useState(false);
@@ -382,11 +423,20 @@ function BottleRow({
             <Text style={styles.retryChipText}>Couldn't identify — retry</Text>
           </TouchableOpacity>
         )}
-        {onAssign && bottle.scanStatus === undefined && (
-          <TouchableOpacity style={styles.assignChip} onPress={onAssign} activeOpacity={0.7}>
-            <Text style={styles.assignChipText}>Assign →</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.chipRow}>
+          {onAssign && bottle.scanStatus === undefined && (
+            <TouchableOpacity style={styles.assignChip} onPress={onAssign} activeOpacity={0.7}>
+              <Text style={styles.assignChipText}>Assign →</Text>
+            </TouchableOpacity>
+          )}
+          {onSetPrice && (
+            <TouchableOpacity style={styles.priceChip} onPress={onSetPrice} activeOpacity={0.7}>
+              <Text style={[styles.priceChipText, !bottle.price && styles.priceChipTextUnset]}>
+                {bottle.price ? `$${bottle.price.toFixed(2)}` : '$ Add price'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Current stock stepper — tap ±0.25, hold ±1.0 (±5.0 after 2s), tap number to type */}
@@ -755,6 +805,30 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.accentPrimary,
     letterSpacing: 0.5,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  priceChip: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: `${COLORS.border}`,
+    backgroundColor: COLORS.surface,
+  },
+  priceChipText: {
+    fontSize: 9,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textSecondary,
+    letterSpacing: 0.5,
+  },
+  priceChipTextUnset: {
+    color: COLORS.textTertiary,
   },
   modalOverlay: {
     flex: 1,

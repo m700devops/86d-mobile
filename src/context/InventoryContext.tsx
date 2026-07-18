@@ -108,8 +108,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // not crash recovery (the local write above already covers that), so it's
   // fine for it to lag slightly behind in exchange for not firing a network
   // request on every single scan during a fast-moving session.
+  //
+  // Never push an EMPTY list: with one account on two phones, a device with
+  // no local session would otherwise clobber a teammate's in-progress count
+  // on the server. Deliberate clears go through clearBottles, which deletes
+  // the server draft explicitly.
   useEffect(() => {
     if (!currentLocation || !isHydrated || hydratedLocationId.current !== currentLocation.id) return;
+    if (bottles.length === 0) return;
 
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -127,6 +133,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const sub = AppState.addEventListener('change', nextState => {
       if (nextState !== 'background' && nextState !== 'inactive') return;
       if (!currentLocation || !isHydrated || hydratedLocationId.current !== currentLocation.id) return;
+      if (bottlesRef.current.length === 0) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       apiService.saveInventoryDraft(currentLocation.id, bottlesRef.current).catch(() => {});
     });
