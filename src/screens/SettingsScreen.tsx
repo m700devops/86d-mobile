@@ -52,6 +52,45 @@ export default function SettingsScreen() {
     );
   };
 
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  const canChangePassword =
+    currentPasswordInput.length > 0 &&
+    newPasswordInput.length >= 8 &&
+    newPasswordInput === confirmNewPasswordInput &&
+    !changingPassword;
+
+  const closePasswordModal = () => {
+    setIsPasswordModalOpen(false);
+    setCurrentPasswordInput('');
+    setNewPasswordInput('');
+    setConfirmNewPasswordInput('');
+  };
+
+  const handleChangePassword = async () => {
+    if (!canChangePassword) return;
+    setChangingPassword(true);
+    try {
+      await apiService.changePassword(currentPasswordInput, newPasswordInput);
+      closePasswordModal();
+      Alert.alert('Password changed', 'Every other signed-in device has been logged out.');
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      Alert.alert(
+        "Couldn't change password",
+        detail?.error === 'invalid_password'
+          ? 'Your current password is incorrect.'
+          : 'Check your connection and try again.'
+      );
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   const handleDeleteAccount = () => {
     Alert.alert(
       'Delete Account?',
@@ -427,6 +466,17 @@ export default function SettingsScreen() {
         {/* Account Section — App Store guideline 5.1.1 requires in-app deletion */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>ACCOUNT</Text>
+          <TouchableOpacity
+            style={[styles.settingCard, { marginBottom: SPACING.md }]}
+            onPress={() => setIsPasswordModalOpen(true)}
+            activeOpacity={0.8}
+          >
+            <View style={{ flex: 1, marginRight: 16 }}>
+              <Text style={styles.settingLabel}>Change Password</Text>
+              <Text style={styles.settingSubLabel}>Signs out every other device — do this when staff leave</Text>
+            </View>
+            <Check size={16} color={COLORS.textTertiary} style={{ opacity: 0 }} />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.deleteAccountCard} onPress={handleDeleteAccount} activeOpacity={0.8}>
             <Trash2 size={16} color={COLORS.error} />
             <View style={{ flex: 1 }}>
@@ -436,6 +486,76 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Change Password Modal */}
+      <Modal transparent visible={isPasswordModalOpen} onRequestClose={closePasswordModal} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Change Password</Text>
+              <TouchableOpacity onPress={closePasswordModal} activeOpacity={0.7}>
+                <X size={20} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalForm}>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>CURRENT PASSWORD</Text>
+                <View style={styles.inputWithIcon}>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="••••••••"
+                    placeholderTextColor={COLORS.textTertiary}
+                    value={currentPasswordInput}
+                    onChangeText={setCurrentPasswordInput}
+                    secureTextEntry
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>NEW PASSWORD (8+ CHARACTERS)</Text>
+                <View style={styles.inputWithIcon}>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="••••••••"
+                    placeholderTextColor={COLORS.textTertiary}
+                    value={newPasswordInput}
+                    onChangeText={setNewPasswordInput}
+                    secureTextEntry
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.fieldLabel}>CONFIRM NEW PASSWORD</Text>
+                <View style={styles.inputWithIcon}>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="••••••••"
+                    placeholderTextColor={COLORS.textTertiary}
+                    value={confirmNewPasswordInput}
+                    onChangeText={setConfirmNewPasswordInput}
+                    secureTextEntry
+                    autoCapitalize="none"
+                  />
+                </View>
+                {confirmNewPasswordInput.length > 0 && newPasswordInput !== confirmNewPasswordInput && (
+                  <Text style={styles.passwordMismatch}>Passwords do not match</Text>
+                )}
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.saveButton, !canChangePassword && styles.saveButtonDisabled]}
+              onPress={handleChangePassword}
+              disabled={!canChangePassword}
+              activeOpacity={0.8}
+            >
+              <Check size={18} color="#FFFFFF" />
+              <Text style={styles.saveButtonText}>{changingPassword ? 'Changing...' : 'Change Password'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Add/Edit Modal */}
       <Modal transparent visible={isModalOpen} onRequestClose={() => setIsModalOpen(false)} animationType="none">
@@ -709,6 +829,11 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.textPrimary,
+  },
+  passwordMismatch: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.error,
+    marginTop: SPACING.xs,
   },
   barCardActive: {
     borderColor: `${COLORS.accentPrimary}60`,

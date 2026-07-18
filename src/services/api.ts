@@ -253,6 +253,19 @@ class ApiService {
     await this.client.delete('/users/me', { data: { password } });
   }
 
+  // Changing the password revokes every existing token server-side (that's
+  // the point — it signs out ex-staff phones), so the response includes
+  // fresh tokens for THIS device to keep its session.
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    const response = await this.client.put<{ access_token: string; refresh_token: string }>(
+      '/auth/change-password',
+      { current_password: currentPassword, new_password: newPassword }
+    );
+    if (response.data.access_token && response.data.refresh_token) {
+      await this.setTokens(response.data.access_token, response.data.refresh_token);
+    }
+  }
+
   async updateProductStock(
     locationId: string,
     productId: string,

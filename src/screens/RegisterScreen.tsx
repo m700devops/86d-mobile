@@ -11,7 +11,9 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Linking,
 } from 'react-native';
+import { API_URL } from '../config/api';
 import { User, Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { BrandMark, GlowBackground } from '../components/Brand';
@@ -283,9 +285,19 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
                   </View>
                   <Text style={styles.termsText}>
                     I agree to the{' '}
-                    <Text style={styles.termsLink}>Terms of Service</Text>
+                    <Text
+                      style={styles.termsLink}
+                      onPress={() => Linking.openURL(`${API_URL.replace('/v1', '')}/legal/terms`)}
+                    >
+                      Terms of Service
+                    </Text>
                     {' '}and{' '}
-                    <Text style={styles.termsLink}>Privacy Policy</Text>
+                    <Text
+                      style={styles.termsLink}
+                      onPress={() => Linking.openURL(`${API_URL.replace('/v1', '')}/legal/privacy`)}
+                    >
+                      Privacy Policy
+                    </Text>
                   </Text>
                 </TouchableOpacity>
                 {errors.terms && <Text style={styles.errorText}>{errors.terms}</Text>}
