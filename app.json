@@ -27,7 +27,7 @@
       "bundleIdentifier": "com.my86d.app",
       "supportsTablet": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "This app uses the camera to scan bottles for inventory using pen detection.",
+        "NSCameraUsageDescription": "86'd uses the camera to identify bottles and scan barcodes for inventory counts.",
         "NSPhotoLibraryUsageDescription": "This app saves photos of bottles for inventory records.",
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -50,7 +50,8 @@
           "cameraPermission": "Allow 86'd to access your camera to scan bottles."
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "@sentry/react-native"
     ]
   }
 }
