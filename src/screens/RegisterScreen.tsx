@@ -26,11 +26,12 @@ interface RegisterScreenProps {
   onRegisterSuccess: () => void;
 }
 
-type Field = 'name' | 'email' | 'password' | 'confirmPassword';
+type Field = 'name' | 'email' | 'confirmEmail' | 'password' | 'confirmPassword';
 
 export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: RegisterScreenProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [confirmEmail, setConfirmEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -41,6 +42,7 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
   const [errors, setErrors] = useState<{
     name?: string;
     email?: string;
+    confirmEmail?: string;
     password?: string;
     confirmPassword?: string;
     terms?: string;
@@ -52,6 +54,7 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
     const newErrors: {
       name?: string;
       email?: string;
+      confirmEmail?: string;
       password?: string;
       confirmPassword?: string;
       terms?: string;
@@ -65,6 +68,13 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
       newErrors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = 'Please enter a valid email';
+    }
+
+    // This email is the only account-recovery path (password reset codes go
+    // there) — a typo means permanent lockout, so make them type it twice.
+    // Case-insensitive: emails are, and the backend lowercases on save.
+    if (email.trim() && email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      newErrors.confirmEmail = 'Emails do not match';
     }
 
     if (!password) {
@@ -232,6 +242,13 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
               {renderInput('email', 'Email', <Mail size={18} color={iconColor('email')} />, {
                 value: email,
                 onChangeText: setEmail,
+                placeholder: 'you@bar.com',
+                keyboardType: 'email-address',
+              })}
+
+              {renderInput('confirmEmail', 'Confirm Email', <Mail size={18} color={iconColor('confirmEmail')} />, {
+                value: confirmEmail,
+                onChangeText: setConfirmEmail,
                 placeholder: 'you@bar.com',
                 keyboardType: 'email-address',
               })}
