@@ -57,6 +57,11 @@ export default function PaywallScreen() {
           Subscribe to keep scanning, ordering, and tracking your bar's inventory.
         </Text>
 
+        {/* Keep in sync with the live Stripe price (price_1TuyoSR4DRSILPkokV8ffVnK) */}
+        <Text style={styles.price}>
+          $29.99<Text style={styles.priceUnit}>/month</Text>
+        </Text>
+
         <TouchableOpacity
           style={[styles.subscribeButton, isStartingCheckout && styles.buttonDisabled]}
           onPress={handleSubscribe}
@@ -125,6 +130,18 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     textAlign: 'center',
     marginBottom: SPACING.lg,
+  },
+  price: {
+    fontSize: FONT_SIZES['3xl'],
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
+    marginBottom: SPACING.md,
+  },
+  priceUnit: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.medium,
+    color: COLORS.textSecondary,
   },
   subscribeButton: {
     width: '100%',
