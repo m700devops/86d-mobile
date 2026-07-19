@@ -7,7 +7,7 @@ export const API_URL = `${API_BASE_URL}${API_VERSION}`;
 // ingestion endpoint), safe to commit. Leave empty to skip Sentry entirely;
 // create a free project at sentry.io (React Native platform) and paste the
 // DSN here to turn it on.
-export const SENTRY_DSN = '';
+export const SENTRY_DSN = 'https://f407c023f25cbe11a8c7ffacae8fc30a@o4511762988793856.ingest.us.sentry.io/4511763028639744';
 
 // Storage keys
 export const STORAGE_KEYS = {
