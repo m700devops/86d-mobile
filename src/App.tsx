@@ -135,6 +135,7 @@ function AppContent() {
         return (
           <CameraScan
             onReview={() => navigate('review')}
+            onOpenMenu={() => setIsSidebarOpen(true)}
           />
         );
       case 'review':

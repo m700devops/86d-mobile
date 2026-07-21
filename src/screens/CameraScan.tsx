@@ -18,7 +18,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Check, ChevronLeft, ChevronDown, Zap, Camera, Delete, Barcode, Search, X } from 'lucide-react-native';
+import { Check, ChevronLeft, ChevronDown, Zap, Camera, Delete, Barcode, Search, X, Menu } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
@@ -37,6 +37,7 @@ type ScanApiResult = NonNullable<Awaited<ReturnType<typeof apiService.analyzeBot
 interface Props {
   onReview: () => void;
   onBack?: () => void;
+  onOpenMenu?: () => void;
 }
 
 // --- Constants ---
@@ -65,7 +66,7 @@ const KEYPAD_ROWS: string[][] = [
 
 // --- Component ---
 
-export default function CameraScan({ onReview, onBack }: Props) {
+export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
   const { logout, refreshUser } = useAuth();
@@ -694,7 +695,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.startScreenHeader}>
-          {onBack && (
+          {onBack ? (
             <TouchableOpacity
               style={styles.backButton}
               onPress={onBack}
@@ -703,7 +704,16 @@ export default function CameraScan({ onReview, onBack }: Props) {
             >
               <ChevronLeft size={24} color={COLORS.textPrimary} />
             </TouchableOpacity>
-          )}
+          ) : onOpenMenu ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={onOpenMenu}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Menu size={22} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <View style={styles.startScreenContent}>
