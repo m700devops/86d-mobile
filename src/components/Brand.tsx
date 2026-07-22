@@ -6,7 +6,6 @@ import Svg, {
   LinearGradient,
   RadialGradient,
   Stop,
-  Rect,
   Circle,
   Ellipse,
   Line,
@@ -24,7 +23,6 @@ interface BrandMarkProps {
 }
 
 export function BrandMark({ size = 88 }: BrandMarkProps) {
-  const radius = 22;
   return (
     <View style={[styles.markWrapper, { width: size, height: size }]}>
       <Svg width={size} height={size} viewBox="0 0 100 100">
@@ -38,19 +36,6 @@ export function BrandMark({ size = 88 }: BrandMarkProps) {
             <Stop offset="100%" stopColor="#9E3410" />
           </RadialGradient>
         </Defs>
-
-        <Rect x="0" y="0" width="100" height="100" rx={radius} fill={COLORS_SURFACE} />
-        {/* hairline top highlight — subtle, like a native app icon */}
-        <Rect
-          x="0.75"
-          y="0.75"
-          width="98.5"
-          height="98.5"
-          rx={radius - 0.75}
-          fill="none"
-          stroke="rgba(255,255,255,0.1)"
-          strokeWidth="1.5"
-        />
 
         {/* a hint of motion behind the tilt */}
         <Path d="M39,20 L36,25 L48,29" fill="none" stroke="#F3ECE1" strokeWidth="1" opacity="0.18" strokeLinecap="round" />
@@ -86,8 +71,6 @@ export function BrandMark({ size = 88 }: BrandMarkProps) {
   );
 }
 
-const COLORS_SURFACE = '#1A1A1A';
-
 // --- GlowBackground: soft brand-colored radial glows behind auth screens ---
 
 export function GlowBackground() {
@@ -116,10 +99,5 @@ const styles = StyleSheet.create({
   markWrapper: {
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FF6B35',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.42,
-    shadowRadius: 24,
-    elevation: 14,
   },
 });

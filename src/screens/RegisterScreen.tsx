@@ -225,7 +225,7 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
           <View style={styles.content}>
             {/* Brand hero */}
             <View style={styles.hero}>
-              <BrandMark size={78} />
+              <BrandMark size={87} />
               <Text style={styles.slogan}>Scan it. Count it. Order it.</Text>
             </View>
 
