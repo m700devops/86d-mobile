@@ -90,7 +90,7 @@ export function ForgotPasswordScreen({ onBackToLogin }: Props) {
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.content}>
             <View style={styles.hero}>
-              <BrandMark size={72} />
+              <BrandMark size={99} />
             </View>
 
             <View style={styles.card}>

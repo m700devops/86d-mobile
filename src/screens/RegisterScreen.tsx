@@ -11,7 +11,9 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Linking,
 } from 'react-native';
+import { API_URL } from '../config/api';
 import { User, Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { BrandMark, GlowBackground } from '../components/Brand';
@@ -26,11 +28,12 @@ interface RegisterScreenProps {
   onRegisterSuccess: () => void;
 }
 
-type Field = 'name' | 'email' | 'password' | 'confirmPassword';
+type Field = 'name' | 'email' | 'confirmEmail' | 'password' | 'confirmPassword';
 
 export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: RegisterScreenProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [confirmEmail, setConfirmEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -41,6 +44,7 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
   const [errors, setErrors] = useState<{
     name?: string;
     email?: string;
+    confirmEmail?: string;
     password?: string;
     confirmPassword?: string;
     terms?: string;
@@ -52,6 +56,7 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
     const newErrors: {
       name?: string;
       email?: string;
+      confirmEmail?: string;
       password?: string;
       confirmPassword?: string;
       terms?: string;
@@ -65,6 +70,13 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
       newErrors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = 'Please enter a valid email';
+    }
+
+    // This email is the only account-recovery path (password reset codes go
+    // there) — a typo means permanent lockout, so make them type it twice.
+    // Case-insensitive: emails are, and the backend lowercases on save.
+    if (email.trim() && email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      newErrors.confirmEmail = 'Emails do not match';
     }
 
     if (!password) {
@@ -213,14 +225,14 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
           <View style={styles.content}>
             {/* Brand hero */}
             <View style={styles.hero}>
-              <BrandMark size={64} />
+              <BrandMark size={87} />
               <Text style={styles.slogan}>Scan it. Count it. Order it.</Text>
             </View>
 
             {/* Sign-up card */}
             <View style={styles.card}>
               <Text style={styles.title}>Create your account</Text>
-              <Text style={styles.subtitle}>Start your free 14-day trial</Text>
+              <Text style={styles.subtitle}>Start your free 30-day trial</Text>
 
               {renderInput('name', 'Full Name', <User size={18} color={iconColor('name')} />, {
                 value: name,
@@ -232,6 +244,13 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
               {renderInput('email', 'Email', <Mail size={18} color={iconColor('email')} />, {
                 value: email,
                 onChangeText: setEmail,
+                placeholder: 'you@bar.com',
+                keyboardType: 'email-address',
+              })}
+
+              {renderInput('confirmEmail', 'Confirm Email', <Mail size={18} color={iconColor('confirmEmail')} />, {
+                value: confirmEmail,
+                onChangeText: setConfirmEmail,
                 placeholder: 'you@bar.com',
                 keyboardType: 'email-address',
               })}
@@ -266,9 +285,19 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
                   </View>
                   <Text style={styles.termsText}>
                     I agree to the{' '}
-                    <Text style={styles.termsLink}>Terms of Service</Text>
+                    <Text
+                      style={styles.termsLink}
+                      onPress={() => Linking.openURL(`${API_URL.replace('/v1', '')}/legal/terms`)}
+                    >
+                      Terms of Service
+                    </Text>
                     {' '}and{' '}
-                    <Text style={styles.termsLink}>Privacy Policy</Text>
+                    <Text
+                      style={styles.termsLink}
+                      onPress={() => Linking.openURL(`${API_URL.replace('/v1', '')}/legal/privacy`)}
+                    >
+                      Privacy Policy
+                    </Text>
                   </Text>
                 </TouchableOpacity>
                 {errors.terms && <Text style={styles.errorText}>{errors.terms}</Text>}

@@ -241,11 +241,36 @@ class ApiService {
     return response.data.location;
   }
 
+  async updateLocation(
+    locationId: string,
+    updates: { order_rounding_mode?: 'up' | 'nearest'; staff_names?: string[] }
+  ): Promise<Location> {
+    const response = await this.client.patch<Location>(`/locations/${locationId}`, updates);
+    return response.data;
+  }
+
+  async deleteAccount(password: string): Promise<void> {
+    await this.client.delete('/users/me', { data: { password } });
+  }
+
+  // Changing the password revokes every existing token server-side (that's
+  // the point — it signs out ex-staff phones), so the response includes
+  // fresh tokens for THIS device to keep its session.
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    const response = await this.client.put<{ access_token: string; refresh_token: string }>(
+      '/auth/change-password',
+      { current_password: currentPassword, new_password: newPassword }
+    );
+    if (response.data.access_token && response.data.refresh_token) {
+      await this.setTokens(response.data.access_token, response.data.refresh_token);
+    }
+  }
+
   async updateProductStock(
     locationId: string,
     productId: string,
-    updates: { full?: number; current_stock?: number; par?: number }
-  ): Promise<{ location_id: string; product_id: string; full: number; current_stock: number; par: number | null; updated_at: string }> {
+    updates: { full?: number; current_stock?: number; par?: number; price?: number }
+  ): Promise<{ location_id: string; product_id: string; full: number; current_stock: number; par: number | null; price: number | null; updated_at: string }> {
     const response = await this.client.patch(
       `/locations/${locationId}/products/${productId}`,
       updates
@@ -398,6 +423,13 @@ class ApiService {
   async getOrder(orderId: string): Promise<OrderDetail> {
     const response = await this.client.get<{ order: OrderDetail }>(`/orders/${orderId}`);
     return response.data.order;
+  }
+
+  // Billing — returns a Stripe Checkout URL to open in the system browser.
+  // No Stripe SDK/keys ever live in the app itself.
+  async createCheckoutSession(): Promise<{ checkout_url: string }> {
+    const response = await this.client.post<{ checkout_url: string }>('/billing/create-checkout-session');
+    return response.data;
   }
 
   // Pre-warm the backend's AI connection so the first scan is as fast as the

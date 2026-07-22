@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import * as Print from 'expo-print';
 import * as Clipboard from 'expo-clipboard';
 import { COLORS } from '../constants/colors';
@@ -23,7 +23,7 @@ interface Props {
 }
 
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
-  const { bottles, updateBottle, clearBottles } = useInventory();
+  const { bottles, isHydrated, updateBottle, clearBottles } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation } = useLocation();
   const { user, updateProfile } = useAuth();
@@ -57,8 +57,14 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       )
     : bottles
         .map(b => {
-          // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole bottles, round up
-          const totalQuantity = Math.max(0, Math.ceil(b.parLevel - (b.currentStock || 0)));
+          // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole
+          // bottles. 'nearest' (default) skips ordering for a shortfall under
+          // half a bottle; 'up' always rounds up so it never under-orders.
+          const shortfall = b.parLevel - (b.currentStock || 0);
+          const roundedShortfall = currentLocation?.order_rounding_mode === 'up'
+            ? Math.ceil(shortfall)
+            : Math.round(shortfall);
+          const totalQuantity = Math.max(0, roundedShortfall);
 
           return {
             bottleId: b.id,
@@ -93,7 +99,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
 
     if (!user?.business_name) {
       setRestaurantNameInput(user?.business_name ?? '');
-      setManagerNameInput(user?.manager_name ?? user?.name ?? '');
+      setManagerNameInput(user?.manager_name ?? '');
       setShowRestaurantSetup(true);
       return;
     }
@@ -250,6 +256,18 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     `;
   };
 
+  // Bottles load asynchronously (local draft, then a server fallback) — a
+  // preset Reorder doesn't depend on that at all, but a live order does, and
+  // without this a resumed app (or a fresh screen mount before hydration
+  // lands) would flash "All Stocked!" instead of the real order.
+  if (!presetOrder && !isHydrated) {
+    return (
+      <SafeAreaView style={[styles.container, styles.loadingCentered]}>
+        <ActivityIndicator color={COLORS.accentPrimary} />
+      </SafeAreaView>
+    );
+  }
+
   // Empty state
   if (orderItems.length === 0) {
     return (
@@ -264,10 +282,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           </Text>
           <TouchableOpacity
             style={styles.emptyButton}
-            onPress={onRestart}
+            onPress={onViewOrders}
             activeOpacity={0.8}
           >
-            <Text style={styles.emptyButtonText}>Back to Dashboard</Text>
+            <Text style={styles.emptyButtonText}>View Order History</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -310,8 +328,14 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             ))}
           </View>
 
+          {/* "Sent" means the email service accepted it, not that a human
+              read it — nudge toward confirming the first order by phone. */}
+          <Text style={styles.successHint}>
+            First order with a distributor? A quick call to confirm they got it never hurts.
+          </Text>
+
           <TouchableOpacity
-            style={[styles.button, { marginTop: SPACING.xl }]}
+            style={[styles.button, { marginTop: SPACING.lg }]}
             onPress={onViewOrders}
             activeOpacity={0.8}
           >
@@ -749,8 +773,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.primaryDark,
   },
+  loadingCentered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
-    paddingHorizontal: SPACING.lg,
+    paddingLeft: 70,
+    paddingRight: SPACING.lg,
     paddingVertical: SPACING.lg,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
@@ -1246,6 +1275,13 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     marginBottom: SPACING.xl,
     letterSpacing: LETTER_SPACING,
+  },
+  successHint: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    textAlign: 'center',
+    marginTop: SPACING.lg,
+    paddingHorizontal: SPACING.xl,
   },
   distributorList: {
     width: '100%',

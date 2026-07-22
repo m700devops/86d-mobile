@@ -9,6 +9,7 @@ interface LocationContextType {
   loading: boolean;
   setCurrentLocation: (id: string) => void;
   addLocation: (name: string, address?: string) => Promise<void>;
+  updateOrderRoundingMode: (mode: 'up' | 'nearest') => Promise<void>;
 }
 
 const LocationContext = createContext<LocationContextType | undefined>(undefined);
@@ -57,8 +58,17 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setCurrentLocationState(created);
   };
 
+  const updateOrderRoundingMode = async (mode: 'up' | 'nearest') => {
+    if (!currentLocation) return;
+    const updated = await apiService.updateLocation(currentLocation.id, { order_rounding_mode: mode });
+    setLocations(prev => prev.map(l => (l.id === updated.id ? updated : l)));
+    setCurrentLocationState(updated);
+  };
+
   return (
-    <LocationContext.Provider value={{ currentLocation, locations, loading, setCurrentLocation, addLocation }}>
+    <LocationContext.Provider
+      value={{ currentLocation, locations, loading, setCurrentLocation, addLocation, updateOrderRoundingMode }}
+    >
       {children}
     </LocationContext.Provider>
   );

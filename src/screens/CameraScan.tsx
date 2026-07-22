@@ -10,13 +10,15 @@ import {
   Modal,
   ActivityIndicator,
   Platform,
+  TextInput,
+  FlatList,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Check, ChevronLeft, Zap, Camera, Delete, Barcode } from 'lucide-react-native';
+import { Check, ChevronLeft, ChevronDown, Zap, Camera, Delete, Barcode, Search, X, Menu } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
@@ -35,6 +37,7 @@ type ScanApiResult = NonNullable<Awaited<ReturnType<typeof apiService.analyzeBot
 interface Props {
   onReview: () => void;
   onBack?: () => void;
+  onOpenMenu?: () => void;
 }
 
 // --- Constants ---
@@ -63,10 +66,10 @@ const KEYPAD_ROWS: string[][] = [
 
 // --- Component ---
 
-export default function CameraScan({ onReview, onBack }: Props) {
+export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
-  const { logout } = useAuth();
+  const { logout, refreshUser } = useAuth();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
@@ -87,6 +90,12 @@ export default function CameraScan({ onReview, onBack }: Props) {
   const [existingBottle, setExistingBottle] = useState<Bottle | null>(null);
 
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  // "Did I already scan that?" — a quick searchable look at everything
+  // scanned this session, without ever leaving the camera. Matters most on
+  // a big count (100+ bottles), where that doubt comes up constantly and a
+  // full trip to Review is real friction mid-flow.
+  const [showScannedList, setShowScannedList] = useState(false);
+  const [scannedListQuery, setScannedListQuery] = useState('');
   // A barcode miss has no photo to retake — the fallback action is to try
   // the normal camera scan instead, so the pad button needs different copy.
   const [failedViaBarcode, setFailedViaBarcode] = useState(false);
@@ -370,6 +379,19 @@ export default function CameraScan({ onReview, onBack }: Props) {
       });
 
       const committedRowId = pendingCommits.current.get(token);
+
+      // Trial ended / no active subscription — refresh the cached user so
+      // App.tsx's entitlement check swaps in the paywall, rather than
+      // surfacing this as a generic "scan failed" error.
+      if (httpStatus === 402) {
+        if (committedRowId !== undefined) {
+          pendingCommits.current.delete(token);
+          markScanFailed(committedRowId);
+        }
+        setPadVisible(false);
+        refreshUser();
+        return;
+      }
 
       if (errorType === 'auth_error') {
         if (committedRowId !== undefined) {
@@ -673,7 +695,7 @@ export default function CameraScan({ onReview, onBack }: Props) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.startScreenHeader}>
-          {onBack && (
+          {onBack ? (
             <TouchableOpacity
               style={styles.backButton}
               onPress={onBack}
@@ -682,7 +704,16 @@ export default function CameraScan({ onReview, onBack }: Props) {
             >
               <ChevronLeft size={24} color={COLORS.textPrimary} />
             </TouchableOpacity>
-          )}
+          ) : onOpenMenu ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={onOpenMenu}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Menu size={22} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <View style={styles.startScreenContent}>
@@ -772,13 +803,21 @@ export default function CameraScan({ onReview, onBack }: Props) {
         >
           <ChevronLeft size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
-        <Text style={[styles.counterText, isCapturing && styles.counterTextActive]}>
-          {isPaused ? 'Paused'
-            : isCapturing ? 'Scanning'
-            : bottleCount > 0
-              ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
-              : 'Scanning'}
-        </Text>
+        <TouchableOpacity
+          style={styles.counterButton}
+          onPress={() => bottleCount > 0 && setShowScannedList(true)}
+          disabled={bottleCount === 0}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.counterText, isCapturing && styles.counterTextActive]} numberOfLines={1}>
+            {isPaused ? 'Paused'
+              : isCapturing ? 'Scanning'
+              : bottleCount > 0
+                ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
+                : 'Scanning'}
+          </Text>
+          {bottleCount > 0 && <ChevronDown size={14} color={COLORS.textSecondary} />}
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.barcodeToggleButton}
           onPress={() => setShowBarcodeScanner(true)}
@@ -1023,6 +1062,83 @@ export default function CameraScan({ onReview, onBack }: Props) {
         onScanned={handleBarcodeScanned}
       />
 
+      {/* "Did I already scan that?" — searchable, read-only, dismisses
+          straight back to the camera. No navigation away from scanning. */}
+      <Modal
+        visible={showScannedList}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { setShowScannedList(false); setScannedListQuery(''); }}
+      >
+        <View style={styles.scannedListOverlay}>
+          <View style={styles.scannedListSheet}>
+            <View style={styles.scannedListHandle} />
+            <View style={styles.scannedListHeader}>
+              <Text style={styles.scannedListTitle}>Scanned So Far ({bottleCount})</Text>
+              <TouchableOpacity
+                onPress={() => { setShowScannedList(false); setScannedListQuery(''); }}
+                hitSlop={8}
+                activeOpacity={0.7}
+              >
+                <X size={20} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.scannedListSearchRow}>
+              <Search size={16} color={COLORS.textTertiary} />
+              <TextInput
+                style={styles.scannedListSearchInput}
+                placeholder="Search what you've scanned…"
+                placeholderTextColor={COLORS.textTertiary}
+                value={scannedListQuery}
+                onChangeText={setScannedListQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {scannedListQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setScannedListQuery('')} hitSlop={8}>
+                  <X size={16} color={COLORS.textTertiary} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <FlatList
+              data={bottles.filter(b => {
+                const q = scannedListQuery.trim().toLowerCase();
+                if (!q) return true;
+                return b.name.toLowerCase().includes(q) || b.brand.toLowerCase().includes(q);
+              })}
+              keyExtractor={b => b.id}
+              style={styles.scannedListItems}
+              contentContainerStyle={{ paddingBottom: SPACING.xl }}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <Text style={styles.scannedListEmpty}>
+                  {scannedListQuery ? 'No match' : 'Nothing scanned yet'}
+                </Text>
+              }
+              renderItem={({ item }) => (
+                <View style={styles.scannedListRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.scannedListRowName} numberOfLines={1}>
+                      {item.brand || item.name}
+                    </Text>
+                    {!!item.brand && (
+                      <Text style={styles.scannedListRowSub} numberOfLines={1}>{item.name}</Text>
+                    )}
+                  </View>
+                  {item.scanStatus === 'pending' ? (
+                    <ActivityIndicator size="small" color={COLORS.textTertiary} />
+                  ) : item.scanStatus === 'failed' ? (
+                    <Text style={styles.scannedListRowFailed}>Failed</Text>
+                  ) : (
+                    <Text style={styles.scannedListRowCount}>{formatStock(item.currentStock ?? 0)}</Text>
+                  )}
+                </View>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -1092,13 +1208,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: COLORS.surface,
   },
+  counterButton: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
   counterText: {
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.textSecondary,
     letterSpacing: LETTER_SPACING,
-    flex: 1,
-    textAlign: 'center',
   },
   counterTextActive: {
     color: COLORS.success,
@@ -1292,6 +1413,97 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: 10,
     marginBottom: 6,
+  },
+  scannedListOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  scannedListSheet: {
+    backgroundColor: COLORS.primaryDark,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderColor: `${COLORS.border}80`,
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING.xl,
+    height: '70%',
+  },
+  scannedListHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: `${COLORS.border}80`,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  scannedListHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: SPACING.sm,
+  },
+  scannedListTitle: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textPrimary,
+    letterSpacing: LETTER_SPACING,
+  },
+  scannedListSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: SPACING.md,
+    height: 44,
+    marginBottom: SPACING.md,
+  },
+  scannedListSearchInput: {
+    flex: 1,
+    color: COLORS.textPrimary,
+    fontSize: FONT_SIZES.base,
+  },
+  scannedListItems: {
+    flex: 1,
+  },
+  scannedListEmpty: {
+    textAlign: 'center',
+    color: COLORS.textTertiary,
+    fontSize: FONT_SIZES.sm,
+    marginTop: SPACING.xl,
+  },
+  scannedListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: `${COLORS.border}60`,
+  },
+  scannedListRowName: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
+  },
+  scannedListRowSub: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: 2,
+  },
+  scannedListRowCount: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
+    fontFamily: 'monospace',
+  },
+  scannedListRowFailed: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.error,
   },
   padStatusRow: {
     flexDirection: 'row',
