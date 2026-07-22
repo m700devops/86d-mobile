@@ -71,7 +71,7 @@ export function BrandMark({ size = 88 }: BrandMarkProps) {
         </G>
 
         <SvgText
-          x="50"
+          x="53"
           y="93"
           textAnchor="middle"
           fontFamily="Georgia"
