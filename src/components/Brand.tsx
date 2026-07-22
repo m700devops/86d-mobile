@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
+import { COLORS } from '../constants/colors';
 import Svg, {
   Defs,
   LinearGradient,
@@ -29,12 +30,12 @@ export function BrandMark({ size = 88 }: BrandMarkProps) {
       <Svg width={size} height={size} viewBox="0 0 100 100">
         <Defs>
           <LinearGradient id="brandLiquid" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor="#FFB067" />
-            <Stop offset="100%" stopColor="#E2551F" />
+            <Stop offset="0%" stopColor="#FF9466" />
+            <Stop offset="100%" stopColor={COLORS.accentPrimary} />
           </LinearGradient>
           <RadialGradient id="brandOlive" cx="35%" cy="30%" r="75%">
-            <Stop offset="0%" stopColor="#FFB067" />
-            <Stop offset="100%" stopColor="#C2491B" />
+            <Stop offset="0%" stopColor={COLORS.accentPrimary} />
+            <Stop offset="100%" stopColor="#9E3410" />
           </RadialGradient>
         </Defs>
 
@@ -116,9 +117,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#FF6B35',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 18,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.42,
+    shadowRadius: 24,
+    elevation: 14,
   },
 });
