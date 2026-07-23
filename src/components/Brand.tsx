@@ -5,18 +5,22 @@ import Svg, {
   Defs,
   LinearGradient,
   RadialGradient,
+  ClipPath,
   Stop,
   Circle,
-  Ellipse,
   Line,
   Path,
-  G,
+  Rect,
   Text as SvgText,
 } from 'react-native-svg';
 
-// --- BrandMark: "Tilted Pour" — a coupe glass on the app's dark ground,
-// replacing the old solid-orange lettering tile. Built on a 100x100
-// coordinate space and scaled via viewBox, so `size` just scales cleanly. ---
+// --- BrandMark: bottle outline with tally lines and a gold "86'd" base,
+// matching assets/icon.png. Built on a 100x100 coordinate space and scaled
+// via viewBox, so `size` just scales cleanly. Keep in sync with icon.png
+// if rebranding. ---
+
+const BOTTLE_PATH =
+  'M44.6,10.7 H55.4 V23.4 C59.6,23.4 72.7,29.3 72.7,40 V77.1 A4.5,4.5 0 0 1 68.2,81.6 H31.8 A4.5,4.5 0 0 1 27.3,77.1 V40 C27.3,29.3 40.4,23.4 44.6,23.4 Z';
 
 interface BrandMarkProps {
   size?: number;
@@ -27,42 +31,35 @@ export function BrandMark({ size = 88 }: BrandMarkProps) {
     <View style={[styles.markWrapper, { width: size, height: size }]}>
       <Svg width={size} height={size} viewBox="0 0 100 100">
         <Defs>
-          <LinearGradient id="brandLiquid" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor="#FF9466" />
+          <LinearGradient id="brandStroke" gradientUnits="userSpaceOnUse" x1="27.3" y1="10.7" x2="72.7" y2="81.6">
+            <Stop offset="0%" stopColor={COLORS.accentSecondary} />
             <Stop offset="100%" stopColor={COLORS.accentPrimary} />
           </LinearGradient>
-          <RadialGradient id="brandOlive" cx="35%" cy="30%" r="75%">
-            <Stop offset="0%" stopColor={COLORS.accentPrimary} />
-            <Stop offset="100%" stopColor="#9E3410" />
-          </RadialGradient>
+          <LinearGradient id="brandFill" x1="0%" y1="0%" x2="0%" y2="100%">
+            <Stop offset="0%" stopColor="#FFD966" />
+            <Stop offset="100%" stopColor="#FF9A3D" />
+          </LinearGradient>
+          <ClipPath id="brandClip">
+            <Path d={BOTTLE_PATH} />
+          </ClipPath>
         </Defs>
 
-        {/* a hint of motion behind the tilt */}
-        <Path d="M39,20 L36,25 L48,29" fill="none" stroke="#F3ECE1" strokeWidth="1" opacity="0.18" strokeLinecap="round" />
-        <Path d="M35,27 L32,31 L44,34" fill="none" stroke="#F3ECE1" strokeWidth="1" opacity="0.13" strokeLinecap="round" />
+        <Rect x="22.5" y="64.1" width="55.1" height="22.5" fill="url(#brandFill)" clipPath="url(#brandClip)" />
 
-        {/* soft grounding shadow */}
-        <Ellipse cx="53" cy="80" rx="15" ry="2.6" fill="#000000" opacity="0.35" />
+        <Path d={BOTTLE_PATH} fill="none" stroke="url(#brandStroke)" strokeWidth="1.6" strokeLinejoin="round" />
 
-        <G transform="rotate(-16 50 45)">
-          <Path d="M31,26 Q50,17 69,26 L51,44 Q50,45 49,44 Z" fill="url(#brandLiquid)" />
-          <Path d="M35,23 L39,24 L32,36 L29,34 Z" fill="#F3ECE1" opacity="0.22" />
-          <Path d="M31,26 Q50,17 69,26" fill="none" stroke="#F3ECE1" strokeWidth="1.3" opacity="0.55" />
-          <Path d="M31,26 L49,44 M69,26 L51,44" fill="none" stroke="#F3ECE1" strokeWidth="1.3" opacity="0.4" />
-          <Line x1="50" y1="44" x2="50" y2="60" stroke="#C9BBA9" strokeWidth="2.2" strokeLinecap="round" />
-          <Ellipse cx="50" cy="62" rx="12" ry="2.4" fill="none" stroke="#C9BBA9" strokeWidth="2" />
-          <Circle cx="50" cy="32" r="3.4" fill="url(#brandOlive)" />
-          <Circle cx="48.7" cy="30.6" r="0.8" fill="#FCE7D3" opacity="0.85" />
-        </G>
+        <Line x1="34.2" y1="46.7" x2="65.8" y2="46.7" stroke="url(#brandStroke)" strokeWidth="1.5" strokeLinecap="round" />
+        <Line x1="34.2" y1="53.5" x2="65.8" y2="53.5" stroke="url(#brandStroke)" strokeWidth="1.5" strokeLinecap="round" />
+        <Line x1="34.2" y1="60.4" x2="65.8" y2="60.4" stroke="url(#brandStroke)" strokeWidth="1.5" strokeLinecap="round" />
 
         <SvgText
-          x="53"
-          y="93"
+          x="50"
+          y="78.1"
           textAnchor="middle"
           fontFamily="Georgia"
-          fontSize="13.5"
-          letterSpacing="0.6"
-          fill="#F3ECE1"
+          fontWeight="bold"
+          fontSize="11"
+          fill="#2A1708"
         >
           86'd
         </SvgText>
