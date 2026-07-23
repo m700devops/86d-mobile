@@ -639,6 +639,7 @@ const styles = StyleSheet.create({
   bottleInfo: {
     flex: 1,
     paddingRight: SPACING.xs,
+    overflow: 'hidden',
   },
   bottleName: {
     fontSize: FONT_SIZES.sm,
@@ -809,6 +810,7 @@ const styles = StyleSheet.create({
   chipRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
   },
   priceChip: {
