@@ -1,11 +1,9 @@
 import React from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
-import { COLORS } from '../constants/colors';
 import Svg, {
   Defs,
   LinearGradient,
   RadialGradient,
-  ClipPath,
   Stop,
   Circle,
   Line,
@@ -14,13 +12,9 @@ import Svg, {
   Text as SvgText,
 } from 'react-native-svg';
 
-// --- BrandMark: bottle outline with tally lines and a gold "86'd" base,
-// matching assets/icon.png. Built on a 100x100 coordinate space and scaled
-// via viewBox, so `size` just scales cleanly. Keep in sync with icon.png
-// if rebranding. ---
-
-const BOTTLE_PATH =
-  'M44.6,10.7 H55.4 V23.4 C59.6,23.4 72.7,29.3 72.7,40 V77.1 A4.5,4.5 0 0 1 68.2,81.6 H31.8 A4.5,4.5 0 0 1 27.3,77.1 V40 C27.3,29.3 40.4,23.4 44.6,23.4 Z';
+// --- BrandMark: bottle outline with checklist lines and a gold liquid base,
+// matching assets/icon.png exactly (same 120x120 coordinate space). Keep in
+// sync with icon.png if rebranding. ---
 
 interface BrandMarkProps {
   size?: number;
@@ -29,37 +23,40 @@ interface BrandMarkProps {
 export function BrandMark({ size = 88 }: BrandMarkProps) {
   return (
     <View style={[styles.markWrapper, { width: size, height: size }]}>
-      <Svg width={size} height={size} viewBox="0 0 100 100">
+      <Svg width={size} height={size} viewBox="0 0 120 120">
         <Defs>
-          <LinearGradient id="brandStroke" gradientUnits="userSpaceOnUse" x1="27.3" y1="10.7" x2="72.7" y2="81.6">
-            <Stop offset="0%" stopColor={COLORS.accentSecondary} />
-            <Stop offset="100%" stopColor={COLORS.accentPrimary} />
+          <LinearGradient id="brandLiquid" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0%" stopColor="#eab654" />
+            <Stop offset="100%" stopColor="#bd8226" />
           </LinearGradient>
-          <LinearGradient id="brandFill" x1="0%" y1="0%" x2="0%" y2="100%">
-            <Stop offset="0%" stopColor="#FFD966" />
-            <Stop offset="100%" stopColor="#FF9A3D" />
-          </LinearGradient>
-          <ClipPath id="brandClip">
-            <Path d={BOTTLE_PATH} />
-          </ClipPath>
         </Defs>
 
-        <Rect x="22.5" y="64.1" width="55.1" height="22.5" fill="url(#brandFill)" clipPath="url(#brandClip)" />
+        <Rect width="120" height="120" rx="28" fill="#141110" />
 
-        <Path d={BOTTLE_PATH} fill="none" stroke="url(#brandStroke)" strokeWidth="1.6" strokeLinejoin="round" />
+        <Path
+          d="M54 20 L54 28 L48 35 L48 80 Q48 84 52 84 L66 84 Q70 84 70 80 L70 35 L64 28 L64 20 Z"
+          fill="none"
+          stroke="#d9a13e"
+          strokeWidth="1.5"
+        />
 
-        <Line x1="34.2" y1="46.7" x2="65.8" y2="46.7" stroke="url(#brandStroke)" strokeWidth="1.5" strokeLinecap="round" />
-        <Line x1="34.2" y1="53.5" x2="65.8" y2="53.5" stroke="url(#brandStroke)" strokeWidth="1.5" strokeLinecap="round" />
-        <Line x1="34.2" y1="60.4" x2="65.8" y2="60.4" stroke="url(#brandStroke)" strokeWidth="1.5" strokeLinecap="round" />
+        <Line x1="53" y1="44" x2="65" y2="44" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+        <Line x1="53" y1="51" x2="65" y2="51" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+        <Line x1="53" y1="58" x2="65" y2="58" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+
+        <Path
+          d="M48 70 Q59 66 70 70 L70 80 Q70 84 66 84 L52 84 Q48 84 48 80 Z"
+          fill="url(#brandLiquid)"
+        />
 
         <SvgText
-          x="50"
-          y="78.1"
+          x="59"
+          y="80"
           textAnchor="middle"
-          fontFamily="Georgia"
+          fontFamily="Liberation Serif"
           fontWeight="bold"
           fontSize="11"
-          fill="#2A1708"
+          fill="#3b230a"
         >
           86'd
         </SvgText>
