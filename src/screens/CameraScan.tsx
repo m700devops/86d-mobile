@@ -23,6 +23,7 @@ import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
+import { bottleMatchKey } from '../utils/productKey';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { Bottle } from '../types';
@@ -332,12 +333,16 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         return;
       }
 
-      // Same product already scanned this session? Update its row, don't duplicate
+      // Same product already scanned this session? Update its row, don't duplicate.
+      // The fallback compares normalized, swap-tolerant keys rather than raw
+      // strings — a re-read that phrases the label differently ("Blue Bolt"/
+      // "Gatorade" vs "Gatorade"/"Blue Bolt") is the same bottle, and letting it
+      // through as a second row splits the count and over-orders.
+      const scanKey = bottleMatchKey(result.brand, result.name);
       const existing = bottles.find(b =>
         b.scanStatus === undefined &&
         ((result.matched_product_id && b.productId === result.matched_product_id) ||
-          (b.name.toLowerCase() === result.name.toLowerCase() &&
-           b.brand.toLowerCase() === result.brand.toLowerCase()))
+          (!!scanKey && bottleMatchKey(b.brand, b.name) === scanKey))
       );
       setExistingBottle(existing ?? null);
 

@@ -266,6 +266,22 @@ class ApiService {
     }
   }
 
+  // Fold a duplicate product into the one to keep. The backend moves this
+  // account's prices/pars and distributor assignments across, then records the
+  // duplicate's phrasing as an alias so a later scan resolves to the keeper.
+  async mergeProduct(sourceProductId: string, targetProductId: string): Promise<{
+    merged: boolean;
+    source_product_id: string;
+    target_product_id: string;
+    par_levels_moved: number;
+    assignments_moved: number;
+  }> {
+    const response = await this.client.post(`/products/${sourceProductId}/merge`, {
+      target_product_id: targetProductId,
+    });
+    return response.data;
+  }
+
   async updateProductStock(
     locationId: string,
     productId: string,

@@ -7,6 +7,7 @@ import { Bottle } from '../types';
 import { useLocation } from './LocationContext';
 import { apiService } from '../services/api';
 import { deleteScanPhoto } from '../utils/scanPhotos';
+import { bottleMatchKey } from '../utils/productKey';
 
 interface ResolvedScanInfo {
   productId?: string;
@@ -22,6 +23,7 @@ interface InventoryContextType {
   updateBottle: (id: string, updates: Partial<Bottle>) => void;
   removeBottle: (id: string) => void;
   resolveScan: (id: string, info: ResolvedScanInfo) => void;
+  repointProduct: (sourceProductId: string, target: { productId: string; name: string; brand: string }) => void;
   markScanFailed: (id: string, reason?: 'network' | 'other') => void;
   retryScan: (bottle: Bottle) => Promise<void>;
   clearBottles: () => void;
@@ -170,12 +172,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       // Same product already identified in this session? Merge — the newer
       // typed count becomes the total, and the placeholder row disappears.
+      // Keys are normalized and swap-tolerant so a differently-phrased re-read
+      // of the same label still merges (see utils/productKey).
+      const infoKey = bottleMatchKey(info.brand, info.name);
       const dup = prev.find(b =>
         b.id !== id &&
         b.scanStatus === undefined &&
         ((info.productId && b.productId === info.productId) ||
-          (b.name.toLowerCase() === info.name.toLowerCase() &&
-           b.brand.toLowerCase() === info.brand.toLowerCase()))
+          (!!infoKey && bottleMatchKey(b.brand, b.name) === infoKey))
       );
       if (dup) {
         return prev
@@ -186,6 +190,41 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return prev.map(b =>
         b.id === id ? { ...b, ...info, scanStatus: undefined, imageUrl: undefined } : b
       );
+    });
+  };
+
+  // Follow-up to merging two products in the Pricing screen: rows already
+  // counted in this draft still point at the retired product, so without this
+  // they'd stay unpriced and order at $0. Relabels them to the kept product
+  // and, when the duplicate split one bottle across two rows, collapses them.
+  //
+  // The surviving count is the larger of the two rather than their sum — the
+  // same rule the backend merge applies to current_stock — so a merge run
+  // after both rows were counted can never silently double what's on hand.
+  const repointProduct = (
+    sourceProductId: string,
+    target: { productId: string; name: string; brand: string }
+  ) => {
+    setBottles(prev => {
+      const affected = prev.filter(b => b.productId === sourceProductId);
+      if (affected.length === 0) return prev;
+
+      const keeper = prev.find(b => b.productId === target.productId);
+      if (!keeper) {
+        return prev.map(b =>
+          b.productId === sourceProductId
+            ? { ...b, productId: target.productId, name: target.name, brand: target.brand }
+            : b
+        );
+      }
+
+      const mergedStock = Math.max(
+        keeper.currentStock || 0,
+        ...affected.map(b => b.currentStock || 0)
+      );
+      return prev
+        .filter(b => b.productId !== sourceProductId)
+        .map(b => (b.id === keeper.id ? { ...b, currentStock: mergedStock } : b));
     });
   };
 
@@ -286,7 +325,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   return (
     <InventoryContext.Provider
-      value={{ bottles, isHydrated, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed, retryScan, clearBottles }}
+      value={{ bottles, isHydrated, addBottle, updateBottle, removeBottle, resolveScan, repointProduct, markScanFailed, retryScan, clearBottles }}
     >
       {children}
     </InventoryContext.Provider>

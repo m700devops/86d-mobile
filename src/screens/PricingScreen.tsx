@@ -13,7 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Search, X, Trash2, DollarSign, Tag } from 'lucide-react-native';
+import { Search, X, Trash2, DollarSign, Tag, Merge } from 'lucide-react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
@@ -29,8 +29,8 @@ const displayName = (p: { brand?: string | null; name: string }) =>
   [p.brand, p.name].filter(Boolean).join(' ').trim() || p.name;
 
 export default function PricingScreen() {
-  const { entries, loading, priceFor, setPrice, clearPrice } = usePricing();
-  const { bottles } = useInventory();
+  const { entries, loading, priceFor, setPrice, clearPrice, mergeInto } = usePricing();
+  const { bottles, repointProduct } = useInventory();
   const { currentLocation } = useLocation();
 
   const [query, setQuery] = useState('');
@@ -42,6 +42,11 @@ export default function PricingScreen() {
   const [editing, setEditing] = useState<PriceableProduct | null>(null);
   const [priceInput, setPriceInput] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // The duplicate being folded into an already-priced bottle, once the client
+  // spots that the AI read the same label two different ways.
+  const [merging, setMerging] = useState<PriceableProduct | null>(null);
+  const [mergeBusyId, setMergeBusyId] = useState<string | null>(null);
 
   // Bottles counted in the current session that the price book has no answer
   // for. This is the whole reason pricing gets its own screen: instead of
@@ -131,6 +136,44 @@ export default function PricingScreen() {
     }
   };
 
+  const handleMerge = (target: { productId: string; name: string; brand?: string | null }) => {
+    if (!merging) return;
+    const source = merging;
+    Alert.alert(
+      'Same bottle?',
+      `"${displayName(source)}" will be folded into "${displayName(target)}" and use its price. ` +
+        'Future scans of either name will land on the same bottle.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Merge',
+          onPress: async () => {
+            setMergeBusyId(target.productId);
+            try {
+              await mergeInto(source.id, target.productId);
+              // Rows already counted in this draft still point at the retired
+              // product — repoint them so they price correctly on this order,
+              // not just the next one.
+              repointProduct(source.id, {
+                productId: target.productId,
+                name: target.name,
+                brand: target.brand ?? '',
+              });
+              setMerging(null);
+            } catch {
+              Alert.alert(
+                'Could not merge',
+                'That merge did not save. Check your connection and try again.'
+              );
+            } finally {
+              setMergeBusyId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleClear = (productId: string, label: string) => {
     Alert.alert('Remove price?', `${label} will have no price on future orders.`, [
       { text: 'Cancel', style: 'cancel' },
@@ -212,9 +255,28 @@ export default function PricingScreen() {
                     {product.size ? <Text style={styles.rowMeta}>{product.size}</Text> : null}
                   </View>
                 </View>
-                <Text style={styles.addPriceText}>Add price</Text>
+                <View style={styles.rowRight}>
+                  {entries.length > 0 && (
+                    <TouchableOpacity
+                      onPress={e => {
+                        e.stopPropagation();
+                        setMerging(product);
+                      }}
+                      hitSlop={8}
+                      style={styles.mergeButton}
+                    >
+                      <Merge size={15} color={COLORS.textTertiary} />
+                    </TouchableOpacity>
+                  )}
+                  <Text style={styles.addPriceText}>Add price</Text>
+                </View>
               </TouchableOpacity>
             ))}
+            {entries.length > 0 && (
+              <Text style={styles.sectionHint}>
+                Already priced under another name? Tap the merge icon to combine them.
+              </Text>
+            )}
           </View>
         )}
 
@@ -324,6 +386,53 @@ export default function PricingScreen() {
           </View>
         )}
       </ScrollView>
+
+      <Modal
+        transparent
+        visible={merging !== null}
+        onRequestClose={() => setMerging(null)}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle} numberOfLines={2}>
+              {merging ? displayName(merging) : ''}
+            </Text>
+            <Text style={styles.modalSubtitle}>
+              Which priced bottle is this the same as?
+            </Text>
+
+            <ScrollView style={styles.mergeList} keyboardShouldPersistTaps="handled">
+              {entries.map(entry => (
+                <TouchableOpacity
+                  key={entry.productId}
+                  style={styles.mergeOption}
+                  onPress={() => handleMerge(entry)}
+                  disabled={mergeBusyId !== null}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.mergeOptionName} numberOfLines={1}>
+                    {displayName(entry)}
+                  </Text>
+                  {mergeBusyId === entry.productId ? (
+                    <ActivityIndicator size="small" color={COLORS.accentPrimary} />
+                  ) : (
+                    <Text style={styles.mergeOptionPrice}>${entry.price.toFixed(2)}</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => setMerging(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal transparent visible={editing !== null} onRequestClose={closeEditor} animationType="fade">
         <KeyboardAvoidingView
@@ -494,6 +603,37 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     padding: SPACING.xs,
+  },
+  mergeButton: {
+    padding: SPACING.xs,
+  },
+  mergeList: {
+    marginTop: SPACING.lg,
+    maxHeight: 280,
+  },
+  mergeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.primaryDark,
+    marginBottom: SPACING.sm,
+  },
+  mergeOptionName: {
+    flex: 1,
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textPrimary,
+  },
+  mergeOptionPrice: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textSecondary,
   },
   addPriceText: {
     fontSize: FONT_SIZES.sm,

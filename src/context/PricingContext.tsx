@@ -39,6 +39,7 @@ interface PricingContextType {
   priceFor: (productId?: string) => number | undefined;
   setPrice: (product: PriceableProduct, price: number) => Promise<void>;
   clearPrice: (productId: string) => Promise<void>;
+  mergeInto: (sourceProductId: string, targetProductId: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -150,12 +151,25 @@ export const PricingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [currentLocation, byProductId]
   );
 
+  // Merging rewrites par_levels rows server-side (prices can move between
+  // products, rows can disappear), so the local map is refetched rather than
+  // patched — guessing the result here would drift from what actually landed.
+  const mergeInto = useCallback(
+    async (sourceProductId: string, targetProductId: string) => {
+      await apiService.mergeProduct(sourceProductId, targetProductId);
+      if (currentLocation) await load(currentLocation.id);
+    },
+    [currentLocation, load]
+  );
+
   const entries = Object.values(byProductId).sort((a, b) =>
     `${a.brand ?? ''} ${a.name}`.trim().localeCompare(`${b.brand ?? ''} ${b.name}`.trim())
   );
 
   return (
-    <PricingContext.Provider value={{ entries, loading, priceFor, setPrice, clearPrice, refresh }}>
+    <PricingContext.Provider
+      value={{ entries, loading, priceFor, setPrice, clearPrice, mergeInto, refresh }}
+    >
       {children}
     </PricingContext.Provider>
   );
