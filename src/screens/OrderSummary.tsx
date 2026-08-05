@@ -11,6 +11,7 @@ import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { useStaff } from '../context/StaffContext';
+import { usePricing } from '../context/PricingContext';
 import { apiService } from '../services/api';
 import { OrderItem, Distributor, OrderDistributorSummary } from '../types';
 
@@ -28,6 +29,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const { currentLocation } = useLocation();
   const { user, updateProfile } = useAuth();
   const { staff } = useStaff();
+  const { priceFor } = usePricing();
   const [countedBy, setCountedBy] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
@@ -72,7 +74,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             bottleName: [b.brand, b.name].filter(Boolean).join(' '),
             name: [b.brand, b.name].filter(Boolean).join(' '),
             quantity: totalQuantity,
-            price: b.price || 0,
+            // Looked up from the price book by product rather than read off the
+            // bottle, so a bottle the AI just identified is already priced and a
+            // price edited in Pricing shows up here without re-counting anything.
+            price: priceFor(b.productId) ?? 0,
             category: b.category,
             urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
             distributorId: b.distributorId,
