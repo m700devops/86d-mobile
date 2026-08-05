@@ -109,7 +109,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
           <View style={styles.content}>
             {/* Brand hero */}
             <View style={styles.hero}>
-              <BrandMark size={125} />
+              <BrandMark size={190} />
               <Text style={styles.slogan}>Scan it. Count it. Order it.</Text>
               <Text style={styles.subSlogan}>AI Bar inventory in 10 minutes — not hours.</Text>
             </View>
