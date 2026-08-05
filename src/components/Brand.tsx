@@ -6,6 +6,7 @@ import Svg, {
   RadialGradient,
   Stop,
   Circle,
+  G,
   Line,
   Path,
   Rect,
@@ -33,33 +34,37 @@ export function BrandMark({ size = 88 }: BrandMarkProps) {
 
         <Rect width="120" height="120" rx="28" fill="#141110" />
 
-        <Path
-          d="M54 20 L54 28 L48 35 L48 80 Q48 84 52 84 L66 84 Q70 84 70 80 L70 35 L64 28 L64 20 Z"
-          fill="none"
-          stroke="#d9a13e"
-          strokeWidth="1.5"
-        />
+        {/* Bottle group, scaled 1.5x about its own center (59,52) so it reads
+            as the centerpiece of the mark rather than a small icon within it. */}
+        <G transform="translate(59, 52) scale(1.5) translate(-59, -52)">
+          <Path
+            d="M54 20 L54 28 L48 35 L48 80 Q48 84 52 84 L66 84 Q70 84 70 80 L70 35 L64 28 L64 20 Z"
+            fill="none"
+            stroke="#d9a13e"
+            strokeWidth="1.5"
+          />
 
-        <Line x1="53" y1="44" x2="65" y2="44" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
-        <Line x1="53" y1="51" x2="65" y2="51" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
-        <Line x1="53" y1="58" x2="65" y2="58" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+          <Line x1="53" y1="44" x2="65" y2="44" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+          <Line x1="53" y1="51" x2="65" y2="51" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+          <Line x1="53" y1="58" x2="65" y2="58" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
 
-        <Path
-          d="M48 70 Q59 66 70 70 L70 80 Q70 84 66 84 L52 84 Q48 84 48 80 Z"
-          fill="url(#brandLiquid)"
-        />
+          <Path
+            d="M48 70 Q59 66 70 70 L70 80 Q70 84 66 84 L52 84 Q48 84 48 80 Z"
+            fill="url(#brandLiquid)"
+          />
 
-        <SvgText
-          x="59"
-          y="80"
-          textAnchor="middle"
-          fontFamily="Liberation Serif"
-          fontWeight="bold"
-          fontSize="11"
-          fill="#3b230a"
-        >
-          86'd
-        </SvgText>
+          <SvgText
+            x="59"
+            y="80"
+            textAnchor="middle"
+            fontFamily="Liberation Serif"
+            fontWeight="bold"
+            fontSize="11"
+            fill="#3b230a"
+          >
+            86'd
+          </SvgText>
+        </G>
       </Svg>
     </View>
   );
