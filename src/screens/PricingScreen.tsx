@@ -490,7 +490,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryDark,
   },
   header: {
-    paddingHorizontal: SPACING.lg,
+    // paddingLeft clears the hamburger button App.tsx overlays at top:60/
+    // left:20 on every non-camera screen — matches Settings/OrderHistory/
+    // ReviewGrid, which all pad the same way instead of centering the
+    // hamburger over the title.
+    paddingLeft: 70,
+    paddingRight: SPACING.lg,
     paddingTop: SPACING['2xl'],
     paddingBottom: SPACING.lg,
   },
