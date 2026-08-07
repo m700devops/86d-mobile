@@ -12,6 +12,7 @@ import {
   Platform,
   TextInput,
   FlatList,
+  ScrollView,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -963,76 +964,94 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       >
         <View style={styles.padOverlay}>
           <View style={styles.padSheet}>
-            <View style={styles.padHandle} />
+            {/* Everything above Cancel/Add lives in a shrink-and-scroll region —
+                padSheet is capped at 55% of screen height so the camera stays
+                visible behind it, but status text is variable length (the
+                two-line "Already scanned" note, a long identified name, the
+                pending hint). Un-scrollable, that overflow pushed the actions
+                row itself past the sheet's clipped bounds, leaving Add barely
+                tappable. Scrolling the content instead of the whole sheet
+                means Cancel/Add are a fixed sibling below, never clipped. */}
+            <ScrollView
+              style={styles.padScroll}
+              contentContainerStyle={styles.padScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.padHandle} />
 
-            {/* Identification status */}
-            <View style={styles.padStatusRow}>
-              {identifyStatus === 'pending' && (
-                <>
-                  <ActivityIndicator size="small" color={COLORS.textTertiary} />
-                  <Text style={styles.padStatusPending}>Identifying bottle...</Text>
-                </>
-              )}
+              {/* Identification status */}
+              <View style={styles.padStatusRow}>
+                {identifyStatus === 'pending' && (
+                  <>
+                    <ActivityIndicator size="small" color={COLORS.textTertiary} />
+                    <Text style={styles.padStatusPending}>Identifying bottle...</Text>
+                  </>
+                )}
+                {identifyStatus === 'ok' && (
+                  <>
+                    <Check size={16} color={COLORS.success} />
+                    <Text style={styles.padStatusOk} numberOfLines={1}>{identifiedLabel}</Text>
+                  </>
+                )}
+                {identifyStatus === 'failed' && (
+                  <Text style={styles.padStatusFailed}>{failMessage}</Text>
+                )}
+              </View>
+
+              {/* Synchronous "ok" result can still be the wrong bottle (glare,
+                  similar label) — offer a one-tap way out before it's committed. */}
               {identifyStatus === 'ok' && (
-                <>
-                  <Check size={16} color={COLORS.success} />
-                  <Text style={styles.padStatusOk} numberOfLines={1}>{identifiedLabel}</Text>
-                </>
+                <TouchableOpacity onPress={handleRetakePhoto} activeOpacity={0.7} hitSlop={8} style={styles.padRetakeRow}>
+                  <Text style={styles.padRetakeLink}>Wrong bottle? Retake photo</Text>
+                </TouchableOpacity>
               )}
-              {identifyStatus === 'failed' && (
-                <Text style={styles.padStatusFailed}>{failMessage}</Text>
+
+              {/* While the AI works, tell new users to keep going — the scan runs itself */}
+              {identifyStatus === 'pending' && (
+                <Text style={styles.padHintNote}>
+                  Still identifying — add your count and keep scanning.
+                </Text>
               )}
-            </View>
 
-            {/* Synchronous "ok" result can still be the wrong bottle (glare,
-                similar label) — offer a one-tap way out before it's committed. */}
-            {identifyStatus === 'ok' && (
-              <TouchableOpacity onPress={handleRetakePhoto} activeOpacity={0.7} hitSlop={8} style={styles.padRetakeRow}>
-                <Text style={styles.padRetakeLink}>Wrong bottle? Retake photo</Text>
-              </TouchableOpacity>
-            )}
+              {/* Duplicate scan — updating the existing row, not adding a new one */}
+              {identifyStatus === 'ok' && existingBottle && (
+                <Text style={styles.padDuplicateNote}>
+                  Already scanned — {formatStock(existingBottle.currentStock ?? 0)} in stock. Enter your new total.
+                </Text>
+              )}
 
-            {/* While the AI works, tell new users to keep going — the scan runs itself */}
-            {identifyStatus === 'pending' && (
-              <Text style={styles.padHintNote}>
-                Still identifying — add your count and keep scanning.
-              </Text>
-            )}
+              {/* Typed value */}
+              <View style={styles.padValueRow}>
+                <Text style={styles.padValue}>{stockInput === '' ? '0' : stockInput}</Text>
+                <Text style={styles.padValueLabel}>CURRENT STOCK</Text>
+              </View>
 
-            {/* Duplicate scan — updating the existing row, not adding a new one */}
-            {identifyStatus === 'ok' && existingBottle && (
-              <Text style={styles.padDuplicateNote}>
-                Already scanned — {formatStock(existingBottle.currentStock ?? 0)} in stock. Enter your new total.
-              </Text>
-            )}
+              {/* Keypad */}
+              <View style={styles.keypad}>
+                {KEYPAD_ROWS.map((row, i) => (
+                  <View key={i} style={styles.keypadRow}>
+                    {row.map(key => (
+                      <TouchableOpacity
+                        key={key}
+                        style={styles.keypadKey}
+                        onPress={() => handleKeyPress(key)}
+                        activeOpacity={0.6}
+                      >
+                        {key === 'back'
+                          ? <Delete size={22} color={COLORS.textPrimary} />
+                          : <Text style={styles.keypadKeyText}>{key}</Text>}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
 
-            {/* Typed value */}
-            <View style={styles.padValueRow}>
-              <Text style={styles.padValue}>{stockInput === '' ? '0' : stockInput}</Text>
-              <Text style={styles.padValueLabel}>CURRENT STOCK</Text>
-            </View>
-
-            {/* Keypad */}
-            <View style={styles.keypad}>
-              {KEYPAD_ROWS.map((row, i) => (
-                <View key={i} style={styles.keypadRow}>
-                  {row.map(key => (
-                    <TouchableOpacity
-                      key={key}
-                      style={styles.keypadKey}
-                      onPress={() => handleKeyPress(key)}
-                      activeOpacity={0.6}
-                    >
-                      {key === 'back'
-                        ? <Delete size={22} color={COLORS.textPrimary} />
-                        : <Text style={styles.keypadKeyText}>{key}</Text>}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ))}
-            </View>
-
-            {/* Actions */}
+            {/* Actions — fixed sibling below the ScrollView, not part of the
+                scrollable/shrinkable content, so it always renders at full
+                size and is always reachable regardless of how much status
+                text is above it. */}
             <View style={styles.padActions}>
               <TouchableOpacity
                 style={styles.padCancelButton}
@@ -1410,6 +1429,21 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.xl,
     maxHeight: '55%',
   },
+  // flexShrink: 1 overrides RN's default of 0 — without it this View would
+  // render at its full content height regardless of padSheet's maxHeight cap,
+  // which is what pushed padActions below the visible sheet in the first
+  // place. This is the only flexShrink-able child, so it's what absorbs the
+  // compression (via internal scrolling) while padActions keeps full size.
+  padScroll: {
+    flexShrink: 1,
+  },
+  // No horizontal padding here — padSheet's own paddingHorizontal already
+  // narrows this ScrollView's outer box (normal parent/child sizing), and
+  // content fills that box edge to edge by default. Adding padding here too
+  // double-inset the keypad relative to padActions below it (verified by
+  // measuring both containers' rendered edges — a real, visible misalignment,
+  // not a hypothetical one).
+  padScrollContent: {},
   padHandle: {
     width: 36,
     height: 4,
