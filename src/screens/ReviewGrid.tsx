@@ -53,20 +53,19 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   ).length;
 
   // Orders are quantity = par − current stock, so an untouched default par
-  // silently produces a wrong order quantity instead of an obviously-broken
-  // one — worth a confirmation instead of letting it slide through quietly.
+  // (1) silently produces a wrong order quantity — not a case to let through
+  // with a "do it anyway" escape hatch. A bar that taps past the warning
+  // every time trains itself to stop reading it, and the wrong quantity ships
+  // anyway. Block it outright: fix the par levels, then generate the order.
   const handleGenerateOrder = () => {
     if (unsetParCount === 0) {
       onGenerateOrder();
       return;
     }
     Alert.alert(
-      'Par levels not set',
-      `${unsetParCount} item${unsetParCount === 1 ? '' : 's'} still ${unsetParCount === 1 ? 'has' : 'have'} the default par level (1) — order quantities for ${unsetParCount === 1 ? 'it' : 'them'} may be wrong. Review before ordering?`,
-      [
-        { text: 'Review Items', style: 'cancel' },
-        { text: 'Order Anyway', style: 'destructive', onPress: onGenerateOrder },
-      ]
+      'Set par levels first',
+      `${unsetParCount} item${unsetParCount === 1 ? ' still has' : 's still have'} the default par level (1). Set a real par level for ${unsetParCount === 1 ? 'it' : 'each'} below before generating an order — order quantities are calculated from it.`,
+      [{ text: 'Got It' }]
     );
   };
 

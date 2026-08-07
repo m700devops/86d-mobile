@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { useStaff } from '../context/StaffContext';
 import { usePricing } from '../context/PricingContext';
 import { apiService } from '../services/api';
-import { OrderItem, Distributor, OrderDistributorSummary } from '../types';
+import { OrderItem, OrderDistributorSummary } from '../types';
 import ConnectionNotice from '../components/ConnectionNotice';
 
 interface Props {
@@ -520,31 +520,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           </Modal>
         </View>
 
-        {/* Items by Category — bottle.category comes back lowercase from both
-            the AI scan (backend normalizes it) and Manual Add, so group on
-            that raw value and only capitalize for display. A hardcoded
-            Title-Case bucket list here previously matched nothing and
-            silently dropped every scanned item from this section. */}
-        <View style={styles.itemsSection}>
-          {Array.from(new Set(orderItems.map(i => i.category))).sort().map(cat => {
-            const catItems = orderItems.filter(i => i.category === cat);
-            if (catItems.length === 0) return null;
-            const label = cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : 'Other';
-
-            return (
-              <View key={cat} style={styles.categorySection}>
-                <Text style={styles.categoryHeader}>{label}</Text>
-                {catItems.map(item => (
-                  <OrderItemRow
-                    key={item.bottleId}
-                    item={item}
-                    distributors={distributors}
-                  />
-                ))}
-              </View>
-            );
-          })}
-        </View>
       </ScrollView>
 
       {/* Restaurant Setup Modal */}
@@ -717,52 +692,6 @@ function escapeHtml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
-}
-
-function OrderItemRow({ item, distributors }: { item: OrderItem; distributors: Distributor[] }) {
-  const { updateBottle } = useInventory();
-  const [selectedDist, setSelectedDist] = useState(item.distributorId);
-
-  return (
-    <View style={styles.orderItemRow}>
-      {/* Distributor Selector */}
-      <View style={styles.distributorSelector}>
-        {distributors.map(dist => (
-          <TouchableOpacity
-            key={dist.id}
-            style={[
-              styles.distButton,
-              selectedDist === dist.id && styles.distButtonSelected,
-            ]}
-            onPress={() => {
-              setSelectedDist(dist.id);
-              updateBottle(item.bottleId, { distributorId: dist.id });
-            }}
-          >
-            <Text style={[
-              styles.distButtonText,
-              selectedDist === dist.id && styles.distButtonTextSelected,
-            ]}>
-              {dist.initials || dist.name.charAt(0)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Item Details */}
-      <View style={styles.itemDetails}>
-        <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-        <View style={styles.itemMeta}>
-          {selectedDist && (
-            <Text style={styles.itemDistributor}>
-              {distributors.find(d => d.id === selectedDist)?.initials || 'D'}
-            </Text>
-          )}
-          <Text style={styles.itemQuantity}>x{item.quantity}</Text>
-        </View>
-      </View>
-    </View>
-  );
 }
 
 function ExportButton({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress?: () => void }) {
@@ -1084,82 +1013,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     fontSize: FONT_SIZES.base,
     color: COLORS.textPrimary,
-  },
-  itemsSection: {
-    paddingHorizontal: SPACING.lg,
-  },
-  categorySection: {
-    marginBottom: SPACING.lg,
-  },
-  categoryHeader: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textTertiary,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    marginBottom: SPACING.md,
-  },
-  orderItemRow: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    marginBottom: SPACING.md,
-    overflow: 'hidden',
-  },
-  distributorSelector: {
-    flexDirection: 'row',
-    padding: SPACING.sm,
-    gap: SPACING.sm,
-    backgroundColor: `${COLORS.primaryDark}50`,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  distButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: `${COLORS.textPrimary}08`,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  distButtonSelected: {
-    backgroundColor: COLORS.accentPrimary,
-  },
-  distButtonText: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textTertiary,
-  },
-  distButtonTextSelected: {
-    color: '#FFFFFF',
-  },
-  itemDetails: {
-    padding: SPACING.md,
-  },
-  itemName: {
-    fontSize: FONT_SIZES.base,
-    fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.textPrimary,
-    letterSpacing: LETTER_SPACING,
-  },
-  itemMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.md,
-    marginTop: SPACING.xs,
-  },
-  itemDistributor: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
-    letterSpacing: 0.5,
-  },
-  itemQuantity: {
-    fontSize: FONT_SIZES.xl,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
-    fontFamily: 'monospace',
   },
   footer: {
     position: 'absolute',
