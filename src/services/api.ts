@@ -27,9 +27,17 @@ class ApiService {
   private refreshPromise: Promise<string> | null = null;
 
   constructor() {
+    // 20s default: long enough to ride out most Render cold starts (the
+    // health-check ping on app open warms the server while the user is still
+    // on the login screen), short enough that a dead stockroom connection
+    // surfaces as an error the UI can react to instead of a frozen screen.
+    // The old 90s default meant every failure path took a minute and a half
+    // to even *fail* — on a flaky network that reads as "the app is hung".
+    // The one route that legitimately needs longer (image upload + AI
+    // analysis) overrides per-request in analyzeBottleImage.
     this.client = axios.create({
       baseURL: API_URL,
-      timeout: 90000, // 90s — accounts for Render cold start (30s) + image upload + Claude API
+      timeout: 20000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -147,9 +155,14 @@ class ApiService {
           throw new Error('No refresh token available');
         }
 
+        // Bare axios (not this.client) to stay outside the interceptors, but
+        // it MUST carry its own timeout — bare axios defaults to none, and a
+        // stalled refresh here leaves every request queued behind the 401
+        // hanging forever.
         const response = await axios.post<{ access_token: string; expires_in: number }>(
           `${API_URL}/auth/refresh`,
-          { refresh_token: refreshToken }
+          { refresh_token: refreshToken },
+          { timeout: 15000 }
         );
 
         const { access_token } = response.data;
@@ -167,8 +180,8 @@ class ApiService {
     await this.clearTokens();
   }
 
-  async getCurrentUser(): Promise<User> {
-    const response = await this.client.get<User>('/users/me');
+  async getCurrentUser(signal?: AbortSignal): Promise<User> {
+    const response = await this.client.get<User>('/users/me', { signal });
     await this.setUserData(response.data);
     return response.data;
   }
@@ -467,10 +480,13 @@ class ApiService {
     is_new_product?: boolean;
     match_method?: string;
   } | null> {
+    // Per-request 90s: a photo upload on one bar of signal plus AI analysis
+    // genuinely takes time, and this path is fire-and-forget on the scan
+    // screen — a long pending row is fine, a premature failure isn't.
     const response = await this.client.post('/scans/analyze', {
       image: imageBase64,
       mode: 'bottle',
-    });
+    }, { timeout: 90000 });
     return response.data;
   }
 

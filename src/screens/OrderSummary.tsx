@@ -14,6 +14,7 @@ import { useStaff } from '../context/StaffContext';
 import { usePricing } from '../context/PricingContext';
 import { apiService } from '../services/api';
 import { OrderItem, Distributor, OrderDistributorSummary } from '../types';
+import ConnectionNotice from '../components/ConnectionNotice';
 
 interface Props {
   onRestart: () => void;
@@ -26,7 +27,7 @@ interface Props {
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
   const { bottles, isHydrated, updateBottle, clearBottles } = useInventory();
   const { distributors } = useDistributors();
-  const { currentLocation } = useLocation();
+  const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
   const { staff } = useStaff();
   const { priceFor } = usePricing();
@@ -266,6 +267,11 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   // without this a resumed app (or a fresh screen mount before hydration
   // lands) would flash "All Stocked!" instead of the real order.
   if (!presetOrder && !isHydrated) {
+    // Same dead end as Review: hydration can't happen without a location, so
+    // a total location failure has to land on a retry state, not a spinner.
+    if (locationLoadFailed) {
+      return <ConnectionNotice onRetry={reloadLocations} />;
+    }
     return (
       <SafeAreaView style={[styles.container, styles.loadingCentered]}>
         <ActivityIndicator color={COLORS.accentPrimary} />

@@ -12,6 +12,7 @@ import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 import { Bottle } from '../types';
+import ConnectionNotice from '../components/ConnectionNotice';
 
 interface Props {
   onGenerateOrder: () => void;
@@ -38,7 +39,7 @@ function formatStock(value: number): string {
 export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
   const { bottles, isHydrated, updateBottle, removeBottle, retryScan } = useInventory();
   const { distributors } = useDistributors();
-  const { currentLocation } = useLocation();
+  const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [assigningBottle, setAssigningBottle] = useState<Bottle | null>(null);
   const stockSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -137,9 +138,19 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     return result;
   }, [filtered, distributors]);
 
+  // Hydration is gated on having a location — if locations failed from both
+  // cache and server, this spinner would never resolve. Surface that as a
+  // retry state instead of spinning forever (the grocery-store bug: bad
+  // network → no location → 30+ minutes of spinner).
+  if (!isHydrated && locationLoadFailed) {
+    return <ConnectionNotice onRetry={reloadLocations} />;
+  }
+
   // Bottles load asynchronously (local draft, then a server fallback) —
   // without this, resuming straight into Review after a killed app would
-  // flash an empty list before the real data lands.
+  // flash an empty list before the real data lands. Bounded: hydration is
+  // local-first and the server fallback carries a request timeout, and the
+  // no-location dead end is caught above.
   if (!isHydrated) {
     return (
       <SafeAreaView style={[styles.container, styles.loadingCentered]}>

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import NetInfo from '@react-native-community/netinfo';
 import { apiService } from '../services/api';
 import { useLocation } from './LocationContext';
 
@@ -50,6 +51,10 @@ export const PricingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [byProductId, setByProductId] = useState<Record<string, PriceBookEntry>>({});
   const [loading, setLoading] = useState(false);
   const loadedLocationId = useRef<string | null>(null);
+  // A failed load isn't cosmetic here: priceFor() returning undefined means
+  // order lines silently price at $0. Track it so the reconnect listener
+  // below can heal the price book without anyone noticing it was gone.
+  const loadFailedRef = useRef(false);
 
   const load = useCallback(async (locationId: string) => {
     setLoading(true);
@@ -69,8 +74,10 @@ export const PricingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
       setByProductId(next);
       loadedLocationId.current = locationId;
+      loadFailedRef.current = false;
     } catch (err) {
       console.error('[PricingContext] failed to load price book:', err);
+      loadFailedRef.current = true;
     } finally {
       setLoading(false);
     }
@@ -80,6 +87,19 @@ export const PricingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!currentLocation) return;
     if (loadedLocationId.current === currentLocation.id) return;
     load(currentLocation.id);
+  }, [currentLocation, load]);
+
+  // Reload on reconnect after a failed load — same pattern as the inventory
+  // draft's retry-on-reconnect, and for the same reason: the state it feeds
+  // (order totals) is wrong in a way nobody notices until the email is sent.
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      if (!state.isConnected || state.isInternetReachable === false) return;
+      if (loadFailedRef.current && currentLocation) {
+        load(currentLocation.id);
+      }
+    });
+    return () => unsubscribe();
   }, [currentLocation, load]);
 
   const refresh = useCallback(async () => {
