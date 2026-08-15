@@ -50,7 +50,10 @@ export const PricingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const { currentLocation } = useLocation();
   const [byProductId, setByProductId] = useState<Record<string, PriceBookEntry>>({});
   const [loading, setLoading] = useState(false);
-  const loadedLocationId = useRef<string | null>(null);
+  // Which bar the loaded map actually belongs to. This is state, not a ref, on
+  // purpose: reads are gated on it matching the selected bar, so it has to
+  // re-render the consumers when it changes.
+  const [bookLocationId, setBookLocationId] = useState<string | null>(null);
   // A failed load isn't cosmetic here: priceFor() returning undefined means
   // order lines silently price at $0. Track it so the reconnect listener
   // below can heal the price book without anyone noticing it was gone.
@@ -73,7 +76,7 @@ export const PricingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       });
       setByProductId(next);
-      loadedLocationId.current = locationId;
+      setBookLocationId(locationId);
       loadFailedRef.current = false;
     } catch (err) {
       console.error('[PricingContext] failed to load price book:', err);
@@ -85,9 +88,9 @@ export const PricingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   useEffect(() => {
     if (!currentLocation) return;
-    if (loadedLocationId.current === currentLocation.id) return;
+    if (bookLocationId === currentLocation.id) return;
     load(currentLocation.id);
-  }, [currentLocation, load]);
+  }, [currentLocation, bookLocationId, load]);
 
   // Reload on reconnect after a failed load — same pattern as the inventory
   // draft's retry-on-reconnect, and for the same reason: the state it feeds
@@ -107,9 +110,19 @@ export const PricingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await load(currentLocation.id);
   }, [currentLocation, load]);
 
+  // Never answer with a price from a map belonging to a different bar. Switching
+  // bars leaves the previous map in place until the new fetch lands — and if that
+  // fetch fails (offline, cold backend) it stays indefinitely. Product IDs are
+  // shared across an account's bars, so without this gate an overlapping bottle
+  // would price at the other bar's negotiated rate and go out on a real order
+  // email. Undefined here reads as "no price yet", which the Pricing screen
+  // already surfaces and the reconnect listener above heals.
+  const bookMatchesLocation = !!currentLocation && bookLocationId === currentLocation.id;
+
   const priceFor = useCallback(
-    (productId?: string) => (productId ? byProductId[productId]?.price : undefined),
-    [byProductId]
+    (productId?: string) =>
+      productId && bookMatchesLocation ? byProductId[productId]?.price : undefined,
+    [byProductId, bookMatchesLocation]
   );
 
   // Write through optimistically so the list reacts instantly, then roll the
@@ -182,9 +195,13 @@ export const PricingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [currentLocation, load]
   );
 
-  const entries = Object.values(byProductId).sort((a, b) =>
-    `${a.brand ?? ''} ${a.name}`.trim().localeCompare(`${b.brand ?? ''} ${b.name}`.trim())
-  );
+  // Same gate as priceFor — the price list must not show the previous bar's
+  // prices while the newly selected one is still loading or failed to load.
+  const entries = bookMatchesLocation
+    ? Object.values(byProductId).sort((a, b) =>
+        `${a.brand ?? ''} ${a.name}`.trim().localeCompare(`${b.brand ?? ''} ${b.name}`.trim())
+      )
+    : [];
 
   return (
     <PricingContext.Provider
