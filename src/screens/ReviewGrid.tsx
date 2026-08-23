@@ -189,7 +189,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         <View style={styles.offlineBanner}>
           <WifiOff size={14} color={COLORS.warning} />
           <Text style={styles.offlineBannerText}>
-            {pendingNetworkRetries} scan{pendingNetworkRetries === 1 ? '' : 's'} waiting for connection — will retry automatically
+            {pendingNetworkRetries} scan{pendingNetworkRetries === 1 ? '' : 's'} waiting for a stronger connection — {'they’ll'} finish on {'their'} own next time you open the app with good service
           </Text>
         </View>
       )}
@@ -390,10 +390,26 @@ function BottleRow({
         <Text style={styles.bottleBrand} numberOfLines={1}>
           {(bottle.brand ? bottle.name : '').toUpperCase()}
         </Text>
+        {/* Two very different failures wear the same chip otherwise: a weak
+            connection (self-heals, and tapping now will just fail again) vs.
+            a photo the AI genuinely couldn't read (only a tap will fix it).
+            Saying which is why a retry "did nothing" in a dead zone. */}
         {bottle.scanStatus === 'failed' && onRetryIdentify && (
-          <TouchableOpacity style={styles.retryChip} onPress={onRetryIdentify} activeOpacity={0.7}>
-            <Text style={styles.retryChipText}>Couldn't identify — retry</Text>
-          </TouchableOpacity>
+          bottle.failureReason === 'network' ? (
+            <TouchableOpacity
+              style={[styles.retryChip, styles.retryChipWaiting]}
+              onPress={onRetryIdentify}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.retryChipText, styles.retryChipWaitingText]}>
+                Waiting for a stronger signal — retries on its own
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.retryChip} onPress={onRetryIdentify} activeOpacity={0.7}>
+              <Text style={styles.retryChipText}>Couldn't read the photo — tap to retry</Text>
+            </TouchableOpacity>
+          )
         )}
         <View style={styles.chipRow}>
           {onAssign && bottle.scanStatus === undefined && (
@@ -637,6 +653,15 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.error,
     letterSpacing: 0.5,
+  },
+  // Amber, not red: a weak signal is a wait-state that resolves itself, not
+  // an error the user has to go fix.
+  retryChipWaiting: {
+    borderColor: `${COLORS.warning}60`,
+    backgroundColor: `${COLORS.warning}15`,
+  },
+  retryChipWaitingText: {
+    color: COLORS.warning,
   },
   stepperColumn: {
     alignItems: 'center',
