@@ -216,8 +216,16 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     setTimeout(() => {
       const committedRowId = pendingCommits.current.get(token);
       if (committedRowId !== undefined) {
-        pendingCommits.current.delete(token);
-        markScanFailed(committedRowId);
+        // A hang this long is a connectivity symptom (dead-zone upload
+        // crawling toward the 90s axios cap), so classify it 'network' —
+        // that's what makes reconnect auto-retry pick the row up. The
+        // grocery-store dead-zone bug: the default 'other' here left rows
+        // permanently stranded on "Couldn't identify — retry".
+        // Deliberately NOT deleting the token: if the crawling request
+        // eventually lands, the success path below still resolves this row
+        // instead of discarding a result we already paid for. Success and
+        // catch paths both clean the map up.
+        markScanFailed(committedRowId, 'network');
         return;
       }
       if (token === scanSeq.current && identifyStatusRef.current === 'pending') {
