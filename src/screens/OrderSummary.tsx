@@ -11,8 +11,10 @@ import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { useStaff } from '../context/StaffContext';
+import { usePricing } from '../context/PricingContext';
 import { apiService } from '../services/api';
-import { OrderItem, Distributor, OrderDistributorSummary } from '../types';
+import { OrderItem, OrderDistributorSummary } from '../types';
+import ConnectionNotice from '../components/ConnectionNotice';
 
 interface Props {
   onRestart: () => void;
@@ -25,12 +27,20 @@ interface Props {
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
   const { bottles, isHydrated, updateBottle, clearBottles } = useInventory();
   const { distributors } = useDistributors();
-  const { currentLocation } = useLocation();
+  const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
   const { staff } = useStaff();
+  const { priceFor } = usePricing();
   const [countedBy, setCountedBy] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
+  // Snapshot of what actually went out, captured before the draft is cleared.
+  // The success screen used to read live `groupedByDistributor`, which derives
+  // from `bottles` — already emptied by clearBottles() in the same handler, so
+  // it rendered "Orders Sent!" above an empty list.
+  const [sentGroups, setSentGroups] = useState<
+    { id: string; name: string; email?: string | null; initials?: string }[]
+  >([]);
   const [checkAnim] = useState(new Animated.Value(0));
   const [assigningItem, setAssigningItem] = useState<OrderItem | null>(null);
   const [showRestaurantSetup, setShowRestaurantSetup] = useState(false);
@@ -72,7 +82,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             bottleName: [b.brand, b.name].filter(Boolean).join(' '),
             name: [b.brand, b.name].filter(Boolean).join(' '),
             quantity: totalQuantity,
-            price: b.price || 0,
+            // Looked up from the price book by product rather than read off the
+            // bottle, so a bottle the AI just identified is already priced and a
+            // price edited in Pricing shows up here without re-counting anything.
+            price: priceFor(b.productId) ?? 0,
             category: b.category,
             urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
             distributorId: b.distributorId,
@@ -128,13 +141,22 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const performSend = async () => {
     if (!currentLocation) return;
 
+    // Never re-email a distributor that already received this order. Without
+    // this, fixing one bad address and hitting send again lands a duplicate
+    // order on everyone who succeeded the first time — and a duplicate order
+    // means a duplicate delivery the bar has to pay for.
+    const pending = groupedByDistributor.filter(
+      g => !sentDistributors.includes(g.distributor.id)
+    );
+    if (pending.length === 0) return;
+
     setIsSending(true);
     try {
       const response = await apiService.sendOrderEmails({
         location_id: currentLocation.id,
         location_name: currentLocation.name ?? 'My Bar',
         staff_name: countedBy ?? undefined,
-        orders: groupedByDistributor.map(g => ({
+        orders: pending.map(g => ({
           distributor_id: g.distributor.id,
           items: g.items.map(i => ({
             name: i.name || i.bottleName,
@@ -149,6 +171,13 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         .map(r => r.distributor_id);
       const failures = response.results.filter(r => r.status !== 'sent');
 
+      const allSentIds = Array.from(new Set([...sentDistributors, ...sentIds]));
+      if (sentIds.length > 0) setSentDistributors(allSentIds);
+
+      const everySent =
+        groupedByDistributor.length > 0 &&
+        groupedByDistributor.every(g => allSentIds.includes(g.distributor.id));
+
       if (failures.length > 0) {
         const lines = failures.map(f => {
           const who = f.distributor_name ?? 'Distributor';
@@ -158,12 +187,28 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         });
         Alert.alert(
           sentIds.length > 0 ? 'Some emails failed' : "Emails didn't send",
-          lines.join('\n')
+          [
+            ...lines,
+            '',
+            'Your counts are saved. Fix the problem and send again — anyone who already got their order will not be emailed twice.',
+          ].join('\n')
         );
       }
 
-      if (sentIds.length > 0) {
-        setSentDistributors(sentIds);
+      // The draft is the only copy of a count that took real time to collect,
+      // so it is destroyed only once EVERY distributor has actually been
+      // emailed. This used to fire whenever any single one succeeded, which
+      // wiped the whole count and left no way to order from the distributor
+      // that failed short of recounting the entire bar.
+      if (everySent) {
+        setSentGroups(
+          groupedByDistributor.map(g => ({
+            id: g.distributor.id,
+            name: g.distributor.name,
+            email: g.distributor.email,
+            initials: (g.distributor as any).initials,
+          }))
+        );
         Animated.spring(checkAnim, {
           toValue: 1,
           friction: 5,
@@ -261,6 +306,11 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   // without this a resumed app (or a fresh screen mount before hydration
   // lands) would flash "All Stocked!" instead of the real order.
   if (!presetOrder && !isHydrated) {
+    // Same dead end as Review: hydration can't happen without a location, so
+    // a total location failure has to land on a retry state, not a spinner.
+    if (locationLoadFailed) {
+      return <ConnectionNotice onRetry={reloadLocations} />;
+    }
     return (
       <SafeAreaView style={[styles.container, styles.loadingCentered]}>
         <ActivityIndicator color={COLORS.accentPrimary} />
@@ -292,8 +342,11 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     );
   }
 
-  // Success state after sending
-  if (sentDistributors.length > 0) {
+  // Success state — only once every distributor has been emailed. A partial
+  // send keeps the user on the order screen with their counts intact so they
+  // can fix the failure and finish, instead of being shown a green checkmark
+  // over an order that never fully went out.
+  if (sentGroups.length > 0) {
     const scale = checkAnim.interpolate({
       inputRange: [0, 1],
       outputRange: [0.5, 1],
@@ -308,17 +361,17 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           <Text style={styles.successTitle}>Orders Sent!</Text>
 
           <View style={styles.distributorList}>
-            {groupedByDistributor.filter(g => sentDistributors.includes(g.distributor.id)).map(group => (
-              <View key={group.distributor.id} style={styles.sentDistributorCard}>
+            {sentGroups.map(group => (
+              <View key={group.id} style={styles.sentDistributorCard}>
                 <View style={styles.distributorBadge}>
                   <Text style={styles.distributorInitials}>
-                    {group.distributor.initials || 'D'}
+                    {group.initials || 'D'}
                   </Text>
                 </View>
                 <View style={styles.distributorInfo}>
-                  <Text style={styles.distributorName}>{group.distributor.name}</Text>
+                  <Text style={styles.distributorName}>{group.name}</Text>
                   <Text style={styles.distributorEmail}>
-                    {group.distributor.email || 'No email'}
+                    {group.email || 'No email'}
                   </Text>
                 </View>
                 <View style={styles.sentBadge}>
@@ -509,31 +562,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           </Modal>
         </View>
 
-        {/* Items by Category — bottle.category comes back lowercase from both
-            the AI scan (backend normalizes it) and Manual Add, so group on
-            that raw value and only capitalize for display. A hardcoded
-            Title-Case bucket list here previously matched nothing and
-            silently dropped every scanned item from this section. */}
-        <View style={styles.itemsSection}>
-          {Array.from(new Set(orderItems.map(i => i.category))).sort().map(cat => {
-            const catItems = orderItems.filter(i => i.category === cat);
-            if (catItems.length === 0) return null;
-            const label = cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : 'Other';
-
-            return (
-              <View key={cat} style={styles.categorySection}>
-                <Text style={styles.categoryHeader}>{label}</Text>
-                {catItems.map(item => (
-                  <OrderItemRow
-                    key={item.bottleId}
-                    item={item}
-                    distributors={distributors}
-                  />
-                ))}
-              </View>
-            );
-          })}
-        </View>
       </ScrollView>
 
       {/* Restaurant Setup Modal */}
@@ -706,52 +734,6 @@ function escapeHtml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
-}
-
-function OrderItemRow({ item, distributors }: { item: OrderItem; distributors: Distributor[] }) {
-  const { updateBottle } = useInventory();
-  const [selectedDist, setSelectedDist] = useState(item.distributorId);
-
-  return (
-    <View style={styles.orderItemRow}>
-      {/* Distributor Selector */}
-      <View style={styles.distributorSelector}>
-        {distributors.map(dist => (
-          <TouchableOpacity
-            key={dist.id}
-            style={[
-              styles.distButton,
-              selectedDist === dist.id && styles.distButtonSelected,
-            ]}
-            onPress={() => {
-              setSelectedDist(dist.id);
-              updateBottle(item.bottleId, { distributorId: dist.id });
-            }}
-          >
-            <Text style={[
-              styles.distButtonText,
-              selectedDist === dist.id && styles.distButtonTextSelected,
-            ]}>
-              {dist.initials || dist.name.charAt(0)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Item Details */}
-      <View style={styles.itemDetails}>
-        <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-        <View style={styles.itemMeta}>
-          {selectedDist && (
-            <Text style={styles.itemDistributor}>
-              {distributors.find(d => d.id === selectedDist)?.initials || 'D'}
-            </Text>
-          )}
-          <Text style={styles.itemQuantity}>x{item.quantity}</Text>
-        </View>
-      </View>
-    </View>
-  );
 }
 
 function ExportButton({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress?: () => void }) {
@@ -1073,82 +1055,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     fontSize: FONT_SIZES.base,
     color: COLORS.textPrimary,
-  },
-  itemsSection: {
-    paddingHorizontal: SPACING.lg,
-  },
-  categorySection: {
-    marginBottom: SPACING.lg,
-  },
-  categoryHeader: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textTertiary,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    marginBottom: SPACING.md,
-  },
-  orderItemRow: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    marginBottom: SPACING.md,
-    overflow: 'hidden',
-  },
-  distributorSelector: {
-    flexDirection: 'row',
-    padding: SPACING.sm,
-    gap: SPACING.sm,
-    backgroundColor: `${COLORS.primaryDark}50`,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  distButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: `${COLORS.textPrimary}08`,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  distButtonSelected: {
-    backgroundColor: COLORS.accentPrimary,
-  },
-  distButtonText: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textTertiary,
-  },
-  distButtonTextSelected: {
-    color: '#FFFFFF',
-  },
-  itemDetails: {
-    padding: SPACING.md,
-  },
-  itemName: {
-    fontSize: FONT_SIZES.base,
-    fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.textPrimary,
-    letterSpacing: LETTER_SPACING,
-  },
-  itemMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.md,
-    marginTop: SPACING.xs,
-  },
-  itemDistributor: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
-    letterSpacing: 0.5,
-  },
-  itemQuantity: {
-    fontSize: FONT_SIZES.xl,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
-    fontFamily: 'monospace',
   },
   footer: {
     position: 'absolute',

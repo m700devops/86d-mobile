@@ -2,7 +2,8 @@
 
 ## Project
 React Native iOS bar inventory app. AI-powered bottle scanning for bartenders.
-Scan flow: point the camera at a bottle, Gemini vision identifies it (name/brand/category),
+Scan flow: point the camera at a bottle, AI vision identifies it (name/brand/category —
+OpenAI GPT-4o primary, Gemini 2.0 Flash fallback, both server-side in 86d-api),
 then the user taps in the current stock count on a number pad. There is no pen-based
 detection and no automatic liquid-level reading in the current app — that was removed.
 Don't describe either in UI copy or docs.
@@ -31,13 +32,32 @@ Don't describe either in UI copy or docs.
 - src/screens/RegisterScreen.tsx — registration
 - src/screens/Onboarding.tsx — first-run onboarding flow. Feature copy must match the
   actual scan flow (AI bottle ID + manual count) — no pen/liquid-level claims
+- src/screens/OrderHistory.tsx — past orders, spend-by-distributor and most-ordered-item
+  summary, reorder-from-history. Deliberately not variance/shrinkage detection — there's
+  no per-scan usage log, so the only trustworthy signal is what was actually ordered
+- src/screens/PricingScreen.tsx — permanent per-bar Price Book: set a price once, it
+  auto-matches on every future scan. "Needs a price" list + full price list + catalog
+  search + duplicate-product merge picker
+- src/screens/PaywallScreen.tsx — shown when trial/subscription has lapsed; blocks the
+  rest of the app except sign-out. Checkout opens Stripe's hosted page in the system
+  browser — no Stripe code or IAP runs inside the app itself
 - src/services/api.ts — all backend API calls (axios, auto token refresh)
-- src/services/geminiVision.ts — thin wrapper around `apiService.analyzeBottleImage`
+- src/services/geminiVision.ts — thin wrapper around `apiService.analyzeBottleImage`.
+  Name is legacy from when Gemini was the only provider — the actual model choice
+  (OpenAI vs. Gemini) happens server-side in 86d-api, not here
 - src/context/AuthContext.tsx — auth state; `user` includes `business_name`/`manager_name`
 - src/context/InventoryContext.tsx — active inventory session state
 - src/context/LocationContext.tsx — bar location selection (multiple bars per account)
 - src/context/DistributorContext.tsx — distributor list state (name/email/phone/repName;
   used by Settings, ReviewGrid, OrderSummary)
+- src/context/PricingContext.tsx — price book state backing PricingScreen; optimistic
+  writes with rollback, reconnect-triggered refresh via NetInfo
+- src/context/StaffContext.tsx — per-bar list of staff names for "who counted this" —
+  no logins, no passwords, no roles
+- src/utils/productKey.ts — `bottleMatchKey()`, swap/normalize-tolerant dedupe key used
+  client-side to catch the AI transcribing the same bottle's label differently between scans
+- src/utils/entitlements.ts — `isEntitled()`/`trialDaysLeft()`; mirrors the backend's
+  `is_entitled()` in main.py, kept in sync manually — backend is the real source of truth
 - src/components/Brand.tsx — `BrandMark` (code-drawn login-screen logo) + `GlowBackground`.
   This is separate from `assets/icon.png` (the real home-screen icon) — keep both in sync
   if rebranding
@@ -46,8 +66,8 @@ Don't describe either in UI copy or docs.
 ## Branding
 - `assets/icon.png` — custom bottle/liquid-level design, 1024x1024, RGB (no alpha channel,
   required by Apple). This is the actual iPhone home-screen icon.
-- `assets/splash-icon.png` — still the default unconfigured Expo placeholder as of this
-  writing; hasn't been redesigned to match the icon yet.
+- `assets/splash-icon.png` — redesigned to match `assets/icon.png` (same bottle/86'd
+  wordmark design, white background instead of dark). No longer the Expo placeholder.
 - Brand colors: `src/constants/colors.ts` — primaryDark `#0F0F0F`, accentPrimary `#FF6B35`,
   accentSecondary `#FFD700`.
 
@@ -110,4 +130,6 @@ globally installed — don't assume either is there. Options, in order of prefer
   pip package — reads `RESEND_API_KEY` and `ORDER_EMAIL_FROM` from env
 - Render free tier cold-starts in ~30-60s after ~15 min idle. The mobile app has
   client-side retry/warm-up logic to soften this, but that's a mitigation, not a fix —
-  the real fix is upgrading the Render instance off the Free tier
+  the real fix is upgrading the Render instance off the Free tier. (This is about the
+  web service specifically — can't confirm its current Render plan from the repo; that's
+  dashboard state. Postgres is confirmed on a paid tier separately.)

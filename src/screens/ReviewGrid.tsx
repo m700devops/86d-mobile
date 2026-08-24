@@ -12,6 +12,7 @@ import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 import { Bottle } from '../types';
+import ConnectionNotice from '../components/ConnectionNotice';
 
 interface Props {
   onGenerateOrder: () => void;
@@ -38,7 +39,7 @@ function formatStock(value: number): string {
 export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
   const { bottles, isHydrated, updateBottle, removeBottle, retryScan } = useInventory();
   const { distributors } = useDistributors();
-  const { currentLocation } = useLocation();
+  const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [assigningBottle, setAssigningBottle] = useState<Bottle | null>(null);
   const stockSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -52,20 +53,19 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   ).length;
 
   // Orders are quantity = par − current stock, so an untouched default par
-  // silently produces a wrong order quantity instead of an obviously-broken
-  // one — worth a confirmation instead of letting it slide through quietly.
+  // (1) silently produces a wrong order quantity — not a case to let through
+  // with a "do it anyway" escape hatch. A bar that taps past the warning
+  // every time trains itself to stop reading it, and the wrong quantity ships
+  // anyway. Block it outright: fix the par levels, then generate the order.
   const handleGenerateOrder = () => {
     if (unsetParCount === 0) {
       onGenerateOrder();
       return;
     }
     Alert.alert(
-      'Par levels not set',
-      `${unsetParCount} item${unsetParCount === 1 ? '' : 's'} still ${unsetParCount === 1 ? 'has' : 'have'} the default par level (1) — order quantities for ${unsetParCount === 1 ? 'it' : 'them'} may be wrong. Review before ordering?`,
-      [
-        { text: 'Review Items', style: 'cancel' },
-        { text: 'Order Anyway', style: 'destructive', onPress: onGenerateOrder },
-      ]
+      'Set par levels first',
+      `${unsetParCount} item${unsetParCount === 1 ? ' still has' : 's still have'} the default par level (1). Set a real par level for ${unsetParCount === 1 ? 'it' : 'each'} below before generating an order — order quantities are calculated from it.`,
+      [{ text: 'Got It' }]
     );
   };
 
@@ -73,12 +73,10 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   // into one PATCH per bottle once the value settles.
   const handleBottleUpdate = (bottle: Bottle, updates: Partial<Bottle>) => {
     updateBottle(bottle.id, updates);
-    if ((updates.currentStock === undefined && updates.price === undefined) || !bottle.productId || !currentLocation) return;
+    if (updates.currentStock === undefined || !bottle.productId || !currentLocation) return;
     const productId = bottle.productId;
     const locationId = currentLocation.id;
-    const patch: { current_stock?: number; price?: number } = {};
-    if (updates.currentStock !== undefined) patch.current_stock = updates.currentStock;
-    if (updates.price !== undefined) patch.price = updates.price;
+    const patch = { current_stock: updates.currentStock };
     if (stockSaveTimers.current[bottle.id]) clearTimeout(stockSaveTimers.current[bottle.id]);
     stockSaveTimers.current[bottle.id] = setTimeout(() => {
       delete stockSaveTimers.current[bottle.id];
@@ -87,32 +85,10 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     }, 600);
   };
 
-  // Ask for a bottle's price with a plain iOS prompt — no new screen, no
-  // required field. Prices power the order's estimated cost and the Trends
-  // spend view; without one the item still orders fine, it just costs "$0".
-  const promptForPrice = (bottle: Bottle) => {
-    Alert.prompt(
-      bottle.brand || bottle.name,
-      'What do you pay per bottle?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Save',
-          onPress: (text?: string) => {
-            const value = parseFloat((text ?? '').replace(/[^0-9.]/g, ''));
-            if (Number.isNaN(value) || value < 0) return;
-            handleBottleUpdate(bottle, { price: Math.round(value * 100) / 100 });
-          },
-        },
-      ],
-      'plain-text',
-      bottle.price ? String(bottle.price) : '',
-      'decimal-pad'
-    );
-  };
-
-  // Load saved distributor assignments + per-location prices on mount, so a
-  // price set in a past session comes back automatically on the next count.
+  // Load saved distributor assignments on mount. Prices deliberately aren't
+  // hydrated onto bottles here — they're looked up from the price book by
+  // productId wherever they're needed (see PricingContext), so counting never
+  // has to stop for a price and an edit in Pricing applies to orders at once.
   useEffect(() => {
     if (!currentLocation) return;
     apiService.getProductDistributors(currentLocation.id)
@@ -125,17 +101,6 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         });
       })
       .catch(err => console.error('[ReviewGrid] failed to load assignments:', err));
-    apiService.getParLevels(currentLocation.id)
-      .then(parLevels => {
-        parLevels.forEach(pl => {
-          if (!pl.price) return;
-          const bottle = bottles.find(b => b.productId === pl.product_id && !b.price);
-          if (bottle) {
-            updateBottle(bottle.id, { price: pl.price });
-          }
-        });
-      })
-      .catch(err => console.error('[ReviewGrid] failed to load prices:', err));
   }, [currentLocation]);
 
   const filtered = bottles.filter(b =>
@@ -172,9 +137,19 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     return result;
   }, [filtered, distributors]);
 
+  // Hydration is gated on having a location — if locations failed from both
+  // cache and server, this spinner would never resolve. Surface that as a
+  // retry state instead of spinning forever (the grocery-store bug: bad
+  // network → no location → 30+ minutes of spinner).
+  if (!isHydrated && locationLoadFailed) {
+    return <ConnectionNotice onRetry={reloadLocations} />;
+  }
+
   // Bottles load asynchronously (local draft, then a server fallback) —
   // without this, resuming straight into Review after a killed app would
-  // flash an empty list before the real data lands.
+  // flash an empty list before the real data lands. Bounded: hydration is
+  // local-first and the server fallback carries a request timeout, and the
+  // no-location dead end is caught above.
   if (!isHydrated) {
     return (
       <SafeAreaView style={[styles.container, styles.loadingCentered]}>
@@ -214,7 +189,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         <View style={styles.offlineBanner}>
           <WifiOff size={14} color={COLORS.warning} />
           <Text style={styles.offlineBannerText}>
-            {pendingNetworkRetries} scan{pendingNetworkRetries === 1 ? '' : 's'} waiting for connection — will retry automatically
+            {pendingNetworkRetries} scan{pendingNetworkRetries === 1 ? '' : 's'} waiting for a stronger connection — {'they’ll'} finish on {'their'} own next time you open the app with good service
           </Text>
         </View>
       )}
@@ -238,7 +213,6 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
             bottle={item}
             onUpdate={(updates) => handleBottleUpdate(item, updates)}
             onRemove={() => removeBottle(item.id)}
-            onSetPrice={item.scanStatus === undefined ? () => promptForPrice(item) : undefined}
             onRetryIdentify={item.scanStatus === 'failed' ? () => retryScan(item) : undefined}
             onAssign={!item.distributorId ? () => {
               if (!currentLocation) {
@@ -350,14 +324,12 @@ function BottleRow({
   onUpdate,
   onRemove,
   onAssign,
-  onSetPrice,
   onRetryIdentify,
 }: {
   bottle: Bottle;
   onUpdate: (updates: Partial<Bottle>) => void;
   onRemove: () => void;
   onAssign?: () => void;
-  onSetPrice?: () => void;
   onRetryIdentify?: () => void;
 }) {
   const [deletePressed, setDeletePressed] = useState(false);
@@ -418,22 +390,31 @@ function BottleRow({
         <Text style={styles.bottleBrand} numberOfLines={1}>
           {(bottle.brand ? bottle.name : '').toUpperCase()}
         </Text>
+        {/* Two very different failures wear the same chip otherwise: a weak
+            connection (self-heals, and tapping now will just fail again) vs.
+            a photo the AI genuinely couldn't read (only a tap will fix it).
+            Saying which is why a retry "did nothing" in a dead zone. */}
         {bottle.scanStatus === 'failed' && onRetryIdentify && (
-          <TouchableOpacity style={styles.retryChip} onPress={onRetryIdentify} activeOpacity={0.7}>
-            <Text style={styles.retryChipText}>Couldn't identify — retry</Text>
-          </TouchableOpacity>
+          bottle.failureReason === 'network' ? (
+            <TouchableOpacity
+              style={[styles.retryChip, styles.retryChipWaiting]}
+              onPress={onRetryIdentify}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.retryChipText, styles.retryChipWaitingText]}>
+                Waiting for a stronger signal — retries on its own
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.retryChip} onPress={onRetryIdentify} activeOpacity={0.7}>
+              <Text style={styles.retryChipText}>Couldn't read the photo — tap to retry</Text>
+            </TouchableOpacity>
+          )
         )}
         <View style={styles.chipRow}>
           {onAssign && bottle.scanStatus === undefined && (
             <TouchableOpacity style={styles.assignChip} onPress={onAssign} activeOpacity={0.7}>
               <Text style={styles.assignChipText}>Assign →</Text>
-            </TouchableOpacity>
-          )}
-          {onSetPrice && (
-            <TouchableOpacity style={styles.priceChip} onPress={onSetPrice} activeOpacity={0.7}>
-              <Text style={[styles.priceChipText, !bottle.price && styles.priceChipTextUnset]}>
-                {bottle.price ? `$${bottle.price.toFixed(2)}` : '$ Add price'}
-              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -476,7 +457,7 @@ function BottleRow({
       </View>
 
       {/* Par stepper */}
-      <View style={styles.stepperColumn}>
+      <View style={[styles.stepperColumn, styles.parColumn]}>
         <View style={[styles.stepperBox, styles.parBox]}>
           <TouchableOpacity
             style={styles.stepperButton}
@@ -639,6 +620,7 @@ const styles = StyleSheet.create({
   bottleInfo: {
     flex: 1,
     paddingRight: SPACING.xs,
+    overflow: 'hidden',
   },
   bottleName: {
     fontSize: FONT_SIZES.sm,
@@ -672,9 +654,25 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     letterSpacing: 0.5,
   },
+  // Amber, not red: a weak signal is a wait-state that resolves itself, not
+  // an error the user has to go fix.
+  retryChipWaiting: {
+    borderColor: `${COLORS.warning}60`,
+    backgroundColor: `${COLORS.warning}15`,
+  },
+  retryChipWaitingText: {
+    color: COLORS.warning,
+  },
   stepperColumn: {
     alignItems: 'center',
     width: 80,
+  },
+  // The row's uniform 4pt gap put the two steppers as close to each other as
+  // the bottle name is to the first one, so two same-width boxes read as one
+  // segmented control instead of two separate numbers. Push them apart so
+  // "what's on hand" and "what we stock to" are visibly different fields.
+  parColumn: {
+    marginLeft: SPACING.sm,
   },
   stepperBox: {
     flexDirection: 'row',
@@ -809,26 +807,8 @@ const styles = StyleSheet.create({
   chipRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
-  },
-  priceChip: {
-    alignSelf: 'flex-start',
-    marginTop: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: `${COLORS.border}`,
-    backgroundColor: COLORS.surface,
-  },
-  priceChipText: {
-    fontSize: 9,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textSecondary,
-    letterSpacing: 0.5,
-  },
-  priceChipTextUnset: {
-    color: COLORS.textTertiary,
   },
   modalOverlay: {
     flex: 1,

@@ -91,7 +91,7 @@ export interface ParLevel {
   product_id: string;
   product?: Product;
   par_quantity: number;
-  // Per-location bottle price — what this bar pays, set from Review
+  // Per-location bottle price — what this bar pays, set from the Pricing screen
   price?: number | null;
   updated_at: string;
 }
@@ -153,7 +153,9 @@ export interface Bottle {
   imageUrl?: string;
   level?: LiquidLevel;
   currentStock?: number;
-  price?: number;
+  // No price here on purpose — a bottle's price is looked up from the price
+  // book by productId (see PricingContext), never copied onto the row, so it
+  // can't go stale against a price edited in the Pricing screen.
   productId?: string;
   // Fire-and-forget scans: 'pending' while the AI identifies in the background,
   // 'failed' when identification didn't land (row shows a retry action)
@@ -212,6 +214,7 @@ export type AppScreen =
   | 'review'
   | 'order'
   | 'orders'
+  | 'pricing'
   | 'settings';
 
 export interface OrderLineItem {

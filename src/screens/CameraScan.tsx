@@ -12,7 +12,9 @@ import {
   Platform,
   TextInput,
   FlatList,
+  ScrollView,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../constants/colors';
@@ -23,6 +25,7 @@ import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
+import { bottleMatchKey } from '../utils/productKey';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { Bottle } from '../types';
@@ -44,6 +47,12 @@ interface Props {
 
 const SUCCESS_DISPLAY_MS = 1200;
 const CAPTURE_WATCHDOG_MS = 25000;       // fail a stuck scan after 25s (backend scan cap is 20s)
+
+// Shown once, ever. The pad opening before identification finishes is the
+// whole speed story of the app, but nothing about a number pad suggests you
+// may leave before the name lands — so the first time someone sits in that
+// state, say it outright.
+const SCAN_HINT_KEY = '@86d_seen_scan_hint';
 const IDLE_STATUS = 'Point at bottle';
 const STOCK_MAX = 999.99;
 
@@ -68,6 +77,8 @@ const KEYPAD_ROWS: string[][] = [
 
 export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
+  const [showScanHint, setShowScanHint] = useState(false);
+  const scanHintPulse = useRef(new Animated.Value(0)).current;
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
   const { logout, refreshUser } = useAuth();
 
@@ -103,6 +114,36 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
   const [flashAnim] = useState(new Animated.Value(0));
+
+  // Ambient "work is happening elsewhere" pulse. Deliberately not a spinner:
+  // a spinner is the strongest "stop and wait" affordance there is, and the
+  // whole point of this state is that the user should NOT wait for it.
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanHintPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(scanHintPulse, { toValue: 0, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [scanHintPulse]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(SCAN_HINT_KEY)
+      .then(seen => { if (!seen) setShowScanHint(true); })
+      .catch(() => {});
+  }, []);
+
+  // Only burn the one-time flag once it has actually been on screen — if the
+  // first few scans resolve instantly the hint is moot, and it should still
+  // be waiting the first time someone hits a genuinely slow one.
+  const dismissScanHint = useCallback(() => {
+    setShowScanHint(prev => {
+      if (prev) AsyncStorage.setItem(SCAN_HINT_KEY, '1').catch(() => {});
+      return false;
+    });
+  }, []);
 
   const cameraRef = useRef<CameraView>(null);
   const isCapturingRef = useRef(false);
@@ -214,8 +255,16 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     setTimeout(() => {
       const committedRowId = pendingCommits.current.get(token);
       if (committedRowId !== undefined) {
-        pendingCommits.current.delete(token);
-        markScanFailed(committedRowId);
+        // A hang this long is a connectivity symptom (dead-zone upload
+        // crawling toward the 90s axios cap), so classify it 'network' —
+        // that's what makes reconnect auto-retry pick the row up. The
+        // grocery-store dead-zone bug: the default 'other' here left rows
+        // permanently stranded on "Couldn't identify — retry".
+        // Deliberately NOT deleting the token: if the crawling request
+        // eventually lands, the success path below still resolves this row
+        // instead of discarding a result we already paid for. Success and
+        // catch paths both clean the map up.
+        markScanFailed(committedRowId, 'network');
         return;
       }
       if (token === scanSeq.current && identifyStatusRef.current === 'pending') {
@@ -332,12 +381,16 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         return;
       }
 
-      // Same product already scanned this session? Update its row, don't duplicate
+      // Same product already scanned this session? Update its row, don't duplicate.
+      // The fallback compares normalized, swap-tolerant keys rather than raw
+      // strings — a re-read that phrases the label differently ("Blue Bolt"/
+      // "Gatorade" vs "Gatorade"/"Blue Bolt") is the same bottle, and letting it
+      // through as a second row splits the count and over-orders.
+      const scanKey = bottleMatchKey(result.brand, result.name);
       const existing = bottles.find(b =>
         b.scanStatus === undefined &&
         ((result.matched_product_id && b.productId === result.matched_product_id) ||
-          (b.name.toLowerCase() === result.name.toLowerCase() &&
-           b.brand.toLowerCase() === result.brand.toLowerCase()))
+          (!!scanKey && bottleMatchKey(b.brand, b.name) === scanKey))
       );
       setExistingBottle(existing ?? null);
 
@@ -494,6 +547,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   }, [stockInput, existingBottle, addBottle, updateBottle, setBorderValue, flashGreen, closePadWithFail]);
 
   const handlePadAdd = useCallback(() => {
+    dismissScanHint();
     if (identifyStatus === 'ok') {
       commitBottle();
       return;
@@ -536,7 +590,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       resetToIdle();
     }, SUCCESS_DISPLAY_MS);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identifyStatus, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen]);
+  }, [identifyStatus, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen, dismissScanHint]);
 
   const handlePadCancel = useCallback(() => {
     // No bottle row was ever created for this attempt (fire-and-forget
@@ -958,76 +1012,108 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       >
         <View style={styles.padOverlay}>
           <View style={styles.padSheet}>
-            <View style={styles.padHandle} />
+            {/* Everything above Cancel/Add lives in a shrink-and-scroll region —
+                padSheet is capped at 55% of screen height so the camera stays
+                visible behind it, but status text is variable length (the
+                two-line "Already scanned" note, a long identified name, the
+                pending hint). Un-scrollable, that overflow pushed the actions
+                row itself past the sheet's clipped bounds, leaving Add barely
+                tappable. Scrolling the content instead of the whole sheet
+                means Cancel/Add are a fixed sibling below, never clipped. */}
+            <ScrollView
+              style={styles.padScroll}
+              contentContainerStyle={styles.padScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.padHandle} />
 
-            {/* Identification status */}
-            <View style={styles.padStatusRow}>
-              {identifyStatus === 'pending' && (
-                <>
-                  <ActivityIndicator size="small" color={COLORS.textTertiary} />
-                  <Text style={styles.padStatusPending}>Identifying bottle...</Text>
-                </>
-              )}
+              {/* Identification status */}
+              <View style={styles.padStatusRow}>
+                {identifyStatus === 'pending' && (
+                  <>
+                    <Animated.View
+                      style={[
+                        styles.padPulseDot,
+                        { opacity: scanHintPulse.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }) },
+                      ]}
+                    />
+                    <Text style={styles.padStatusPending}>Identifying in the background</Text>
+                  </>
+                )}
+                {identifyStatus === 'ok' && (
+                  <>
+                    <Check size={16} color={COLORS.success} />
+                    <Text style={styles.padStatusOk} numberOfLines={1}>{identifiedLabel}</Text>
+                  </>
+                )}
+                {identifyStatus === 'failed' && (
+                  <Text style={styles.padStatusFailed}>{failMessage}</Text>
+                )}
+              </View>
+
+              {/* Synchronous "ok" result can still be the wrong bottle (glare,
+                  similar label) — offer a one-tap way out before it's committed. */}
               {identifyStatus === 'ok' && (
-                <>
-                  <Check size={16} color={COLORS.success} />
-                  <Text style={styles.padStatusOk} numberOfLines={1}>{identifiedLabel}</Text>
-                </>
+                <TouchableOpacity onPress={handleRetakePhoto} activeOpacity={0.7} hitSlop={8} style={styles.padRetakeRow}>
+                  <Text style={styles.padRetakeLink}>Wrong bottle? Retake photo</Text>
+                </TouchableOpacity>
               )}
-              {identifyStatus === 'failed' && (
-                <Text style={styles.padStatusFailed}>{failMessage}</Text>
+
+              {/* No standing hint line here any more: the button label now says
+                  the same thing, and a sentence competing with a button is the
+                  weaker of the two. First-run callout lives above the actions. */}
+
+              {/* Duplicate scan — updating the existing row, not adding a new one */}
+              {identifyStatus === 'ok' && existingBottle && (
+                <Text style={styles.padDuplicateNote}>
+                  Already scanned — {formatStock(existingBottle.currentStock ?? 0)} in stock. Enter your new total.
+                </Text>
               )}
-            </View>
 
-            {/* Synchronous "ok" result can still be the wrong bottle (glare,
-                similar label) — offer a one-tap way out before it's committed. */}
-            {identifyStatus === 'ok' && (
-              <TouchableOpacity onPress={handleRetakePhoto} activeOpacity={0.7} hitSlop={8} style={styles.padRetakeRow}>
-                <Text style={styles.padRetakeLink}>Wrong bottle? Retake photo</Text>
-              </TouchableOpacity>
+              {/* Typed value */}
+              <View style={styles.padValueRow}>
+                <Text style={styles.padValue}>{stockInput === '' ? '0' : stockInput}</Text>
+                <Text style={styles.padValueLabel}>CURRENT STOCK</Text>
+              </View>
+
+              {/* Keypad */}
+              <View style={styles.keypad}>
+                {KEYPAD_ROWS.map((row, i) => (
+                  <View key={i} style={styles.keypadRow}>
+                    {row.map(key => (
+                      <TouchableOpacity
+                        key={key}
+                        style={styles.keypadKey}
+                        onPress={() => handleKeyPress(key)}
+                        activeOpacity={0.6}
+                      >
+                        {key === 'back'
+                          ? <Delete size={22} color={COLORS.textPrimary} />
+                          : <Text style={styles.keypadKeyText}>{key}</Text>}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Actions — fixed sibling below the ScrollView, not part of the
+                scrollable/shrinkable content, so it always renders at full
+                size and is always reachable regardless of how much status
+                text is above it. */}
+            {/* First-run callout, pointed at the Add button. Reinforces the
+                button label rather than carrying the message alone — a coach
+                mark gets dismissed reflexively, a button label doesn't. */}
+            {showScanHint && identifyStatus === 'pending' && (
+              <View style={styles.scanHintBubble}>
+                <Text style={styles.scanHintText}>
+                  No need to wait — add your count and scan the next bottle. The name fills itself in.
+                </Text>
+                <View style={styles.scanHintTail} />
+              </View>
             )}
 
-            {/* While the AI works, tell new users to keep going — the scan runs itself */}
-            {identifyStatus === 'pending' && (
-              <Text style={styles.padHintNote}>
-                Still identifying — add your count and keep scanning.
-              </Text>
-            )}
-
-            {/* Duplicate scan — updating the existing row, not adding a new one */}
-            {identifyStatus === 'ok' && existingBottle && (
-              <Text style={styles.padDuplicateNote}>
-                Already scanned — {formatStock(existingBottle.currentStock ?? 0)} in stock. Enter your new total.
-              </Text>
-            )}
-
-            {/* Typed value */}
-            <View style={styles.padValueRow}>
-              <Text style={styles.padValue}>{stockInput === '' ? '0' : stockInput}</Text>
-              <Text style={styles.padValueLabel}>CURRENT STOCK</Text>
-            </View>
-
-            {/* Keypad */}
-            <View style={styles.keypad}>
-              {KEYPAD_ROWS.map((row, i) => (
-                <View key={i} style={styles.keypadRow}>
-                  {row.map(key => (
-                    <TouchableOpacity
-                      key={key}
-                      style={styles.keypadKey}
-                      onPress={() => handleKeyPress(key)}
-                      activeOpacity={0.6}
-                    >
-                      {key === 'back'
-                        ? <Delete size={22} color={COLORS.textPrimary} />
-                        : <Text style={styles.keypadKeyText}>{key}</Text>}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ))}
-            </View>
-
-            {/* Actions */}
             <View style={styles.padActions}>
               <TouchableOpacity
                 style={styles.padCancelButton}
@@ -1045,9 +1131,14 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 disabled={stockInput === '' && identifyStatus !== 'failed'}
                 activeOpacity={0.8}
               >
+                {/* The label is the instruction. While identification is still
+                    running, the thing worth saying is that leaving now is the
+                    intended path — not "Add Bottle", which says nothing about
+                    whether you're allowed to go yet. */}
                 <Text style={styles.padAddText}>
                   {identifyStatus === 'failed' ? (failedViaBarcode ? 'Try Camera Scan' : 'Retake Photo')
                     : existingBottle ? 'Update Count'
+                    : identifyStatus === 'pending' ? 'Add & Keep Scanning'
                     : 'Add Bottle'}
                 </Text>
               </TouchableOpacity>
@@ -1405,6 +1496,21 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.xl,
     maxHeight: '55%',
   },
+  // flexShrink: 1 overrides RN's default of 0 — without it this View would
+  // render at its full content height regardless of padSheet's maxHeight cap,
+  // which is what pushed padActions below the visible sheet in the first
+  // place. This is the only flexShrink-able child, so it's what absorbs the
+  // compression (via internal scrolling) while padActions keeps full size.
+  padScroll: {
+    flexShrink: 1,
+  },
+  // No horizontal padding here — padSheet's own paddingHorizontal already
+  // narrows this ScrollView's outer box (normal parent/child sizing), and
+  // content fills that box edge to edge by default. Adding padding here too
+  // double-inset the keypad relative to padActions below it (verified by
+  // measuring both containers' rendered edges — a real, visible misalignment,
+  // not a hypothetical one).
+  padScrollContent: {},
   padHandle: {
     width: 36,
     height: 4,
@@ -1512,6 +1618,46 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     minHeight: 24,
     marginBottom: 2,
+  },
+  padPulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.accentSecondary,
+  },
+  scanHintBubble: {
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 12,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+    marginBottom: SPACING.md,
+    shadowColor: COLORS.accentPrimary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  scanHintText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: '#FFFFFF',
+    lineHeight: 18,
+    letterSpacing: LETTER_SPACING,
+  },
+  // Tail sits under the Add button (flex 2 of 3, so right of centre) rather
+  // than centred on the bubble — it has to point at the thing it's about.
+  scanHintTail: {
+    position: 'absolute',
+    bottom: -7,
+    right: '30%',
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: COLORS.accentPrimary,
   },
   padStatusPending: {
     fontSize: FONT_SIZES.sm,

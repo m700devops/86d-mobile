@@ -1,22 +1,21 @@
 import React from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
-import { COLORS } from '../constants/colors';
 import Svg, {
   Defs,
   LinearGradient,
   RadialGradient,
   Stop,
   Circle,
-  Ellipse,
+  G,
   Line,
   Path,
-  G,
+  Rect,
   Text as SvgText,
 } from 'react-native-svg';
 
-// --- BrandMark: "Tilted Pour" — a coupe glass on the app's dark ground,
-// replacing the old solid-orange lettering tile. Built on a 100x100
-// coordinate space and scaled via viewBox, so `size` just scales cleanly. ---
+// --- BrandMark: bottle outline with checklist lines and a gold liquid base,
+// matching assets/icon.png exactly (same 120x120 coordinate space). Keep in
+// sync with icon.png if rebranding. ---
 
 interface BrandMarkProps {
   size?: number;
@@ -25,47 +24,47 @@ interface BrandMarkProps {
 export function BrandMark({ size = 88 }: BrandMarkProps) {
   return (
     <View style={[styles.markWrapper, { width: size, height: size }]}>
-      <Svg width={size} height={size} viewBox="0 0 100 100">
+      <Svg width={size} height={size} viewBox="0 0 120 120">
         <Defs>
-          <LinearGradient id="brandLiquid" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor="#FF9466" />
-            <Stop offset="100%" stopColor={COLORS.accentPrimary} />
+          <LinearGradient id="brandLiquid" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0%" stopColor="#eab654" />
+            <Stop offset="100%" stopColor="#bd8226" />
           </LinearGradient>
-          <RadialGradient id="brandOlive" cx="35%" cy="30%" r="75%">
-            <Stop offset="0%" stopColor={COLORS.accentPrimary} />
-            <Stop offset="100%" stopColor="#9E3410" />
-          </RadialGradient>
         </Defs>
 
-        {/* a hint of motion behind the tilt */}
-        <Path d="M39,20 L36,25 L48,29" fill="none" stroke="#F3ECE1" strokeWidth="1" opacity="0.18" strokeLinecap="round" />
-        <Path d="M35,27 L32,31 L44,34" fill="none" stroke="#F3ECE1" strokeWidth="1" opacity="0.13" strokeLinecap="round" />
+        <Rect width="120" height="120" rx="28" fill="#141110" />
 
-        {/* soft grounding shadow */}
-        <Ellipse cx="53" cy="80" rx="15" ry="2.6" fill="#000000" opacity="0.35" />
+        {/* Bottle group, scaled 1.5x about its own center (59,52) so it reads
+            as the centerpiece of the mark rather than a small icon within it. */}
+        <G transform="translate(59, 52) scale(1.5) translate(-59, -52)">
+          <Path
+            d="M54 20 L54 28 L48 35 L48 80 Q48 84 52 84 L66 84 Q70 84 70 80 L70 35 L64 28 L64 20 Z"
+            fill="none"
+            stroke="#d9a13e"
+            strokeWidth="1.5"
+          />
 
-        <G transform="rotate(-16 50 45)">
-          <Path d="M31,26 Q50,17 69,26 L51,44 Q50,45 49,44 Z" fill="url(#brandLiquid)" />
-          <Path d="M35,23 L39,24 L32,36 L29,34 Z" fill="#F3ECE1" opacity="0.22" />
-          <Path d="M31,26 Q50,17 69,26" fill="none" stroke="#F3ECE1" strokeWidth="1.3" opacity="0.55" />
-          <Path d="M31,26 L49,44 M69,26 L51,44" fill="none" stroke="#F3ECE1" strokeWidth="1.3" opacity="0.4" />
-          <Line x1="50" y1="44" x2="50" y2="60" stroke="#C9BBA9" strokeWidth="2.2" strokeLinecap="round" />
-          <Ellipse cx="50" cy="62" rx="12" ry="2.4" fill="none" stroke="#C9BBA9" strokeWidth="2" />
-          <Circle cx="50" cy="32" r="3.4" fill="url(#brandOlive)" />
-          <Circle cx="48.7" cy="30.6" r="0.8" fill="#FCE7D3" opacity="0.85" />
+          <Line x1="53" y1="44" x2="65" y2="44" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+          <Line x1="53" y1="51" x2="65" y2="51" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+          <Line x1="53" y1="58" x2="65" y2="58" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+
+          <Path
+            d="M48 70 Q59 66 70 70 L70 80 Q70 84 66 84 L52 84 Q48 84 48 80 Z"
+            fill="url(#brandLiquid)"
+          />
+
+          <SvgText
+            x="59"
+            y="80"
+            textAnchor="middle"
+            fontFamily="Liberation Serif"
+            fontWeight="bold"
+            fontSize="11"
+            fill="#3b230a"
+          >
+            86'd
+          </SvgText>
         </G>
-
-        <SvgText
-          x="53"
-          y="93"
-          textAnchor="middle"
-          fontFamily="Georgia"
-          fontSize="13.5"
-          letterSpacing="0.6"
-          fill="#F3ECE1"
-        >
-          86'd
-        </SvgText>
       </Svg>
     </View>
   );

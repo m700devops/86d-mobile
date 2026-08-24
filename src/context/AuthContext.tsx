@@ -46,11 +46,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Validate token in background with a short timeout (8s)
-      // If the server is cold-starting, we don't want to block the UI
+      // If the server is cold-starting, we don't want to block the UI.
+      // The signal must actually be passed to the request — an AbortController
+      // nobody listens to caps nothing, and for a first launch with a token
+      // but no cached user this await is what gates the app-level spinner.
       validateController.current = new AbortController();
       const timeoutId = setTimeout(() => validateController.current?.abort(), 8000);
       try {
-        const userData = await apiService.getCurrentUser();
+        const userData = await apiService.getCurrentUser(validateController.current.signal);
         setUser(userData);
       } catch (error: any) {
         if (error?.response?.status === 401) {

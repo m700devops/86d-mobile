@@ -18,7 +18,7 @@ import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import {
-  CheckCircle2, XCircle, MailX, ChevronRight, X, Inbox, Search, RotateCcw, Share2, Printer, TrendingUp,
+  CheckCircle2, XCircle, MailX, ChevronRight, X, Inbox, Search, RotateCcw, Share2, Printer, TrendingUp, WifiOff,
 } from 'lucide-react-native';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
@@ -93,7 +93,7 @@ interface Props {
 }
 
 export default function OrderHistory({ onBack, onReorder }: Props) {
-  const { currentLocation } = useLocation();
+  const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const [viewMode, setViewMode] = useState<'history' | 'trends'>('history');
   const [searchInput, setSearchInput] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -115,9 +115,15 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // Reset + refetch whenever the location, filter, or search term changes
+  // Reset + refetch whenever the location, filter, or search term changes.
+  // `loading` starts true, so the no-location early-return must clear it —
+  // otherwise a failed location load leaves this screen on a spinner that
+  // nothing can ever resolve.
   useEffect(() => {
-    if (!currentLocation) return;
+    if (!currentLocation) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     const { start, end } = getDateRange(activeFilter);
@@ -348,7 +354,19 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
 
       {/* Most recent orders first — the filter/browse controls for going
           further back sit below the list, not in front of it. */}
-      {loading ? (
+      {!currentLocation && locationLoadFailed ? (
+        // Locations failed from both cache and server — without one, orders
+        // can't be fetched at all. A retry state, never a spinner-with-no-exit
+        // or a misleading "No orders yet".
+        <View style={styles.centered}>
+          <WifiOff size={40} color={COLORS.textTertiary} />
+          <Text style={styles.emptyTitle}>Can't reach the server</Text>
+          <Text style={styles.emptyText}>Check your connection and try again.</Text>
+          <TouchableOpacity style={styles.loadMoreButton} onPress={reloadLocations}>
+            <Text style={styles.loadMoreText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      ) : loading ? (
         <View style={styles.centered}>
           <ActivityIndicator color={COLORS.accentPrimary} />
         </View>

@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { LocationProvider } from './context/LocationContext';
 import { InventoryProvider, useInventory } from './context/InventoryContext';
 import { DistributorProvider } from './context/DistributorContext';
+import { PricingProvider } from './context/PricingContext';
 import { StaffProvider } from './context/StaffContext';
 import { AppScreen, OrderDistributorSummary } from './types';
 import { LoginScreen } from './screens/LoginScreen';
@@ -16,6 +17,7 @@ import CameraScan from './screens/CameraScan';
 import ReviewGrid from './screens/ReviewGrid';
 import OrderSummary from './screens/OrderSummary';
 import OrderHistory from './screens/OrderHistory';
+import PricingScreen from './screens/PricingScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import PaywallScreen from './screens/PaywallScreen';
 import ManualAdd from './components/ManualAdd';
@@ -30,7 +32,7 @@ type ReorderSource = { distributors: OrderDistributorSummary[] };
 // whichever main screen they were actually on. Onboarding/login/etc. aren't
 // meaningful "resume points", so they're deliberately excluded.
 const LAST_SCREEN_KEY = '@86d_last_screen';
-const RESUMABLE_SCREENS: AppScreen[] = ['camera', 'review', 'order', 'orders', 'settings'];
+const RESUMABLE_SCREENS: AppScreen[] = ['camera', 'review', 'order', 'orders', 'pricing', 'settings'];
 
 // Auth-aware app content
 function AppContent() {
@@ -161,6 +163,8 @@ function AppContent() {
             onReorder={navigateToReorder}
           />
         );
+      case 'pricing':
+        return <PricingScreen />;
       case 'settings':
         return <SettingsScreen />;
       default:
@@ -229,9 +233,11 @@ export default function App() {
       <LocationProvider>
         <InventoryProvider>
           <DistributorProvider>
-            <StaffProvider>
-              <AppContent />
-            </StaffProvider>
+            <PricingProvider>
+              <StaffProvider>
+                <AppContent />
+              </StaffProvider>
+            </PricingProvider>
           </DistributorProvider>
         </InventoryProvider>
       </LocationProvider>
