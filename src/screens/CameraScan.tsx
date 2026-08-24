@@ -14,6 +14,7 @@ import {
   FlatList,
   ScrollView,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../constants/colors';
@@ -46,6 +47,12 @@ interface Props {
 
 const SUCCESS_DISPLAY_MS = 1200;
 const CAPTURE_WATCHDOG_MS = 25000;       // fail a stuck scan after 25s (backend scan cap is 20s)
+
+// Shown once, ever. The pad opening before identification finishes is the
+// whole speed story of the app, but nothing about a number pad suggests you
+// may leave before the name lands — so the first time someone sits in that
+// state, say it outright.
+const SCAN_HINT_KEY = '@86d_seen_scan_hint';
 const IDLE_STATUS = 'Point at bottle';
 const STOCK_MAX = 999.99;
 
@@ -70,6 +77,8 @@ const KEYPAD_ROWS: string[][] = [
 
 export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
+  const [showScanHint, setShowScanHint] = useState(false);
+  const scanHintPulse = useRef(new Animated.Value(0)).current;
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
   const { logout, refreshUser } = useAuth();
 
@@ -105,6 +114,36 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
   const [flashAnim] = useState(new Animated.Value(0));
+
+  // Ambient "work is happening elsewhere" pulse. Deliberately not a spinner:
+  // a spinner is the strongest "stop and wait" affordance there is, and the
+  // whole point of this state is that the user should NOT wait for it.
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanHintPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(scanHintPulse, { toValue: 0, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [scanHintPulse]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(SCAN_HINT_KEY)
+      .then(seen => { if (!seen) setShowScanHint(true); })
+      .catch(() => {});
+  }, []);
+
+  // Only burn the one-time flag once it has actually been on screen — if the
+  // first few scans resolve instantly the hint is moot, and it should still
+  // be waiting the first time someone hits a genuinely slow one.
+  const dismissScanHint = useCallback(() => {
+    setShowScanHint(prev => {
+      if (prev) AsyncStorage.setItem(SCAN_HINT_KEY, '1').catch(() => {});
+      return false;
+    });
+  }, []);
 
   const cameraRef = useRef<CameraView>(null);
   const isCapturingRef = useRef(false);
@@ -508,6 +547,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   }, [stockInput, existingBottle, addBottle, updateBottle, setBorderValue, flashGreen, closePadWithFail]);
 
   const handlePadAdd = useCallback(() => {
+    dismissScanHint();
     if (identifyStatus === 'ok') {
       commitBottle();
       return;
@@ -550,7 +590,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       resetToIdle();
     }, SUCCESS_DISPLAY_MS);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identifyStatus, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen]);
+  }, [identifyStatus, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen, dismissScanHint]);
 
   const handlePadCancel = useCallback(() => {
     // No bottle row was ever created for this attempt (fire-and-forget
@@ -992,8 +1032,13 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               <View style={styles.padStatusRow}>
                 {identifyStatus === 'pending' && (
                   <>
-                    <ActivityIndicator size="small" color={COLORS.textTertiary} />
-                    <Text style={styles.padStatusPending}>Identifying bottle...</Text>
+                    <Animated.View
+                      style={[
+                        styles.padPulseDot,
+                        { opacity: scanHintPulse.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }) },
+                      ]}
+                    />
+                    <Text style={styles.padStatusPending}>Identifying in the background</Text>
                   </>
                 )}
                 {identifyStatus === 'ok' && (
@@ -1015,12 +1060,9 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 </TouchableOpacity>
               )}
 
-              {/* While the AI works, tell new users to keep going — the scan runs itself */}
-              {identifyStatus === 'pending' && (
-                <Text style={styles.padHintNote}>
-                  Still identifying — add your count and keep scanning.
-                </Text>
-              )}
+              {/* No standing hint line here any more: the button label now says
+                  the same thing, and a sentence competing with a button is the
+                  weaker of the two. First-run callout lives above the actions. */}
 
               {/* Duplicate scan — updating the existing row, not adding a new one */}
               {identifyStatus === 'ok' && existingBottle && (
@@ -1060,6 +1102,18 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 scrollable/shrinkable content, so it always renders at full
                 size and is always reachable regardless of how much status
                 text is above it. */}
+            {/* First-run callout, pointed at the Add button. Reinforces the
+                button label rather than carrying the message alone — a coach
+                mark gets dismissed reflexively, a button label doesn't. */}
+            {showScanHint && identifyStatus === 'pending' && (
+              <View style={styles.scanHintBubble}>
+                <Text style={styles.scanHintText}>
+                  No need to wait — add your count and scan the next bottle. The name fills itself in.
+                </Text>
+                <View style={styles.scanHintTail} />
+              </View>
+            )}
+
             <View style={styles.padActions}>
               <TouchableOpacity
                 style={styles.padCancelButton}
@@ -1077,9 +1131,14 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 disabled={stockInput === '' && identifyStatus !== 'failed'}
                 activeOpacity={0.8}
               >
+                {/* The label is the instruction. While identification is still
+                    running, the thing worth saying is that leaving now is the
+                    intended path — not "Add Bottle", which says nothing about
+                    whether you're allowed to go yet. */}
                 <Text style={styles.padAddText}>
                   {identifyStatus === 'failed' ? (failedViaBarcode ? 'Try Camera Scan' : 'Retake Photo')
                     : existingBottle ? 'Update Count'
+                    : identifyStatus === 'pending' ? 'Add & Keep Scanning'
                     : 'Add Bottle'}
                 </Text>
               </TouchableOpacity>
@@ -1559,6 +1618,46 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     minHeight: 24,
     marginBottom: 2,
+  },
+  padPulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.accentSecondary,
+  },
+  scanHintBubble: {
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 12,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+    marginBottom: SPACING.md,
+    shadowColor: COLORS.accentPrimary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  scanHintText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: '#FFFFFF',
+    lineHeight: 18,
+    letterSpacing: LETTER_SPACING,
+  },
+  // Tail sits under the Add button (flex 2 of 3, so right of centre) rather
+  // than centred on the bubble — it has to point at the thing it's about.
+  scanHintTail: {
+    position: 'absolute',
+    bottom: -7,
+    right: '30%',
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderTopWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: COLORS.accentPrimary,
   },
   padStatusPending: {
     fontSize: FONT_SIZES.sm,
