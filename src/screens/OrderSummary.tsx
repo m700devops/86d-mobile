@@ -34,6 +34,13 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const [countedBy, setCountedBy] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
+  // Snapshot of what actually went out, captured before the draft is cleared.
+  // The success screen used to read live `groupedByDistributor`, which derives
+  // from `bottles` — already emptied by clearBottles() in the same handler, so
+  // it rendered "Orders Sent!" above an empty list.
+  const [sentGroups, setSentGroups] = useState<
+    { id: string; name: string; email?: string | null; initials?: string }[]
+  >([]);
   const [checkAnim] = useState(new Animated.Value(0));
   const [assigningItem, setAssigningItem] = useState<OrderItem | null>(null);
   const [showRestaurantSetup, setShowRestaurantSetup] = useState(false);
@@ -134,13 +141,22 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const performSend = async () => {
     if (!currentLocation) return;
 
+    // Never re-email a distributor that already received this order. Without
+    // this, fixing one bad address and hitting send again lands a duplicate
+    // order on everyone who succeeded the first time — and a duplicate order
+    // means a duplicate delivery the bar has to pay for.
+    const pending = groupedByDistributor.filter(
+      g => !sentDistributors.includes(g.distributor.id)
+    );
+    if (pending.length === 0) return;
+
     setIsSending(true);
     try {
       const response = await apiService.sendOrderEmails({
         location_id: currentLocation.id,
         location_name: currentLocation.name ?? 'My Bar',
         staff_name: countedBy ?? undefined,
-        orders: groupedByDistributor.map(g => ({
+        orders: pending.map(g => ({
           distributor_id: g.distributor.id,
           items: g.items.map(i => ({
             name: i.name || i.bottleName,
@@ -155,6 +171,13 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         .map(r => r.distributor_id);
       const failures = response.results.filter(r => r.status !== 'sent');
 
+      const allSentIds = Array.from(new Set([...sentDistributors, ...sentIds]));
+      if (sentIds.length > 0) setSentDistributors(allSentIds);
+
+      const everySent =
+        groupedByDistributor.length > 0 &&
+        groupedByDistributor.every(g => allSentIds.includes(g.distributor.id));
+
       if (failures.length > 0) {
         const lines = failures.map(f => {
           const who = f.distributor_name ?? 'Distributor';
@@ -164,12 +187,28 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         });
         Alert.alert(
           sentIds.length > 0 ? 'Some emails failed' : "Emails didn't send",
-          lines.join('\n')
+          [
+            ...lines,
+            '',
+            'Your counts are saved. Fix the problem and send again — anyone who already got their order will not be emailed twice.',
+          ].join('\n')
         );
       }
 
-      if (sentIds.length > 0) {
-        setSentDistributors(sentIds);
+      // The draft is the only copy of a count that took real time to collect,
+      // so it is destroyed only once EVERY distributor has actually been
+      // emailed. This used to fire whenever any single one succeeded, which
+      // wiped the whole count and left no way to order from the distributor
+      // that failed short of recounting the entire bar.
+      if (everySent) {
+        setSentGroups(
+          groupedByDistributor.map(g => ({
+            id: g.distributor.id,
+            name: g.distributor.name,
+            email: g.distributor.email,
+            initials: (g.distributor as any).initials,
+          }))
+        );
         Animated.spring(checkAnim, {
           toValue: 1,
           friction: 5,
@@ -303,8 +342,11 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     );
   }
 
-  // Success state after sending
-  if (sentDistributors.length > 0) {
+  // Success state — only once every distributor has been emailed. A partial
+  // send keeps the user on the order screen with their counts intact so they
+  // can fix the failure and finish, instead of being shown a green checkmark
+  // over an order that never fully went out.
+  if (sentGroups.length > 0) {
     const scale = checkAnim.interpolate({
       inputRange: [0, 1],
       outputRange: [0.5, 1],
@@ -319,17 +361,17 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           <Text style={styles.successTitle}>Orders Sent!</Text>
 
           <View style={styles.distributorList}>
-            {groupedByDistributor.filter(g => sentDistributors.includes(g.distributor.id)).map(group => (
-              <View key={group.distributor.id} style={styles.sentDistributorCard}>
+            {sentGroups.map(group => (
+              <View key={group.id} style={styles.sentDistributorCard}>
                 <View style={styles.distributorBadge}>
                   <Text style={styles.distributorInitials}>
-                    {group.distributor.initials || 'D'}
+                    {group.initials || 'D'}
                   </Text>
                 </View>
                 <View style={styles.distributorInfo}>
-                  <Text style={styles.distributorName}>{group.distributor.name}</Text>
+                  <Text style={styles.distributorName}>{group.name}</Text>
                   <Text style={styles.distributorEmail}>
-                    {group.distributor.email || 'No email'}
+                    {group.email || 'No email'}
                   </Text>
                 </View>
                 <View style={styles.sentBadge}>
