@@ -457,7 +457,7 @@ function BottleRow({
       </View>
 
       {/* Par stepper */}
-      <View style={styles.stepperColumn}>
+      <View style={[styles.stepperColumn, styles.parColumn]}>
         <View style={[styles.stepperBox, styles.parBox]}>
           <TouchableOpacity
             style={styles.stepperButton}
@@ -666,6 +666,13 @@ const styles = StyleSheet.create({
   stepperColumn: {
     alignItems: 'center',
     width: 80,
+  },
+  // The row's uniform 4pt gap put the two steppers as close to each other as
+  // the bottle name is to the first one, so two same-width boxes read as one
+  // segmented control instead of two separate numbers. Push them apart so
+  // "what's on hand" and "what we stock to" are visibly different fields.
+  parColumn: {
+    marginLeft: SPACING.sm,
   },
   stepperBox: {
     flexDirection: 'row',
