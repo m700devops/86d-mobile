@@ -159,14 +159,21 @@ class ApiService {
         // it MUST carry its own timeout — bare axios defaults to none, and a
         // stalled refresh here leaves every request queued behind the 401
         // hanging forever.
-        const response = await axios.post<{ access_token: string; expires_in: number }>(
+        const response = await axios.post<{ access_token: string; refresh_token?: string; expires_in: number }>(
           `${API_URL}/auth/refresh`,
           { refresh_token: refreshToken },
           { timeout: 15000 }
         );
 
-        const { access_token } = response.data;
+        const { access_token, refresh_token } = response.data;
         await AsyncStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, access_token);
+        // Server rotates the refresh token on every refresh — store the new
+        // one so the 30-day expiry is a rolling idle window rather than a
+        // hard logout a month after login. Optional so an older server
+        // response (no rotation) changes nothing.
+        if (refresh_token) {
+          await AsyncStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refresh_token);
+        }
         return access_token;
       } finally {
         this.refreshPromise = null;
