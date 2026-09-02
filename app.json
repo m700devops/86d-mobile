@@ -21,7 +21,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0F0F0F"
+      "backgroundColor": "#f2ece4"
     },
     "ios": {
       "bundleIdentifier": "com.my86d.app",

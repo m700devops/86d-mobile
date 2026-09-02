@@ -64,12 +64,22 @@ Don't describe either in UI copy or docs.
 - src/config/api.ts — `API_URL = https://eight6d-api.onrender.com/v1`
 
 ## Branding
-- `assets/icon.png` — custom bottle/liquid-level design, 1024x1024, RGB (no alpha channel,
-  required by Apple). This is the actual iPhone home-screen icon.
-- `assets/splash-icon.png` — redesigned to match `assets/icon.png` (same bottle/86'd
-  wordmark design, white background instead of dark). No longer the Expo placeholder.
-- Brand colors: `src/constants/colors.ts` — primaryDark `#0F0F0F`, accentPrimary `#FF6B35`,
-  accentSecondary `#FFD700`.
+- `assets/icon.png` — "86'd" rubber-stamp wordmark, tilted, over a 7-bottle skyline (the
+  3rd bottle is red, ties to the stamp), on a warm paper background. 1024x1024, RGB (no
+  alpha channel, required by Apple). This is the actual iPhone home-screen icon. Replaced
+  the old bottle-outline-with-liquid-level-lines design — that visual was a leftover
+  reference to the removed pen/liquid-level flow (see Project section above).
+- `assets/splash-icon.png` — same design as `assets/icon.png`, rounded-corner card, shown
+  via `app.json`'s `splash.image` (`resizeMode: "contain"`) against `splash.backgroundColor`
+  `#f2ece4` (the design's paper tone — the skyline's dark/charcoal bars need a light backdrop
+  to read; they disappear against the app's dark UI background).
+- `assets/favicon.png` — same mark, stamp-only (no skyline — mushes together below ~80px),
+  rounded corners, 48x48.
+- Logo palette (icon/splash/favicon/BrandMark only): paper `#f2ece4`, red `#8a1a26`,
+  charcoal `#17181b`/`#2b2c30`/`#3a3b40`. This is separate from the in-app UI theme in
+  `src/constants/colors.ts` (primaryDark `#0F0F0F`, accentPrimary `#FF6B35`, accentSecondary
+  `#FFD700`) — the app's dark UI theme was intentionally left alone; only the logo/icon
+  surfaces moved to the new palette.
 
 ## Build Rules
 - ONE build at a time (costs $2-4 each)
