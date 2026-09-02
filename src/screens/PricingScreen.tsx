@@ -24,6 +24,9 @@ import { apiService } from '../services/api';
 import { Product } from '../types';
 
 const SEARCH_DEBOUNCE_MS = 300;
+// Above this, a typed price is more likely a typo (8.99 -> 899) than a real
+// per-bottle cost — worth a second look before it lands in spend totals.
+const HIGH_PRICE_WARNING = 500;
 
 const displayName = (p: { brand?: string | null; name: string }) =>
   [p.brand, p.name].filter(Boolean).join(' ').trim() || p.name;
@@ -36,6 +39,7 @@ export default function PricingScreen() {
   const [query, setQuery] = useState('');
   const [catalogResults, setCatalogResults] = useState<Product[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchSeq = useRef(0);
 
@@ -72,33 +76,45 @@ export default function PricingScreen() {
     return entries.filter(e => displayName(e).toLowerCase().includes(normalizedQuery));
   }, [entries, normalizedQuery]);
 
+  // Split out from the debounce effect so a failed search (cold Render
+  // instance, dead wifi) can be retried without retyping the query — and so
+  // "the server didn't answer" never gets rendered as "no matches."
+  const runCatalogSearch = useCallback(async (q: string) => {
+    const token = ++searchSeq.current;
+    setIsSearching(true);
+    setSearchFailed(false);
+    try {
+      const result = await apiService.searchProducts(q, 10);
+      if (token !== searchSeq.current) return; // stale response
+      setCatalogResults(result.products);
+    } catch {
+      if (token === searchSeq.current) {
+        setCatalogResults([]);
+        setSearchFailed(true);
+      }
+    } finally {
+      if (token === searchSeq.current) setIsSearching(false);
+    }
+  }, []);
+
   // Catalog search only fills the gap the price book can't: products this bar
   // hasn't scanned yet but wants to price ahead of time.
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (normalizedQuery.length < 2) {
+      searchSeq.current++; // invalidate any in-flight search
       setCatalogResults([]);
       setIsSearching(false);
+      setSearchFailed(false);
       return;
     }
-    const token = ++searchSeq.current;
-    setIsSearching(true);
-    searchTimer.current = setTimeout(async () => {
-      try {
-        const result = await apiService.searchProducts(query.trim(), 10);
-        if (token !== searchSeq.current) return; // stale response
-        setCatalogResults(result.products);
-      } catch {
-        if (token === searchSeq.current) setCatalogResults([]);
-      } finally {
-        if (token === searchSeq.current) setIsSearching(false);
-      }
-    }, SEARCH_DEBOUNCE_MS);
+    const q = query.trim();
+    searchTimer.current = setTimeout(() => runCatalogSearch(q), SEARCH_DEBOUNCE_MS);
 
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
-  }, [normalizedQuery, query]);
+  }, [normalizedQuery, query, runCatalogSearch]);
 
   // Anything the price book or the needs-price list already covers is dropped
   // here so a product never shows up twice on one screen.
@@ -119,13 +135,8 @@ export default function PricingScreen() {
     setSaving(false);
   };
 
-  const handleSave = async () => {
+  const commitSave = async (value: number) => {
     if (!editing) return;
-    const value = parseFloat(priceInput.replace(/[^0-9.]/g, ''));
-    if (Number.isNaN(value) || value <= 0) {
-      Alert.alert('Enter a price', 'Type what you pay for this bottle, e.g. 24.99.');
-      return;
-    }
     setSaving(true);
     try {
       await setPrice(editing, value);
@@ -134,6 +145,27 @@ export default function PricingScreen() {
       setSaving(false);
       Alert.alert('Could not save', 'That price did not save. Check your connection and try again.');
     }
+  };
+
+  const handleSave = () => {
+    if (!editing) return;
+    const value = parseFloat(priceInput.replace(/[^0-9.]/g, ''));
+    if (Number.isNaN(value) || value <= 0) {
+      Alert.alert('Enter a price', 'Type what you pay for this bottle, e.g. 24.99.');
+      return;
+    }
+    if (value > HIGH_PRICE_WARNING) {
+      Alert.alert(
+        'That price looks high',
+        `$${value.toFixed(2)} for one bottle — worth a second look in case a digit slipped in (e.g. 899 instead of 8.99).`,
+        [
+          { text: 'Fix It', style: 'cancel' },
+          { text: 'Save Anyway', onPress: () => commitSave(value) },
+        ]
+      );
+      return;
+    }
+    commitSave(value);
   };
 
   const handleMerge = (target: { productId: string; name: string; brand?: string | null }) => {
@@ -351,6 +383,19 @@ export default function PricingScreen() {
             {isSearching ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color={COLORS.accentPrimary} />
+              </View>
+            ) : searchFailed ? (
+              <View style={styles.searchErrorRow}>
+                <Text style={styles.searchErrorText}>
+                  Couldn't reach the catalog — check your connection and try again.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => runCatalogSearch(query.trim())}
+                  activeOpacity={0.8}
+                  style={styles.retryButton}
+                >
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
               </View>
             ) : catalogSuggestions.length === 0 ? (
               <Text style={styles.sectionHint}>No other bottles match that search.</Text>
@@ -648,6 +693,28 @@ const styles = StyleSheet.create({
   loadingRow: {
     paddingVertical: SPACING.xl,
     alignItems: 'center',
+  },
+  searchErrorRow: {
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingVertical: SPACING.md,
+  },
+  searchErrorText: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textTertiary,
+    textAlign: 'center',
+  },
+  retryButton: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.accentPrimary,
+  },
+  retryButtonText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
   },
   emptyState: {
     alignItems: 'center',
