@@ -271,29 +271,44 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
                 </TouchableOpacity>
               </View>
             ) : (
-              distributors.map(dist => (
-                <TouchableOpacity
-                  key={dist.id}
-                  style={styles.modalDistRow}
-                  onPress={() => {
-                    if (assigningBottle) {
-                      if (assigningBottle.productId && currentLocation) {
-                        apiService.assignProductDistributor(currentLocation.id, assigningBottle.productId, dist.id)
-                          .catch(err => console.error('Failed to save assignment:', err));
+              <>
+                {distributors.map(dist => (
+                  <TouchableOpacity
+                    key={dist.id}
+                    style={styles.modalDistRow}
+                    onPress={() => {
+                      if (assigningBottle) {
+                        if (assigningBottle.productId && currentLocation) {
+                          apiService.assignProductDistributor(currentLocation.id, assigningBottle.productId, dist.id)
+                            .catch(err => console.error('Failed to save assignment:', err));
+                        }
+                        updateBottle(assigningBottle.id, { distributorId: dist.id });
+                        setAssigningBottle(null);
                       }
-                      updateBottle(assigningBottle.id, { distributorId: dist.id });
-                      setAssigningBottle(null);
-                    }
+                    }}
+                  >
+                    <View style={styles.modalDistBadge}>
+                      <Text style={styles.modalDistInitials}>
+                        {dist.name.slice(0, 2).toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={styles.modalDistName}>{dist.name}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={[styles.modalDistRow, { borderBottomWidth: 0 }]}
+                  onPress={() => {
+                    setAssigningBottle(null);
+                    onNavigateToSettings();
                   }}
+                  activeOpacity={0.8}
                 >
-                  <View style={styles.modalDistBadge}>
-                    <Text style={styles.modalDistInitials}>
-                      {dist.name.slice(0, 2).toUpperCase()}
-                    </Text>
+                  <View style={[styles.modalDistBadge, { backgroundColor: `${COLORS.accentPrimary}20` }]}>
+                    <Plus size={16} color={COLORS.accentPrimary} />
                   </View>
-                  <Text style={styles.modalDistName}>{dist.name}</Text>
+                  <Text style={[styles.modalDistName, { color: COLORS.accentPrimary }]}>Add New Distributor</Text>
                 </TouchableOpacity>
-              ))
+              </>
             )}
           </TouchableOpacity>
         </TouchableOpacity>
