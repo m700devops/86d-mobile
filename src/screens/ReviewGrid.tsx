@@ -42,6 +42,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [assigningBottle, setAssigningBottle] = useState<Bottle | null>(null);
+  const [distributorAssignments, setDistributorAssignments] = useState<Record<string, string>>({});
   const stockSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const pendingNetworkRetries = bottles.filter(
@@ -85,23 +86,35 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     }, 600);
   };
 
-  // Load saved distributor assignments on mount. Prices deliberately aren't
-  // hydrated onto bottles here — they're looked up from the price book by
-  // productId wherever they're needed (see PricingContext), so counting never
-  // has to stop for a price and an edit in Pricing applies to orders at once.
+  // Load this bar's saved distributor assignments once (by productId, not
+  // tied to any particular bottle row). Prices deliberately aren't hydrated
+  // the same way — they're looked up from the price book by productId
+  // wherever they're needed (see PricingContext), so counting never has to
+  // stop for a price and an edit in Pricing applies to orders at once.
   useEffect(() => {
     if (!currentLocation) return;
     apiService.getProductDistributors(currentLocation.id)
       .then(assignments => {
-        assignments.forEach(assignment => {
-          const bottle = bottles.find(b => b.productId === assignment.product_id);
-          if (bottle) {
-            updateBottle(bottle.id, { distributorId: assignment.distributor_id });
-          }
-        });
+        const map: Record<string, string> = {};
+        assignments.forEach(a => { map[a.product_id] = a.distributor_id; });
+        setDistributorAssignments(map);
       })
       .catch(err => console.error('[ReviewGrid] failed to load assignments:', err));
   }, [currentLocation]);
+
+  // Apply saved assignments to any bottle that resolves a productId without
+  // one — not just the bottles present when the screen first mounted. A scan
+  // that resolves later (a failed row retried, or the automatic
+  // retry-on-reconnect for stockroom wifi) still deserves its bar's already-
+  // saved distributor instead of landing in "unassigned" and looking like it
+  // needs to be picked again.
+  useEffect(() => {
+    bottles.forEach(bottle => {
+      if (bottle.distributorId || !bottle.productId) return;
+      const distributorId = distributorAssignments[bottle.productId];
+      if (distributorId) updateBottle(bottle.id, { distributorId });
+    });
+  }, [bottles, distributorAssignments]);
 
   const filtered = bottles.filter(b =>
     b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -279,8 +292,10 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
                     onPress={() => {
                       if (assigningBottle) {
                         if (assigningBottle.productId && currentLocation) {
-                          apiService.assignProductDistributor(currentLocation.id, assigningBottle.productId, dist.id)
+                          const productId = assigningBottle.productId;
+                          apiService.assignProductDistributor(currentLocation.id, productId, dist.id)
                             .catch(err => console.error('Failed to save assignment:', err));
+                          setDistributorAssignments(prev => ({ ...prev, [productId]: dist.id }));
                         }
                         updateBottle(assigningBottle.id, { distributorId: dist.id });
                         setAssigningBottle(null);
