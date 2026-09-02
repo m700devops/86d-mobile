@@ -164,7 +164,7 @@ function AppContent() {
           />
         );
       case 'pricing':
-        return <PricingScreen />;
+        return <PricingScreen onNavigateToSettings={() => navigate('settings')} />;
       case 'settings':
         return <SettingsScreen />;
       default:
