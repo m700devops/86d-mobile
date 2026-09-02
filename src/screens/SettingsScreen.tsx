@@ -10,7 +10,12 @@ import { useStaff } from '../context/StaffContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 
-export default function SettingsScreen() {
+interface Props {
+  autoOpenAddDistributor?: boolean;
+  onAutoOpenAddDistributorHandled?: () => void;
+}
+
+export default function SettingsScreen({ autoOpenAddDistributor, onAutoOpenAddDistributorHandled }: Props) {
   const { distributors, addDistributor, updateDistributor, removeDistributor } = useDistributors();
   const { user, updateProfile, logout } = useAuth();
   const { staff, addStaff, removeStaff } = useStaff();
@@ -210,6 +215,17 @@ export default function SettingsScreen() {
     }
     setIsModalOpen(true);
   };
+
+  // Arriving here via the sidebar's "Add Distributor" shortcut — jump
+  // straight into the add-distributor modal instead of landing on a blank
+  // Settings screen the user then has to hunt through.
+  useEffect(() => {
+    if (autoOpenAddDistributor) {
+      openModal();
+      onAutoOpenAddDistributorHandled?.();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenAddDistributor]);
 
   const handleSave = () => {
     if (!name.trim() || !initials.trim() || !email.trim()) return;

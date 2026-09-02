@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Modal, Animated
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { X, Camera, LayoutGrid, History, DollarSign, Settings, LogOut } from 'lucide-react-native';
+import { X, Camera, LayoutGrid, History, DollarSign, Truck, Settings, LogOut } from 'lucide-react-native';
 import SidebarItem from './SidebarItem';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
@@ -16,10 +16,11 @@ interface Props {
   onClose: () => void;
   currentScreen: string;
   onNavigate: (screen: string) => void;
+  onAddDistributor: () => void;
   onSignOut: () => void;
 }
 
-export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, onSignOut }: Props) {
+export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, onAddDistributor, onSignOut }: Props) {
   const { user } = useAuth();
   const { currentLocation } = useLocation();
   const displayName = currentLocation?.name || user?.business_name || 'My Bar';
@@ -65,6 +66,11 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
 
   const handleNavigate = (screen: string) => {
     onNavigate(screen);
+    onClose();
+  };
+
+  const handleAddDistributor = () => {
+    onAddDistributor();
     onClose();
   };
 
@@ -132,6 +138,11 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
                 label="Pricing"
                 active={currentScreen === 'pricing'}
                 onPress={() => handleNavigate('pricing')}
+              />
+              <SidebarItem
+                icon={<Truck size={18} color={COLORS.accentPrimary} />}
+                label="Add Distributor"
+                onPress={handleAddDistributor}
               />
               <SidebarItem
                 icon={<Settings size={18} color={currentScreen === 'settings' ? '#FFFFFF' : COLORS.accentPrimary} />}

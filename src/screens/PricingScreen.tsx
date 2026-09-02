@@ -13,7 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Search, X, Trash2, DollarSign, Tag, Merge, Plus } from 'lucide-react-native';
+import { Search, X, Trash2, DollarSign, Tag, Merge } from 'lucide-react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
@@ -28,11 +28,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 const displayName = (p: { brand?: string | null; name: string }) =>
   [p.brand, p.name].filter(Boolean).join(' ').trim() || p.name;
 
-interface Props {
-  onNavigateToSettings: () => void;
-}
-
-export default function PricingScreen({ onNavigateToSettings }: Props) {
+export default function PricingScreen() {
   const { entries, loading, priceFor, setPrice, clearPrice, mergeInto } = usePricing();
   const { bottles, repointProduct } = useInventory();
   const { currentLocation } = useLocation();
@@ -209,22 +205,10 @@ export default function PricingScreen({ onNavigateToSettings }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <View style={styles.headerTextGroup}>
-            <Text style={styles.headerTitle}>Pricing</Text>
-            <Text style={styles.headerSubtitle}>
-              What you pay per bottle — set once, used on every order
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.addDistributorButton}
-            onPress={onNavigateToSettings}
-            activeOpacity={0.8}
-          >
-            <Plus size={14} color={COLORS.accentPrimary} />
-            <Text style={styles.addDistributorText}>Add Distributor</Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.headerTitle}>Pricing</Text>
+        <Text style={styles.headerSubtitle}>
+          What you pay per bottle — set once, used on every order
+        </Text>
       </View>
 
       <View style={styles.searchWrapper}>
@@ -515,15 +499,6 @@ const styles = StyleSheet.create({
     paddingTop: SPACING['2xl'],
     paddingBottom: SPACING.lg,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: SPACING.md,
-  },
-  headerTextGroup: {
-    flex: 1,
-  },
   headerTitle: {
     fontSize: FONT_SIZES['3xl'],
     fontWeight: FONT_WEIGHTS.bold,
@@ -534,22 +509,6 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.base,
     color: COLORS.textSecondary,
     marginTop: SPACING.xs,
-  },
-  addDistributorButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: `${COLORS.accentPrimary}55`,
-    backgroundColor: `${COLORS.accentPrimary}15`,
-  },
-  addDistributorText: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
   },
   searchWrapper: {
     flexDirection: 'row',

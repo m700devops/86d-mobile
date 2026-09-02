@@ -41,6 +41,7 @@ function AppContent() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
+  const [pendingAddDistributor, setPendingAddDistributor] = useState(false);
   const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
   const [isRestoringScreen, setIsRestoringScreen] = useState(true);
   const trialDays = trialDaysLeft(user);
@@ -164,9 +165,14 @@ function AppContent() {
           />
         );
       case 'pricing':
-        return <PricingScreen onNavigateToSettings={() => navigate('settings')} />;
+        return <PricingScreen />;
       case 'settings':
-        return <SettingsScreen />;
+        return (
+          <SettingsScreen
+            autoOpenAddDistributor={pendingAddDistributor}
+            onAutoOpenAddDistributorHandled={() => setPendingAddDistributor(false)}
+          />
+        );
       default:
         return <Onboarding onComplete={() => navigate('camera')} />;
     }
@@ -191,6 +197,10 @@ function AppContent() {
           onClose={() => setIsSidebarOpen(false)}
           currentScreen={currentScreen as AppScreen}
           onNavigate={(screen) => navigate(screen as AppScreen)}
+          onAddDistributor={() => {
+            setPendingAddDistributor(true);
+            navigate('settings');
+          }}
           onSignOut={async () => {
             await logout();
             await AsyncStorage.removeItem(LAST_SCREEN_KEY);
