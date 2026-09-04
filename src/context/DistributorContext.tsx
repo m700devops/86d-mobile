@@ -7,7 +7,10 @@ import { useAuth } from './AuthContext';
 interface DistributorContextType {
   distributors: Distributor[];
   loading: boolean;
-  addDistributor: (distributor: Distributor) => Promise<void>;
+  // Resolves with the distributor the server created — callers that need to
+  // use it straight away (assigning it to a bottle) need its real id, not the
+  // throwaway one they passed in.
+  addDistributor: (distributor: Distributor) => Promise<Distributor>;
   updateDistributor: (id: string, updates: Partial<Distributor>) => void;
   removeDistributor: (id: string) => void;
 }
@@ -70,6 +73,7 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
       distributor.repName
     );
     setDistributors(prev => persist([...prev, created]));
+    return created;
   };
 
   const updateDistributor = (id: string, updates: Partial<Distributor>) => {
