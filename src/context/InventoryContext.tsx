@@ -8,6 +8,12 @@ import { useLocation } from './LocationContext';
 import { apiService } from '../services/api';
 import { deleteScanPhoto } from '../utils/scanPhotos';
 import { bottleMatchKey } from '../utils/productKey';
+import {
+  isAutoRetryable,
+  isOrphanedRetry,
+  nextFailureState,
+  isTransientRequestError,
+} from '../utils/retryPolicy';
 
 interface ResolvedScanInfo {
   productId?: string;
@@ -26,6 +32,11 @@ interface InventoryContextType {
   repointProduct: (sourceProductId: string, target: { productId: string; name: string; brand: string }) => void;
   markScanFailed: (id: string, reason?: 'network' | 'other') => void;
   retryScan: (bottle: Bottle) => Promise<void>;
+  // Rows an automatic retry has filled in since the user last looked, so
+  // Review can say so — a scan that identified itself in the background is
+  // invisible otherwise.
+  autoResolvedCount: number;
+  acknowledgeAutoResolved: () => void;
   clearBottles: () => void;
 }
 
@@ -34,10 +45,16 @@ const InventoryContext = createContext<InventoryContextType | undefined>(undefin
 const draftKey = (locationId: string) => `@86d_inventory_draft_${locationId}`;
 const SAVE_DEBOUNCE_MS = 400;
 
+// While the app is open, re-check on this cadence. NetInfo only reports hard
+// connectivity transitions, and the case that started all this — bad-but-not-
+// zero service that quietly improves as you drive — never fires one.
+const RETRY_POLL_MS = 30_000;
+
 export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentLocation } = useLocation();
   const [bottles, setBottles] = useState<Bottle[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [autoResolvedCount, setAutoResolvedCount] = useState(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydratedLocationId = useRef<string | null>(null);
   const bottlesRef = useRef<Bottle[]>(bottles);
@@ -230,18 +247,67 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const markScanFailed = (id: string, reason: 'network' | 'other' = 'other') => {
     setBottles(prev => prev.map(b =>
-      b.id === id ? { ...b, scanStatus: 'failed' as const, failureReason: reason, name: 'Unknown bottle' } : b
+      b.id === id
+        // Stamping the time here anchors the backoff ladder to the original
+        // failure, so the first automatic attempt is spaced like every other
+        // one instead of firing on whatever poll happens to come next.
+        ? { ...b, scanStatus: 'failed' as const, failureReason: reason, name: 'Unknown bottle', lastRetryAt: Date.now() }
+        : b
     ));
   };
 
   // Re-run identification for a failed row using the photo captured at scan
   // time. Shared by the manual "retry" chip in Review and the automatic
-  // retry-on-reconnect below, so both go through the exact same path.
-  const retryScan = async (bottle: Bottle) => {
-    if (!bottle.imageUrl) return;
+  // sweep below, so both go through the exact same path.
+  //
+  // `auto` is what separates the two: an automatic attempt spends the row's
+  // unreadable budget only when the server actually answered, whereas a human
+  // tap means "try again now" — it resets both counters and, on a no-match,
+  // marks the row terminal so it stops promising to fix itself. Demoting a row
+  // to 'other' on the FIRST unattended no-match (the old behavior) is what let
+  // one bad mid-drive attempt disqualify a row from every later retry.
+  const retryScan = async (bottle: Bottle, opts: { auto?: boolean } = {}) => {
+    const auto = opts.auto === true;
+    if (!bottle.imageUrl) {
+      // Nothing to re-send — the photo is gone (cache eviction, or the row
+      // predates durable photo storage). Say so instead of leaving the row
+      // claiming it'll retry itself.
+      if (auto) markScanFailed(bottle.id, 'other');
+      return;
+    }
+
+    const attempts = auto ? (bottle.retryAttempts ?? 0) + 1 : 0;
+    const unreadableBefore = auto ? (bottle.unreadableAttempts ?? 0) : 0;
+
     setBottles(prev => prev.map(b =>
-      b.id === bottle.id ? { ...b, scanStatus: 'pending' as const, name: 'Identifying…' } : b
+      b.id === bottle.id
+        ? {
+            ...b,
+            scanStatus: 'pending' as const,
+            name: 'Identifying…',
+            retryAttempts: attempts,
+            unreadableAttempts: unreadableBefore,
+            lastRetryAt: Date.now(),
+          }
+        : b
     ));
+
+    const failWith = (reason: 'network' | 'other', unreadable: number) => {
+      setBottles(prev => prev.map(b =>
+        b.id === bottle.id
+          ? {
+              ...b,
+              scanStatus: 'failed' as const,
+              failureReason: reason,
+              name: 'Unknown bottle',
+              retryAttempts: attempts,
+              unreadableAttempts: unreadable,
+              lastRetryAt: Date.now(),
+            }
+          : b
+      ));
+    };
+
     try {
       const resized = await ImageManipulator.manipulateAsync(
         bottle.imageUrl,
@@ -256,59 +322,107 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           brand: result.brand,
           category: result.category,
         });
-      } else {
-        markScanFailed(bottle.id, 'other');
+        if (auto) setAutoResolvedCount(n => n + 1);
+        return;
       }
+      // The server answered and still couldn't place the bottle. A weak
+      // connection can produce this too (a half-uploaded photo), so it costs
+      // one of the unreadable attempts rather than ending things outright —
+      // but once those run out, only a human tap will do. A manual retry is
+      // its own answer: the human asked, so a miss is reported as a miss.
+      const next = nextFailureState(unreadableBefore, { answered: true });
+      failWith(auto ? next.failureReason : 'other', next.unreadableAttempts);
     } catch (err: any) {
-      const isNetwork = err?.code === 'ECONNABORTED' || err?.message?.includes('timeout') ||
-        !!err?.request || err?.message?.includes('Network');
-      markScanFailed(bottle.id, isNetwork ? 'network' : 'other');
+      // A connection failure never spends the unreadable budget: the AI never
+      // got a look at this photo, so the attempt says nothing about whether
+      // it's readable. That's what lets a row survive a long dead zone and
+      // still identify itself on the drive home.
+      const next = nextFailureState(unreadableBefore, { answered: !isTransientRequestError(err) });
+      failWith(next.failureReason, next.unreadableAttempts);
     }
   };
 
-  // Auto-retry scans that failed for connectivity reasons once we're back
-  // online — sequential, not parallel, so a burst of queued retries doesn't
-  // hammer the API all at once.
+  // Sweep every row that's waiting on a better connection — sequential, not
+  // parallel, so a backlog doesn't hammer the API all at once.
   const retryingRef = useRef(false);
   const runNetworkRetries = async () => {
     if (retryingRef.current) return;
-    const pending = bottlesRef.current.filter(b => b.scanStatus === 'failed' && b.failureReason === 'network');
-    if (pending.length === 0) return;
+    const now = Date.now();
+
+    // A 'network' row with no photo can never self-heal — there's nothing to
+    // re-send. Demote it so it stops claiming it will, and Review can show
+    // the honest "tap to retry" chip instead.
+    const orphaned = bottlesRef.current.filter(isOrphanedRetry);
+    if (orphaned.length > 0) {
+      const ids = new Set(orphaned.map(b => b.id));
+      setBottles(prev => prev.map(b => (ids.has(b.id) ? { ...b, failureReason: 'other' as const } : b)));
+    }
+
+    const due = bottlesRef.current.filter(b => isAutoRetryable(b, now));
+    if (due.length === 0) return;
+
+    // Skip a sweep we know will fail. Nothing is lost if this is wrong (a
+    // connection failure costs the row nothing), but a confirmed-offline
+    // device shouldn't spend an upload attempt or advance its backoff.
+    const net = await NetInfo.fetch().catch(() => null);
+    if (net && (!net.isConnected || net.isInternetReachable === false)) return;
+
     retryingRef.current = true;
     try {
-      for (const bottle of pending) {
-        await retryScan(bottle);
+      for (const bottle of due) {
+        // Re-read the row: a manual retry or a delete may have landed while
+        // the queue was draining.
+        const current = bottlesRef.current.find(b => b.id === bottle.id);
+        if (!current || current.scanStatus !== 'failed') continue;
+        await retryScan(current, { auto: true });
       }
     } finally {
       retryingRef.current = false;
     }
   };
+  const retriesRef = useRef(runNetworkRetries);
+  retriesRef.current = runNetworkRetries;
 
-  // Check once on launch (in case network-failed rows were recovered from a
-  // saved draft and we're already online), then again on every reconnect.
+  // Four things kick a sweep, because any one of them alone leaves a hole:
+  //
+  //  1. hydration       — rows restored from a draft, app opened with signal
+  //  2. connectivity     — NetInfo reports we're online
+  //  3. foreground       — the app came back to the front
+  //  4. a 30s poll       — the app stayed open while signal improved
+  //
+  // (2) deliberately does NOT require having seen an offline event first.
+  // Weak-but-present service (the grocery-store case) never reports offline,
+  // so an edge-triggered listener sat there waiting for a transition that
+  // never came, and nothing retried on the drive home.
   useEffect(() => {
     if (!isHydrated) return;
-    NetInfo.fetch().then(state => {
-      if (state.isConnected && state.isInternetReachable !== false) runNetworkRetries();
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    retriesRef.current();
   }, [isHydrated]);
 
   useEffect(() => {
-    let wasOffline = false;
     const unsubscribe = NetInfo.addEventListener(state => {
-      const isOnline = !!state.isConnected && state.isInternetReachable !== false;
-      if (!isOnline) {
-        wasOffline = true;
-        return;
-      }
-      if (!wasOffline) return;
-      wasOffline = false;
-      runNetworkRetries();
+      if (!state.isConnected || state.isInternetReachable === false) return;
+      retriesRef.current();
     });
     return () => unsubscribe();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', next => {
+      if (next === 'active') retriesRef.current();
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
+      retriesRef.current();
+    }, RETRY_POLL_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  const acknowledgeAutoResolved = () => setAutoResolvedCount(0);
 
   // Called once an order's been successfully sent — that draft is done,
   // don't let it resurface (and get accidentally re-sent) on the next scan.
@@ -317,6 +431,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     // hold a photo — nothing will retry them once the draft is cleared.
     bottlesRef.current.forEach(b => { if (b.imageUrl) deleteScanPhoto(b.imageUrl); });
     setBottles([]);
+    setAutoResolvedCount(0);
     if (currentLocation) {
       AsyncStorage.removeItem(draftKey(currentLocation.id)).catch(() => {});
       apiService.deleteInventoryDraft(currentLocation.id).catch(() => {});
@@ -325,7 +440,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   return (
     <InventoryContext.Provider
-      value={{ bottles, isHydrated, addBottle, updateBottle, removeBottle, resolveScan, repointProduct, markScanFailed, retryScan, clearBottles }}
+      value={{ bottles, isHydrated, addBottle, updateBottle, removeBottle, resolveScan, repointProduct, markScanFailed, retryScan, autoResolvedCount, acknowledgeAutoResolved, clearBottles }}
     >
       {children}
     </InventoryContext.Provider>

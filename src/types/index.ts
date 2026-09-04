@@ -163,6 +163,17 @@ export interface Bottle {
   // Why a 'failed' scan failed — 'network' failures auto-retry when connectivity
   // returns; 'other' (e.g. bottle genuinely not recognized) only retries manually
   failureReason?: 'network' | 'other';
+  // Automatic-retry bookkeeping (see utils/retryPolicy). Two separate counts,
+  // because "no signal" and "the AI can't read this photo" deserve opposite
+  // treatment: a connectivity failure should keep trying however long the
+  // dead zone lasts, while an unreadable photo should stop asking.
+  //  - retryAttempts: every attempt. Only paces the backoff ladder.
+  //  - unreadableAttempts: attempts where the server answered and still
+  //    couldn't identify the bottle. This is the one that gives up.
+  // A manual retry resets both — a human tap means "try again now".
+  retryAttempts?: number;
+  unreadableAttempts?: number;
+  lastRetryAt?: number;
 }
 
 export interface ProductDistributorAssignment {

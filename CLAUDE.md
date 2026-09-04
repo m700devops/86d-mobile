@@ -46,7 +46,16 @@ Don't describe either in UI copy or docs.
   Name is legacy from when Gemini was the only provider — the actual model choice
   (OpenAI vs. Gemini) happens server-side in 86d-api, not here
 - src/context/AuthContext.tsx — auth state; `user` includes `business_name`/`manager_name`
-- src/context/InventoryContext.tsx — active inventory session state
+- src/context/InventoryContext.tsx — active inventory session state, plus the
+  automatic re-identification sweep for scans that failed on a bad connection.
+  Sweeps fire on hydration, any NetInfo online event, app foreground, and a 30s
+  poll — deliberately NOT only on an offline→online edge, because weak-but-
+  present service (the original grocery-store bug) never reports offline at all
+- src/utils/retryPolicy.ts — pure policy behind that sweep: what's retryable,
+  the backoff ladder, and which failures count against a row. Connectivity
+  failures are unbounded (a dead zone isn't the bottle's fault, and giving up
+  because it lasted a while was the bug); only definitive "the AI looked and
+  couldn't identify it" answers are capped, at 3
 - src/context/LocationContext.tsx — bar location selection (multiple bars per account)
 - src/context/DistributorContext.tsx — distributor list state (name/email/phone/repName;
   used by Settings, ReviewGrid, OrderSummary)

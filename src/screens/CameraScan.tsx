@@ -110,6 +110,9 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   // A barcode miss has no photo to retake — the fallback action is to try
   // the normal camera scan instead, so the pad button needs different copy.
   const [failedViaBarcode, setFailedViaBarcode] = useState(false);
+  // Whether the current pad failure is worth saving for a later automatic
+  // retry (connectivity) rather than retaking on the spot (unreadable photo).
+  const [failTransient, setFailTransient] = useState(false);
 
   // Border: 0 = orange (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
@@ -226,11 +229,17 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
   // --- Capture & analyze ---
 
-  const failScan = useCallback((token: number, message: string) => {
+  // `transient` = the scan failed for a reason that may not repeat (dead zone,
+  // timeout, cold backend). Those keep the typed count worth saving: the row
+  // can be banked now and identify itself once there's signal. A definitive
+  // failure (server answered, it just couldn't read the bottle) can't, so it
+  // still routes to Retake.
+  const failScan = useCallback((token: number, message: string, opts: { transient?: boolean } = {}) => {
     if (token !== scanSeq.current) return;
     identifyStatusRef.current = 'failed';
     setIdentifyStatus('failed');
     setFailMessage(message);
+    setFailTransient(opts.transient === true);
   }, []);
 
   const triggerCapture = useCallback(async () => {
@@ -268,7 +277,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         return;
       }
       if (token === scanSeq.current && identifyStatusRef.current === 'pending') {
-        failScan(token, 'Scan timed out — try again');
+        failScan(token, 'No signal — save it and it’ll identify itself later', { transient: true });
       }
     }, CAPTURE_WATCHDOG_MS);
 
@@ -300,6 +309,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       setIdentifyStatus('pending');
       setIdentifiedLabel(null);
       setFailMessage(null);
+      setFailTransient(false);
       setExistingBottle(null);
       setFailedViaBarcode(false);
       setPadVisible(true);
@@ -462,19 +472,24 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       }
 
       // Fire-and-forget: flag the saved row so it can be retried from Review.
-      // Network/timeout failures also auto-retry once connectivity returns.
+      // Anything that might not repeat — no connection, a timeout, a 5xx from
+      // a cold-starting backend, a 429 — is tagged 'network' so the automatic
+      // sweep picks it up. Only a definitive answer from a reachable server
+      // (a 4xx that isn't 429) is treated as needing a human.
+      const isTransient = errorType === 'network' || errorType === 'timeout' ||
+        (httpStatus !== null && (httpStatus >= 500 || httpStatus === 429));
       if (committedRowId !== undefined) {
         pendingCommits.current.delete(token);
-        markScanFailed(committedRowId, errorType === 'network' || errorType === 'timeout' ? 'network' : 'other');
+        markScanFailed(committedRowId, isTransient ? 'network' : 'other');
         return;
       }
 
       if (token !== scanSeq.current) return;
 
       failScan(token,
-        errorType === 'timeout' ? 'Scan timed out — try again'
-        : errorType === 'network' ? 'No connection — check your network'
-        : 'Scan failed — try again');
+        isTransient ? 'No signal — save it and it’ll identify itself later'
+        : 'Scan failed — try again',
+        { transient: isTransient });
     }
   }, [failScan, logout, setBorderValue, bottles, resolveScan, markScanFailed]);
 
@@ -552,7 +567,13 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       commitBottle();
       return;
     }
-    if (identifyStatus === 'failed') {
+    // A failure the connection caused is not a dead end: bank the count and
+    // the photo now, flagged for the automatic retry sweep, so the row fills
+    // itself in once there's signal. Only an unreadable-photo failure (or a
+    // barcode miss, which has no photo) still forces a retake here — that
+    // was the whole trap in a dead zone, where every scan failed and the
+    // only offered ways out were "retake" (fails again) and "cancel".
+    if (identifyStatus === 'failed' && (!failTransient || failedViaBarcode)) {
       closePadWithFail();
       return;
     }
@@ -561,9 +582,14 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     // the in-flight identification fills in the name when it lands.
     const token = scanSeq.current;
     const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
+    // Already-failed (transient) scans have no request left in flight, so the
+    // row is saved as failed-awaiting-retry rather than 'pending' — a pending
+    // row with nothing to resolve it would sit on "Identifying…" until the
+    // next app launch.
+    const alreadyFailed = identifyStatus === 'failed';
     const newBottle: Bottle = {
       id: `bottle_${Date.now()}`,
-      name: 'Identifying…',
+      name: alreadyFailed ? 'Unknown bottle' : 'Identifying…',
       brand: '',
       category: 'other',
       size: '',
@@ -571,9 +597,14 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       parLevel: 1,
       currentStock: stock,
       imageUrl: photoUriRef.current ?? undefined,
-      scanStatus: 'pending',
+      scanStatus: alreadyFailed ? 'failed' : 'pending',
+      ...(alreadyFailed ? { failureReason: 'network' as const } : {}),
     };
     addBottle(newBottle);
+    // Registered even for an already-failed row: the watchdog fires at 25s but
+    // the request itself runs to 90s, so a crawling upload can still land and
+    // resolve this row directly. It also keeps a late response from reopening
+    // the pad UI on a scan the user has already moved past.
     pendingCommits.current.set(token, newBottle.id);
     setLastBottleId(newBottle.id);
     setBottleCount(prev => prev + 1);
@@ -581,7 +612,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     setPadVisible(false);
     setScanState('success');
     setBorderValue(1);
-    setStatusText('Saved — identifying in background');
+    setStatusText(alreadyFailed ? 'Saved — will identify when you have signal' : 'Saved — identifying in background');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     flashGreen();
 
@@ -590,7 +621,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       resetToIdle();
     }, SUCCESS_DISPLAY_MS);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identifyStatus, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen, dismissScanHint]);
+  }, [identifyStatus, failTransient, failedViaBarcode, commitBottle, closePadWithFail, stockInput, addBottle, setBorderValue, flashGreen, dismissScanHint]);
 
   const handlePadCancel = useCallback(() => {
     // No bottle row was ever created for this attempt (fire-and-forget
@@ -628,6 +659,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     setIdentifyStatus('pending');
     setIdentifiedLabel(null);
     setFailMessage(null);
+    setFailTransient(false);
     setExistingBottle(null);
     setFailedViaBarcode(false);
     setPadVisible(true);
@@ -811,6 +843,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       </SafeAreaView>
     );
   }
+
+  // A failed scan the user can still bank: the failure was connectivity, and
+  // there's a photo to re-send later. Barcode misses are excluded — nothing
+  // was captured, so there's nothing for the retry sweep to work with.
+  const padFailIsSaveable = identifyStatus === 'failed' && failTransient && !failedViaBarcode;
 
   // --- Permission states ---
 
@@ -1060,6 +1097,15 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 </TouchableOpacity>
               )}
 
+              {/* Saving is the primary action on a connectivity failure, but
+                  retaking is still one tap away for someone who'd rather try
+                  again on the spot. */}
+              {padFailIsSaveable && (
+                <TouchableOpacity onPress={handleRetakePhoto} activeOpacity={0.7} hitSlop={8} style={styles.padRetakeRow}>
+                  <Text style={styles.padRetakeLink}>Retake photo instead</Text>
+                </TouchableOpacity>
+              )}
+
               {/* No standing hint line here any more: the button label now says
                   the same thing, and a sentence competing with a button is the
                   weaker of the two. First-run callout lives above the actions. */}
@@ -1127,16 +1173,19 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                   styles.padAddButton,
                   stockInput === '' && identifyStatus !== 'failed' && styles.padAddButtonDisabled,
                 ]}
-                onPress={identifyStatus === 'failed' ? handleRetakePhoto : handlePadAdd}
+                onPress={identifyStatus === 'failed' && !padFailIsSaveable ? handleRetakePhoto : handlePadAdd}
                 disabled={stockInput === '' && identifyStatus !== 'failed'}
                 activeOpacity={0.8}
               >
                 {/* The label is the instruction. While identification is still
                     running, the thing worth saying is that leaving now is the
                     intended path — not "Add Bottle", which says nothing about
-                    whether you're allowed to go yet. */}
+                    whether you're allowed to go yet. On a connectivity failure
+                    the intended path is saving the count, not standing in the
+                    dead zone retaking a photo that will fail the same way. */}
                 <Text style={styles.padAddText}>
-                  {identifyStatus === 'failed' ? (failedViaBarcode ? 'Try Camera Scan' : 'Retake Photo')
+                  {padFailIsSaveable ? 'Save & Identify Later'
+                    : identifyStatus === 'failed' ? (failedViaBarcode ? 'Try Camera Scan' : 'Retake Photo')
                     : existingBottle ? 'Update Count'
                     : identifyStatus === 'pending' ? 'Add & Keep Scanning'
                     : 'Add Bottle'}

@@ -6,7 +6,7 @@ import {
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Search, Plus, ChevronRight, Trash2, Minus, WifiOff } from 'lucide-react-native';
+import { Search, Plus, ChevronRight, Trash2, Minus, WifiOff, Check } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
@@ -37,7 +37,7 @@ function formatStock(value: number): string {
 }
 
 export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
-  const { bottles, isHydrated, updateBottle, removeBottle, retryScan } = useInventory();
+  const { bottles, isHydrated, updateBottle, removeBottle, retryScan, autoResolvedCount, acknowledgeAutoResolved } = useInventory();
   const { distributors } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -185,11 +185,20 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         </TouchableOpacity>
       </View>
 
+      {autoResolvedCount > 0 && (
+        <TouchableOpacity style={styles.resolvedBanner} onPress={acknowledgeAutoResolved} activeOpacity={0.7}>
+          <Check size={14} color={COLORS.success} />
+          <Text style={styles.resolvedBannerText}>
+            {autoResolvedCount} scan{autoResolvedCount === 1 ? '' : 's'} finished identifying in the background
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {pendingNetworkRetries > 0 && (
         <View style={styles.offlineBanner}>
           <WifiOff size={14} color={COLORS.warning} />
           <Text style={styles.offlineBannerText}>
-            {pendingNetworkRetries} scan{pendingNetworkRetries === 1 ? '' : 's'} waiting for a stronger connection — {'they’ll'} finish on {'their'} own next time you open the app with good service
+            {pendingNetworkRetries} scan{pendingNetworkRetries === 1 ? '' : 's'} waiting on a better connection — {'they’ll'} identify {'themselves'} as soon as {'there’s'} signal, no tapping needed
           </Text>
         </View>
       )}
@@ -587,6 +596,25 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.warning,
+  },
+  resolvedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: `${COLORS.success}12`,
+    borderWidth: 1,
+    borderColor: `${COLORS.success}30`,
+    borderRadius: 10,
+  },
+  resolvedBannerText: {
+    flex: 1,
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.success,
   },
   sectionHeader: {
     paddingHorizontal: SPACING.lg,
