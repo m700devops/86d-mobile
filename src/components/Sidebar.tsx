@@ -7,6 +7,7 @@ import { X, Camera, LayoutGrid, History, DollarSign, Settings, LogOut } from 'lu
 import SidebarItem from './SidebarItem';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
+import { useInventory } from '../context/InventoryContext';
 
 const { width } = Dimensions.get('window');
 const SIDEBAR_WIDTH = 288;
@@ -22,6 +23,8 @@ interface Props {
 export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, onSignOut }: Props) {
   const { user } = useAuth();
   const { currentLocation } = useLocation();
+  const { bottles } = useInventory();
+  const countInProgress = bottles.length;
   const displayName = currentLocation?.name || user?.business_name || 'My Bar';
   const initials = displayName
     .split(' ')
@@ -105,9 +108,14 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
             {/* Navigation */}
             <View style={styles.navContainer}>
               <Text style={styles.sectionTitle}>INVENTORY</Text>
+              {/* "New Scan" was a lie whenever a count was already going: it
+                  navigates to the camera, it never starts anything over, and
+                  the draft survives until an order is sent. Someone 30 bottles
+                  in shouldn't have to gamble on that. */}
               <SidebarItem
                 icon={<Camera size={18} color={currentScreen === 'camera' ? '#FFFFFF' : COLORS.accentPrimary} />}
-                label="New Scan"
+                label={countInProgress > 0 ? 'Continue Scanning' : 'New Scan'}
+                badge={countInProgress > 0 ? String(countInProgress) : undefined}
                 active={currentScreen === 'camera'}
                 onPress={() => handleNavigate('camera')}
               />

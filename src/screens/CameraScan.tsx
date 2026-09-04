@@ -84,7 +84,12 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
   const [showStartScreen, setShowStartScreen] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
-  const [bottleCount, setBottleCount] = useState(0);
+  // Derived from the draft, never a local tally: this screen remounts every
+  // time you come back from Review (or resume the app), and a local counter
+  // restarted at 0 there — telling someone 40 bottles into a count that they
+  // had scanned nothing, and disabling the "Scanned So Far" list that was
+  // sitting right there full of their bottles.
+  const bottleCount = bottles.length;
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [statusText, setStatusText] = useState(IDLE_STATUS);
   const [lastBottleId, setLastBottleId] = useState<string | null>(null);
@@ -545,7 +550,6 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       };
       addBottle(newBottle);
       setLastBottleId(newBottle.id);
-      setBottleCount(prev => prev + 1);
       setStatusText(label);
     }
 
@@ -607,7 +611,6 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     // the pad UI on a scan the user has already moved past.
     pendingCommits.current.set(token, newBottle.id);
     setLastBottleId(newBottle.id);
-    setBottleCount(prev => prev + 1);
 
     setPadVisible(false);
     setScanState('success');
@@ -769,7 +772,6 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     if (!lastBottleId) return;
     removeBottle(lastBottleId);
     setLastBottleId(null);
-    setBottleCount(prev => Math.max(0, prev - 1));
     resetToIdle();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -810,25 +812,42 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               </View>
             </View>
 
-            <Text style={styles.startHeadline}>Scan Your Inventory</Text>
-            <Text style={styles.startSubheadline}>
-              Point, tap, type a count. AI identifies each bottle instantly.
-            </Text>
+            {/* Resuming an existing count is the common case mid-shift — a
+                screen that reads like a fresh start makes people wonder
+                whether the bottles they already did are still there. Lead
+                with the number instead; the how-to tips are first-run copy
+                and only earn their space when there's nothing counted yet. */}
+            {bottleCount > 0 ? (
+              <>
+                <Text style={styles.startHeadline}>Continue Your Count</Text>
+                <Text style={styles.startSubheadline}>
+                  {bottleCount} bottle{bottleCount === 1 ? '' : 's'} counted so far — all saved.
+                  Pick up right where you left off.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.startHeadline}>Scan Your Inventory</Text>
+                <Text style={styles.startSubheadline}>
+                  Point, tap, type a count. AI identifies each bottle instantly.
+                </Text>
 
-            <View style={styles.startTips}>
-              <View style={styles.startTip}>
-                <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Point camera at the bottle label</Text>
-              </View>
-              <View style={styles.startTip}>
-                <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Tap the shutter — AI identifies the bottle</Text>
-              </View>
-              <View style={styles.startTip}>
-                <View style={styles.startTipDot} />
-                <Text style={styles.startTipText}>Type your total stock count on the number pad</Text>
-              </View>
-            </View>
+                <View style={styles.startTips}>
+                  <View style={styles.startTip}>
+                    <View style={styles.startTipDot} />
+                    <Text style={styles.startTipText}>Point camera at the bottle label</Text>
+                  </View>
+                  <View style={styles.startTip}>
+                    <View style={styles.startTipDot} />
+                    <Text style={styles.startTipText}>Tap the shutter — AI identifies the bottle</Text>
+                  </View>
+                  <View style={styles.startTip}>
+                    <View style={styles.startTipDot} />
+                    <Text style={styles.startTipText}>Type your total stock count on the number pad</Text>
+                  </View>
+                </View>
+              </>
+            )}
 
             <TouchableOpacity
               style={styles.startButton}
@@ -836,7 +855,9 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               activeOpacity={0.8}
             >
               <Zap size={20} color="#FFFFFF" fill="#FFFFFF" />
-              <Text style={styles.startButtonText}>Start Scanning</Text>
+              <Text style={styles.startButtonText}>
+                {bottleCount > 0 ? 'Continue Scanning' : 'Start Scanning'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

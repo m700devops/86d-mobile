@@ -8,10 +8,12 @@ interface Props {
   icon: React.ReactNode;
   label: string;
   active?: boolean;
+  // Trailing count, for items whose destination already has work in it.
+  badge?: string;
   onPress: () => void;
 }
 
-export default function SidebarItem({ icon, label, active = false, onPress }: Props) {
+export default function SidebarItem({ icon, label, active = false, badge, onPress }: Props) {
   return (
     <TouchableOpacity
       style={[
@@ -23,6 +25,11 @@ export default function SidebarItem({ icon, label, active = false, onPress }: Pr
     >
       <View style={[styles.icon, active && styles.activeIcon]}>{icon}</View>
       <Text style={[styles.label, active && styles.activeLabel]}>{label}</Text>
+      {!!badge && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{badge}</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -57,5 +64,19 @@ const styles = StyleSheet.create({
   activeLabel: {
     color: COLORS.accentPrimary,
     fontWeight: FONT_WEIGHTS.semibold,
+  },
+  badge: {
+    marginLeft: 'auto',
+    minWidth: 24,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: `${COLORS.accentPrimary}20`,
+    alignItems: 'center',
+  },
+  badgeText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.accentPrimary,
   },
 });
