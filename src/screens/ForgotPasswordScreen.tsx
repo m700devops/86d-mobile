@@ -14,6 +14,7 @@ import {
 import { Mail, Lock, KeyRound, Eye, EyeOff, ChevronLeft, CheckCircle2 } from 'lucide-react-native';
 import { apiService } from '../services/api';
 import { BrandMark, GlowBackground } from '../components/Brand';
+import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 
 interface Props {
   onBackToLogin: () => void;
@@ -162,6 +163,7 @@ export function ForgotPasswordScreen({ onBackToLogin }: Props) {
                         onFocus={() => setFocusedField('code')}
                         onBlur={() => setFocusedField(null)}
                         keyboardType="number-pad"
+                        inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
                         maxLength={6}
                         editable={!isLoading}
                         autoFocus
@@ -230,6 +232,7 @@ export function ForgotPasswordScreen({ onBackToLogin }: Props) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <NumericDoneAccessory />
     </SafeAreaView>
   );
 }

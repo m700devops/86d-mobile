@@ -13,6 +13,7 @@ import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 import { Bottle } from '../types';
 import ConnectionNotice from '../components/ConnectionNotice';
+import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 
 interface Props {
   onGenerateOrder: () => void;
@@ -324,6 +325,9 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
             : 'Finalize inventory and par levels'}
         </Text>
       </View>
+      {/* One accessory for every stepper row — the stock steppers use a
+          decimal pad, which has no return key on iOS. */}
+      <NumericDoneAccessory />
     </SafeAreaView>
   );
 }
@@ -445,6 +449,7 @@ function BottleRow({
             style={styles.stepperInput}
             value={stockDraft ?? formatStock(bottle.currentStock ?? 0)}
             keyboardType="decimal-pad"
+            inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
             returnKeyType="done"
             onFocus={() => setStockDraft(formatStock(bottle.currentStock ?? 0))}
             onChangeText={(text) => setStockDraft(text.replace(/[^0-9.]/g, ''))}

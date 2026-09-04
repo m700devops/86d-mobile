@@ -9,6 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { apiService } from '../services/api';
 import { Bottle, Product } from '../types';
 import BarcodeScannerModal from './BarcodeScannerModal';
+import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from './NumericDoneAccessory';
 
 interface Props {
   onClose: () => void;
@@ -302,6 +303,7 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
                   value={stock}
                   onChangeText={(text) => setStock(text.replace(/[^0-9.]/g, ''))}
                   keyboardType="decimal-pad"
+                  inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
                 />
               </View>
 
@@ -369,6 +371,7 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
         onClose={() => setShowScanner(false)}
         onScanned={handleBarcodeScanned}
       />
+      <NumericDoneAccessory />
     </Modal>
   );
 }

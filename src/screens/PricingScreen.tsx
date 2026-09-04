@@ -22,6 +22,7 @@ import { useInventory } from '../context/InventoryContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 import { Product } from '../types';
+import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -454,6 +455,7 @@ export default function PricingScreen() {
                 value={priceInput}
                 onChangeText={text => setPriceInput(text.replace(/[^0-9.]/g, ''))}
                 keyboardType="decimal-pad"
+                inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
                 autoFocus
                 returnKeyType="done"
                 onSubmitEditing={handleSave}
@@ -479,6 +481,7 @@ export default function PricingScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
+        <NumericDoneAccessory />
       </Modal>
     </SafeAreaView>
   );

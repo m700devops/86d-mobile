@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert, KeyboardAvoidingView, Keyboard, Platform, TouchableWithoutFeedback } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store, MapPin } from 'lucide-react-native';
 import { useDistributors } from '../context/DistributorContext';
+import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 import { useAuth } from '../context/AuthContext';
 import { useStaff } from '../context/StaffContext';
 import { useLocation } from '../context/LocationContext';
@@ -559,123 +560,147 @@ export default function SettingsScreen() {
 
       {/* Add/Edit Modal */}
       <Modal transparent visible={isModalOpen} onRequestClose={() => setIsModalOpen(false)} animationType="none">
-        <View style={styles.modalOverlay}>
-          <Animated.View 
-            style={[
-              styles.modalContent,
-              { 
-                transform: [{ scale: modalScale }],
-                opacity: modalOpacity,
-              }
-            ]}
-          >
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {editingId ? 'Edit Distributor' : 'New Distributor'}
-              </Text>
-              <TouchableOpacity onPress={() => setIsModalOpen(false)} activeOpacity={0.7}>
-                <X size={20} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalForm}>
-              {/* Name */}
-              <View style={styles.formGroup}>
-                <Text style={styles.fieldLabel}>NAME</Text>
-                <View style={styles.inputWithIcon}>
-                  <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="e.g. Southern Glazer's"
-                    placeholderTextColor={COLORS.textTertiary}
-                    value={name}
-                    onChangeText={setName}
-                  />
-                </View>
-              </View>
-
-              {/* Initials & Rep Name */}
-              <View style={styles.twoColumnRow}>
-                <View style={[styles.formGroup, { flex: 1 }]}>
-                  <Text style={styles.fieldLabel}>INITIALS</Text>
-                  <View style={styles.inputWithIcon}>
-                    <Hash size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.modalInput}
-                      placeholder="SG"
-                      placeholderTextColor={COLORS.textTertiary}
-                      value={initials}
-                      onChangeText={(text) => setInitials(text.toUpperCase())}
-                      maxLength={3}
-                    />
-                  </View>
-                </View>
-
-                <View style={[styles.formGroup, { flex: 2 }]}>
-                  <Text style={styles.fieldLabel}>REP NAME</Text>
-                  <View style={styles.inputWithIcon}>
-                    <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.modalInput}
-                      placeholder="John Smith"
-                      placeholderTextColor={COLORS.textTertiary}
-                      value={repName}
-                      onChangeText={setRepName}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* Email */}
-              <View style={styles.formGroup}>
-                <Text style={styles.fieldLabel}>EMAIL</Text>
-                <View style={styles.inputWithIcon}>
-                  <Mail size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="orders@example.com"
-                    placeholderTextColor={COLORS.textTertiary}
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-              </View>
-
-              {/* Phone */}
-              <View style={styles.formGroup}>
-                <Text style={styles.fieldLabel}>PHONE</Text>
-                <View style={styles.inputWithIcon}>
-                  <Phone size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="(555) 000-0000"
-                    placeholderTextColor={COLORS.textTertiary}
-                    value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="phone-pad"
-                  />
-                </View>
-              </View>
-            </View>
-
-            <TouchableOpacity
+        {/* Three separate escapes from the keyboard, because the phone field
+            uses a numeric pad with no return key on iOS: the Done bar above
+            the keyboard, tapping the dimmed area outside the card, and the
+            card lifting so Save is never buried under the keyboard. Before
+            this, focusing PHONE left no way out of the form at all.
+            The backdrop is a sibling behind the card rather than a wrapper
+            around it (same shape as Sidebar's) so it can't intercept taps
+            meant for the inputs. */}
+        <KeyboardAvoidingView
+          style={styles.modalOverlayFill}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()} accessible={false}>
+              <View style={styles.modalBackdropTouch} />
+            </TouchableWithoutFeedback>
+            <Animated.View
               style={[
-                styles.saveButton,
-                (!name.trim() || !initials.trim() || !email.trim()) && styles.saveButtonDisabled,
+                styles.modalContent,
+                {
+                  transform: [{ scale: modalScale }],
+                  opacity: modalOpacity,
+                }
               ]}
-              onPress={handleSave}
-              disabled={!name.trim() || !initials.trim() || !email.trim()}
-              activeOpacity={0.8}
             >
-              <Check size={18} color="#FFFFFF" />
-              <Text style={styles.saveButtonText}>
-                {editingId ? 'Update' : 'Save'}
-              </Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+              >
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    {editingId ? 'Edit Distributor' : 'New Distributor'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setIsModalOpen(false)} activeOpacity={0.7}>
+                    <X size={20} color={COLORS.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.modalForm}>
+                  {/* Name */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>NAME</Text>
+                    <View style={styles.inputWithIcon}>
+                      <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="e.g. Southern Glazer's"
+                        placeholderTextColor={COLORS.textTertiary}
+                        value={name}
+                        onChangeText={setName}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Initials & Rep Name */}
+                  <View style={styles.twoColumnRow}>
+                    <View style={[styles.formGroup, { flex: 1 }]}>
+                      <Text style={styles.fieldLabel}>INITIALS</Text>
+                      <View style={styles.inputWithIcon}>
+                        <Hash size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.modalInput}
+                          placeholder="SG"
+                          placeholderTextColor={COLORS.textTertiary}
+                          value={initials}
+                          onChangeText={(text) => setInitials(text.toUpperCase())}
+                          maxLength={3}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={[styles.formGroup, { flex: 2 }]}>
+                      <Text style={styles.fieldLabel}>REP NAME</Text>
+                      <View style={styles.inputWithIcon}>
+                        <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.modalInput}
+                          placeholder="John Smith"
+                          placeholderTextColor={COLORS.textTertiary}
+                          value={repName}
+                          onChangeText={setRepName}
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Email */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>EMAIL</Text>
+                    <View style={styles.inputWithIcon}>
+                      <Mail size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="orders@example.com"
+                        placeholderTextColor={COLORS.textTertiary}
+                        value={email}
+                        onChangeText={setEmail}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                  </View>
+
+                  {/* Phone */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>PHONE</Text>
+                    <View style={styles.inputWithIcon}>
+                      <Phone size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="(555) 000-0000"
+                        placeholderTextColor={COLORS.textTertiary}
+                        value={phone}
+                        onChangeText={setPhone}
+                        keyboardType="phone-pad"
+                        inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.saveButton,
+                    (!name.trim() || !initials.trim() || !email.trim()) && styles.saveButtonDisabled,
+                  ]}
+                  onPress={handleSave}
+                  disabled={!name.trim() || !initials.trim() || !email.trim()}
+                  activeOpacity={0.8}
+                >
+                  <Check size={18} color="#FFFFFF" />
+                  <Text style={styles.saveButtonText}>
+                    {editingId ? 'Update' : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </Animated.View>
+          </View>
+        </KeyboardAvoidingView>
+        <NumericDoneAccessory />
       </Modal>
     </SafeAreaView>
   );
@@ -895,6 +920,12 @@ const styles = StyleSheet.create({
   toggleKnobActive: {
     transform: [{ translateX: 24 }],
   },
+  modalOverlayFill: {
+    flex: 1,
+  },
+  modalBackdropTouch: {
+    ...StyleSheet.absoluteFillObject,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.8)',
@@ -910,6 +941,7 @@ const styles = StyleSheet.create({
     padding: SPACING.xl,
     width: '100%',
     maxWidth: 400,
+    maxHeight: '100%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 20 },
     shadowOpacity: 0.5,

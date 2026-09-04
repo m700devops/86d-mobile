@@ -5,6 +5,7 @@ import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typograph
 import { SPACING } from '../constants/spacing';
 import { X, Camera, LayoutGrid, History, DollarSign, Settings, LogOut, Trash2 } from 'lucide-react-native';
 import SidebarItem from './SidebarItem';
+import { BrandMark } from './Brand';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
 import { useInventory } from '../context/InventoryContext';
@@ -118,8 +119,11 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.logo}>
+                {/* The real brand mark, same one as the home-screen icon —
+                    this used to be an orange square with "86" typed in it,
+                    which matched nothing else we ship. */}
                 <View style={styles.logoIcon}>
-                  <Text style={styles.logoText}>86</Text>
+                  <BrandMark size={36} />
                 </View>
                 <Text style={styles.logoTitle}>86'd</Text>
               </View>
@@ -259,13 +263,11 @@ const styles = StyleSheet.create({
   logoIcon: {
     width: 36,
     height: 36,
-    backgroundColor: COLORS.accentPrimary,
-    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FF6B35',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 4,
   },
