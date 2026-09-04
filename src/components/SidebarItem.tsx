@@ -10,10 +10,24 @@ interface Props {
   active?: boolean;
   // Trailing count, for items whose destination already has work in it.
   badge?: string;
+  // Throws work away. Coloured like Sign Out so it never reads as one more
+  // place to navigate to.
+  destructive?: boolean;
+  // Secondary line under the label — used to spell out the consequence of a
+  // destructive action before it's tapped.
+  sublabel?: string;
   onPress: () => void;
 }
 
-export default function SidebarItem({ icon, label, active = false, badge, onPress }: Props) {
+export default function SidebarItem({
+  icon,
+  label,
+  active = false,
+  badge,
+  destructive = false,
+  sublabel,
+  onPress,
+}: Props) {
   return (
     <TouchableOpacity
       style={[
@@ -24,7 +38,12 @@ export default function SidebarItem({ icon, label, active = false, badge, onPres
       activeOpacity={0.7}
     >
       <View style={[styles.icon, active && styles.activeIcon]}>{icon}</View>
-      <Text style={[styles.label, active && styles.activeLabel]}>{label}</Text>
+      <View style={styles.labelColumn}>
+        <Text style={[styles.label, active && styles.activeLabel, destructive && styles.destructiveLabel]}>
+          {label}
+        </Text>
+        {!!sublabel && <Text style={styles.sublabel}>{sublabel}</Text>}
+      </View>
       {!!badge && (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{badge}</Text>
@@ -64,6 +83,17 @@ const styles = StyleSheet.create({
   activeLabel: {
     color: COLORS.accentPrimary,
     fontWeight: FONT_WEIGHTS.semibold,
+  },
+  labelColumn: {
+    flex: 1,
+  },
+  destructiveLabel: {
+    color: COLORS.error,
+  },
+  sublabel: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: 2,
   },
   badge: {
     marginLeft: 'auto',
