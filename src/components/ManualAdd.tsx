@@ -293,9 +293,9 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
                 />
               </View>
 
-              {/* Current Stock */}
+              {/* Bottles on hand */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>CURRENT STOCK</Text>
+                <Text style={styles.fieldLabel}>BOTTLES ON HAND</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="Number of bottles"

@@ -635,7 +635,7 @@ function BottleRow({
             <Plus size={10} color={COLORS.textSecondary} />
           </TouchableOpacity>
         </View>
-        <Text style={styles.stepperLabel}>CURRENT STOCK</Text>
+        <Text style={styles.stepperLabel}>ON HAND</Text>
       </View>
 
       {/* Par stepper */}

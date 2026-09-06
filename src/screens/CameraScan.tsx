@@ -1141,7 +1141,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               {/* Typed value */}
               <View style={styles.padValueRow}>
                 <Text style={styles.padValue}>{stockInput === '' ? '0' : stockInput}</Text>
-                <Text style={styles.padValueLabel}>CURRENT STOCK</Text>
+                <Text style={styles.padValueLabel}>BOTTLES ON HAND</Text>
               </View>
 
               {/* Keypad */}
