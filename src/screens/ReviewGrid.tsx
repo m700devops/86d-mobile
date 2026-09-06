@@ -7,7 +7,7 @@ import {
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Search, Plus, ChevronRight, Trash2, Minus, WifiOff, Check } from 'lucide-react-native';
+import { Search, Plus, ChevronRight, ChevronDown, Trash2, Minus, WifiOff, Check } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
@@ -43,6 +43,18 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   const { distributors, addDistributor } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
+  // Which distributor sections are folded — by id, so it survives the list
+  // re-sorting itself as stock/par values change. Session-only on purpose:
+  // resets on next visit rather than risking a section staying hidden across
+  // a whole shift because it was collapsed days ago and forgotten.
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const toggleSection = (id: string) => {
+    setCollapsedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   const [assigningBottle, setAssigningBottle] = useState<Bottle | null>(null);
   // Inline distributor creation, from inside the assign sheet. Sending someone
   // to Settings mid-assignment loses the bottle they were on, and before this
@@ -199,6 +211,15 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     return result;
   }, [filtered, distributors]);
 
+  // Collapsed sections keep their header (with a live count) but contribute no
+  // rows to the list — the point being to let a big multi-distributor order
+  // shrink down to just the sections still worth looking at, rather than
+  // scrolling past ones already handled every time.
+  const displaySections = useMemo(
+    () => sections.map(s => ({ ...s, count: s.data.length, data: collapsedSections.has(s.id) ? [] : s.data })),
+    [sections, collapsedSections]
+  );
+
   // Hydration is gated on having a location — if locations failed from both
   // cache and server, this spinner would never resolve. Surface that as a
   // retry state instead of spinning forever (the grocery-store bug: bad
@@ -267,16 +288,31 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
 
       {/* Bottle List */}
       <SectionList
-        sections={sections}
+        sections={displaySections}
         keyExtractor={item => item.id}
         renderSectionHeader={({ section }) =>
           section.title ? (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeaderText}>{section.title.toUpperCase()}</Text>
-              {section.id === '__none__' && (
+            <TouchableOpacity
+              style={styles.sectionHeader}
+              onPress={() => toggleSection(section.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeaderText}>{section.title.toUpperCase()}</Text>
+                <View style={styles.sectionHeaderRight}>
+                  <Text style={styles.sectionHeaderCount}>{section.count}</Text>
+                  {/* Rotating a plain View, not the icon itself — an SVG icon
+                      component's own style prop doesn't reliably take a
+                      transform on every renderer, a View's always does. */}
+                  <View style={collapsedSections.has(section.id) && styles.sectionChevronCollapsed}>
+                    <ChevronDown size={16} color={COLORS.textTertiary} />
+                  </View>
+                </View>
+              </View>
+              {section.id === '__none__' && !collapsedSections.has(section.id) && (
                 <Text style={styles.sectionHeaderHint}>Tap item to assign</Text>
               )}
-            </View>
+            </TouchableOpacity>
           ) : null
         }
         renderItem={({ item }) => (
@@ -765,6 +801,24 @@ const styles = StyleSheet.create({
     color: COLORS.textTertiary,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  sectionHeaderCount: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textTertiary,
+  },
+  sectionChevronCollapsed: {
+    transform: [{ rotate: '-90deg' }],
   },
   listContent: {
     paddingHorizontal: SPACING.lg,
