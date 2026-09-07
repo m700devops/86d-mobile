@@ -1,12 +1,14 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Modal, Animated, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Modal, Animated, Dimensions, Alert } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { X, Camera, LayoutGrid, History, DollarSign, Settings, LogOut } from 'lucide-react-native';
+import { X, Camera, LayoutGrid, History, DollarSign, Settings, LogOut, Trash2 } from 'lucide-react-native';
 import SidebarItem from './SidebarItem';
+import { BrandMark } from './Brand';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
+import { useInventory } from '../context/InventoryContext';
 
 const { width } = Dimensions.get('window');
 const SIDEBAR_WIDTH = 288;
@@ -22,6 +24,8 @@ interface Props {
 export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, onSignOut }: Props) {
   const { user } = useAuth();
   const { currentLocation } = useLocation();
+  const { bottles, clearBottles } = useInventory();
+  const countInProgress = bottles.length;
   const displayName = currentLocation?.name || user?.business_name || 'My Bar';
   const initials = displayName
     .split(' ')
@@ -68,6 +72,29 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
     onClose();
   };
 
+  // Two taps to throw away a shift's work, with the number stated in the
+  // prompt — the count is the thing at stake, so it's what the confirmation
+  // leads with. Deliberately not an undoable soft-delete: clearBottles drops
+  // the photos and both copies of the draft (local and server), and pretending
+  // otherwise would be the same kind of lie "New Scan" was telling.
+  const handleDiscardCount = () => {
+    Alert.alert(
+      `Discard ${countInProgress} counted bottle${countInProgress === 1 ? '' : 's'}?`,
+      'This clears the count in progress and starts a new one. It cannot be undone, and it does not affect orders you have already sent.',
+      [
+        { text: 'Keep Counting', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: () => {
+            clearBottles();
+            handleNavigate('camera');
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <Modal transparent visible={isOpen} onRequestClose={onClose} animationType="none">
       <View style={styles.container}>
@@ -92,8 +119,11 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.logo}>
+                {/* The real brand mark, same one as the home-screen icon —
+                    this used to be an orange square with "86" typed in it,
+                    which matched nothing else we ship. */}
                 <View style={styles.logoIcon}>
-                  <Text style={styles.logoText}>86</Text>
+                  <BrandMark size={36} />
                 </View>
                 <Text style={styles.logoTitle}>86'd</Text>
               </View>
@@ -105,9 +135,14 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
             {/* Navigation */}
             <View style={styles.navContainer}>
               <Text style={styles.sectionTitle}>INVENTORY</Text>
+              {/* "New Scan" was a lie whenever a count was already going: it
+                  navigates to the camera, it never starts anything over, and
+                  the draft survives until an order is sent. Someone 30 bottles
+                  in shouldn't have to gamble on that. */}
               <SidebarItem
                 icon={<Camera size={18} color={currentScreen === 'camera' ? '#FFFFFF' : COLORS.accentPrimary} />}
-                label="New Scan"
+                label={countInProgress > 0 ? 'Continue Scanning' : 'New Scan'}
+                badge={countInProgress > 0 ? String(countInProgress) : undefined}
                 active={currentScreen === 'camera'}
                 onPress={() => handleNavigate('camera')}
               />
@@ -123,6 +158,21 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
                 active={currentScreen === 'orders'}
                 onPress={() => handleNavigate('orders')}
               />
+
+              {/* The counterpart to "Continue Scanning": now that the menu is
+                  honest about resuming, this is the only way to deliberately
+                  start over. Only shown when there's actually something to
+                  throw away, so it can't be tapped out of curiosity on a
+                  clean slate. */}
+              {countInProgress > 0 && (
+                <SidebarItem
+                  icon={<Trash2 size={18} color={COLORS.error} />}
+                  label="Discard Count"
+                  sublabel={`Delete ${countInProgress} counted bottle${countInProgress === 1 ? '' : 's'}`}
+                  destructive
+                  onPress={handleDiscardCount}
+                />
+              )}
 
               <View style={styles.divider} />
 
@@ -213,13 +263,11 @@ const styles = StyleSheet.create({
   logoIcon: {
     width: 36,
     height: 36,
-    backgroundColor: COLORS.accentPrimary,
-    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FF6B35',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 4,
   },

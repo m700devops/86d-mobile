@@ -15,15 +15,15 @@ interface LocationContextType {
   loadFailed: boolean;
   setCurrentLocation: (id: string) => void;
   addLocation: (name: string, address?: string) => Promise<void>;
-  updateOrderRoundingMode: (mode: 'up' | 'nearest') => Promise<void>;
+  updateReorderThreshold: (threshold: number) => Promise<void>;
   reload: () => void;
 }
 
 const LocationContext = createContext<LocationContextType | undefined>(undefined);
 
-// Locations are the root of the whole offline story: inventory drafts, staff
-// lists, and price lookups are all keyed by location id, and every one of
-// those flows dies if currentLocation is null. Fetching locations only from
+// Locations are the root of the whole offline story: inventory drafts and
+// price lookups are all keyed by location id, and every one of those flows
+// dies if currentLocation is null. Fetching locations only from
 // the server meant one failed request on launch (bad cell signal in a
 // stockroom, Render cold start, captive wifi) left the app permanently
 // spinner-locked — Review, Order Summary, and Order History all gate on
@@ -149,9 +149,9 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setCurrentLocationState(created);
   };
 
-  const updateOrderRoundingMode = async (mode: 'up' | 'nearest') => {
+  const updateReorderThreshold = async (threshold: number) => {
     if (!currentLocation) return;
-    const updated = await apiService.updateLocation(currentLocation.id, { order_rounding_mode: mode });
+    const updated = await apiService.updateLocation(currentLocation.id, { reorder_threshold: threshold });
     setLocations(prev => {
       const next = prev.map(l => (l.id === updated.id ? updated : l));
       if (userId) AsyncStorage.setItem(locationsKey(userId), JSON.stringify(next)).catch(() => {});
@@ -162,7 +162,7 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   return (
     <LocationContext.Provider
-      value={{ currentLocation, locations, loading, loadFailed, setCurrentLocation, addLocation, updateOrderRoundingMode, reload }}
+      value={{ currentLocation, locations, loading, loadFailed, setCurrentLocation, addLocation, updateReorderThreshold, reload }}
     >
       {children}
     </LocationContext.Provider>

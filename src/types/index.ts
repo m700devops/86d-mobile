@@ -163,6 +163,17 @@ export interface Bottle {
   // Why a 'failed' scan failed — 'network' failures auto-retry when connectivity
   // returns; 'other' (e.g. bottle genuinely not recognized) only retries manually
   failureReason?: 'network' | 'other';
+  // Automatic-retry bookkeeping (see utils/retryPolicy). Two separate counts,
+  // because "no signal" and "the AI can't read this photo" deserve opposite
+  // treatment: a connectivity failure should keep trying however long the
+  // dead zone lasts, while an unreadable photo should stop asking.
+  //  - retryAttempts: every attempt. Only paces the backoff ladder.
+  //  - unreadableAttempts: attempts where the server answered and still
+  //    couldn't identify the bottle. This is the one that gives up.
+  // A manual retry resets both — a human tap means "try again now".
+  retryAttempts?: number;
+  unreadableAttempts?: number;
+  lastRetryAt?: number;
 }
 
 export interface ProductDistributorAssignment {
@@ -177,13 +188,10 @@ export interface Location {
   name: string;
   address?: string;
   isCurrent?: boolean;
-  // 'nearest' (default) skips ordering when the shortfall is under half a
-  // bottle; 'up' always rounds up to the next whole bottle. Per-location —
-  // set in Settings.
-  order_rounding_mode?: 'up' | 'nearest';
-  // Named staff list for "who counted" attribution — synced server-side so
-  // every device on the account sees the same list
-  staff_names?: string[];
+  // Fraction of par a product's stock must fall below before it's flagged
+  // for reorder (e.g. 0.7 = reorder once stock drops below 70% of par).
+  // Per-location — set in Settings.
+  reorder_threshold?: number;
 }
 
 export interface Distributor {

@@ -2,68 +2,88 @@ import React from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
 import Svg, {
   Defs,
-  LinearGradient,
+  ClipPath,
   RadialGradient,
   Stop,
   Circle,
   G,
-  Line,
-  Path,
   Rect,
   Text as SvgText,
 } from 'react-native-svg';
 
-// --- BrandMark: bottle outline with checklist lines and a gold liquid base,
-// matching assets/icon.png exactly (same 120x120 coordinate space). Keep in
-// sync with icon.png if rebranding. ---
+// --- BrandMark: "86'd" rubber-stamp wordmark over a bottle skyline, ported
+// from the icon source's 300x300 artboard (same coordinate space as
+// assets/icon.png). Keep in sync with icon.png if rebranding. ---
 
 interface BrandMarkProps {
   size?: number;
 }
 
+// Body + neck geometry for each bottle, left-to-right (bw/bh = body width/
+// height, nw/nh = neck width/height, nx = neck x, centered over the body).
+// Bottoms all sit flush on the 300px baseline; heights are irregular on
+// purpose so the row reads as a skyline. The red bottle (#3) is the only
+// red note — it ties back to the stamp above.
+const SKYLINE = [
+  { x: 47, bw: 22, bh: 40, nx: 54.5, nw: 7, nh: 16, c: '#17181b' },
+  { x: 76, bw: 26, bh: 62, nx: 85, nw: 8, nh: 22, c: '#2b2c30' },
+  { x: 109, bw: 20, bh: 34, nx: 115.5, nw: 7, nh: 18, c: '#8a1a26' },
+  { x: 136, bw: 30, bh: 70, nx: 146.5, nw: 9, nh: 26, c: '#17181b' },
+  { x: 173, bw: 22, bh: 48, nx: 180.5, nw: 7, nh: 15, c: '#2b2c30' },
+  { x: 202, bw: 24, bh: 56, nx: 210, nw: 8, nh: 20, c: '#17181b' },
+  { x: 233, bw: 20, bh: 32, nx: 239.5, nw: 7, nh: 14, c: '#3a3b40' },
+];
+
 export function BrandMark({ size = 88 }: BrandMarkProps) {
   return (
     <View style={[styles.markWrapper, { width: size, height: size }]}>
-      <Svg width={size} height={size} viewBox="0 0 120 120">
+      <Svg width={size} height={size} viewBox="0 0 300 300">
         <Defs>
-          <LinearGradient id="brandLiquid" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor="#eab654" />
-            <Stop offset="100%" stopColor="#bd8226" />
-          </LinearGradient>
+          <ClipPath id="brandCardClip">
+            <Rect x="0" y="0" width="300" height="300" rx="67" />
+          </ClipPath>
+          <RadialGradient id="brandVignette" cx="0.78" cy="0.88" r="0.6">
+            <Stop offset="0" stopColor="#17181b" stopOpacity="0.12" />
+            <Stop offset="0.46" stopColor="#17181b" stopOpacity="0" />
+          </RadialGradient>
         </Defs>
 
-        <Rect width="120" height="120" rx="28" fill="#141110" />
+        <G clipPath="url(#brandCardClip)">
+          <Rect x="0" y="0" width="300" height="300" fill="#f2ece4" />
 
-        {/* Bottle group, scaled 1.5x about its own center (59,52) so it reads
-            as the centerpiece of the mark rather than a small icon within it. */}
-        <G transform="translate(59, 52) scale(1.5) translate(-59, -52)">
-          <Path
-            d="M54 20 L54 28 L48 35 L48 80 Q48 84 52 84 L66 84 Q70 84 70 80 L70 35 L64 28 L64 20 Z"
-            fill="none"
-            stroke="#d9a13e"
-            strokeWidth="1.5"
-          />
+          {SKYLINE.map((b, i) => (
+            <G key={i}>
+              <Rect x={b.nx} y={300 - b.bh - b.nh} width={b.nw} height={b.nh} fill={b.c} />
+              <Rect x={b.x} y={300 - b.bh} width={b.bw} height={b.bh} fill={b.c} />
+            </G>
+          ))}
 
-          <Line x1="53" y1="44" x2="65" y2="44" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
-          <Line x1="53" y1="51" x2="65" y2="51" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
-          <Line x1="53" y1="58" x2="65" y2="58" stroke="#d9a13e" strokeWidth="1.1" opacity="0.6" />
+          {/* rubber-stamp box, tilted -9deg, sits above the skyline */}
+          <G transform="rotate(-9 150 120)">
+            <Rect
+              x="42"
+              y="65"
+              width="216"
+              height="110"
+              rx="10"
+              fill="none"
+              stroke="#8a1a26"
+              strokeWidth={9}
+            />
+            <SvgText
+              x="150"
+              y="144"
+              textAnchor="middle"
+              fontWeight="700"
+              fontSize="68"
+              fill="#8a1a26"
+              letterSpacing={-2}
+            >
+              86&apos;d
+            </SvgText>
+          </G>
 
-          <Path
-            d="M48 70 Q59 66 70 70 L70 80 Q70 84 66 84 L52 84 Q48 84 48 80 Z"
-            fill="url(#brandLiquid)"
-          />
-
-          <SvgText
-            x="59"
-            y="80"
-            textAnchor="middle"
-            fontFamily="Liberation Serif"
-            fontWeight="bold"
-            fontSize="11"
-            fill="#3b230a"
-          >
-            86'd
-          </SvgText>
+          <Rect x="0" y="0" width="300" height="300" fill="url(#brandVignette)" />
         </G>
       </Svg>
     </View>

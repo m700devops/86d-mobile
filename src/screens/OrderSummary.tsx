@@ -10,7 +10,6 @@ import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
-import { useStaff } from '../context/StaffContext';
 import { usePricing } from '../context/PricingContext';
 import { apiService } from '../services/api';
 import { OrderItem, OrderDistributorSummary } from '../types';
@@ -29,9 +28,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const { distributors } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
-  const { staff } = useStaff();
   const { priceFor } = usePricing();
-  const [countedBy, setCountedBy] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
   // Snapshot of what actually went out, captured before the draft is cleared.
@@ -67,14 +64,15 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       )
     : bottles
         .map(b => {
-          // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole
-          // bottles. 'nearest' (default) skips ordering for a shortfall under
-          // half a bottle; 'up' always rounds up so it never under-orders.
-          const shortfall = b.parLevel - (b.currentStock || 0);
-          const roundedShortfall = currentLocation?.order_rounding_mode === 'up'
-            ? Math.ceil(shortfall)
-            : Math.round(shortfall);
-          const totalQuantity = Math.max(0, roundedShortfall);
+          // Reorder point is a fraction of par (default 0.7, adjustable in
+          // Settings) — flag it once stock drops below that line. Once
+          // flagged, order whole bottles back up to full par (stock is
+          // decimal — 4.75 = 4 backups + one open at 3/4 — so the order
+          // itself always rounds up; you can't order a fractional bottle).
+          const stock = b.currentStock || 0;
+          const reorderPoint = b.parLevel * (currentLocation?.reorder_threshold ?? 0.7);
+          const needsReorder = stock < reorderPoint;
+          const totalQuantity = needsReorder ? Math.max(0, Math.ceil(b.parLevel - stock)) : 0;
 
           return {
             bottleId: b.id,
@@ -155,7 +153,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       const response = await apiService.sendOrderEmails({
         location_id: currentLocation.id,
         location_name: currentLocation.name ?? 'My Bar',
-        staff_name: countedBy ?? undefined,
         orders: pending.map(g => ({
           distributor_id: g.distributor.id,
           items: g.items.map(i => ({
@@ -420,26 +417,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             : ''}
         </Text>
       </View>
-
-      {staff.length > 0 && (
-        <View style={styles.countedByRow}>
-          <Text style={styles.countedByLabel}>Counted by:</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.countedByChips}>
-            {staff.map(name => (
-              <TouchableOpacity
-                key={name}
-                style={[styles.countedByChip, countedBy === name && styles.countedByChipActive]}
-                onPress={() => setCountedBy(countedBy === name ? null : name)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.countedByChipText, countedBy === name && styles.countedByChipTextActive]}>
-                  {name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -776,43 +753,6 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
     marginTop: SPACING.xs,
-  },
-  countedByRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.md,
-  },
-  countedByLabel: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.textTertiary,
-    letterSpacing: 1,
-  },
-  countedByChips: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  countedByChip: {
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  countedByChipActive: {
-    backgroundColor: COLORS.accentPrimary,
-    borderColor: COLORS.accentPrimary,
-  },
-  countedByChipText: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.textSecondary,
-  },
-  countedByChipTextActive: {
-    color: '#FFFFFF',
   },
   scrollContent: {
     paddingBottom: 280,

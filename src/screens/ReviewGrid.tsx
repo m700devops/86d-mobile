@@ -2,17 +2,19 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, SafeAreaView,
   SectionList, TextInput, Modal, Alert, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Search, Plus, ChevronRight, Trash2, Minus, WifiOff } from 'lucide-react-native';
+import { Search, Plus, ChevronRight, ChevronDown, Trash2, Minus, WifiOff, Check } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 import { Bottle } from '../types';
 import ConnectionNotice from '../components/ConnectionNotice';
+import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 
 interface Props {
   onGenerateOrder: () => void;
@@ -37,12 +39,84 @@ function formatStock(value: number): string {
 }
 
 export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToSettings }: Props) {
-  const { bottles, isHydrated, updateBottle, removeBottle, retryScan } = useInventory();
-  const { distributors } = useDistributors();
+  const { bottles, isHydrated, updateBottle, removeBottle, retryScan, autoResolvedCount, acknowledgeAutoResolved } = useInventory();
+  const { distributors, addDistributor } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
+  // Which distributor sections are folded — by id, so it survives the list
+  // re-sorting itself as stock/par values change. Session-only on purpose:
+  // resets on next visit rather than risking a section staying hidden across
+  // a whole shift because it was collapsed days ago and forgotten.
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const toggleSection = (id: string) => {
+    setCollapsedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   const [assigningBottle, setAssigningBottle] = useState<Bottle | null>(null);
+  // Inline distributor creation, from inside the assign sheet. Sending someone
+  // to Settings mid-assignment loses the bottle they were on, and before this
+  // the sheet offered nothing but a list — if the distributor you needed
+  // wasn't already saved, the flow simply ended there.
+  const [addingDistributor, setAddingDistributor] = useState(false);
+  const [newDistName, setNewDistName] = useState('');
+  const [newDistEmail, setNewDistEmail] = useState('');
+  const [savingDistributor, setSavingDistributor] = useState(false);
+  const [newDistError, setNewDistError] = useState<string | null>(null);
   const stockSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const closeAssignSheet = () => {
+    setAssigningBottle(null);
+    setAddingDistributor(false);
+    setNewDistName('');
+    setNewDistEmail('');
+    setNewDistError(null);
+  };
+
+  // Assign a distributor to the bottle the sheet was opened for, and persist
+  // the choice against the product so future scans of it come pre-assigned.
+  const assignToBottle = (bottle: Bottle, distributorId: string) => {
+    if (bottle.productId && currentLocation) {
+      apiService.assignProductDistributor(currentLocation.id, bottle.productId, distributorId)
+        .catch(err => console.error('Failed to save assignment:', err));
+    }
+    updateBottle(bottle.id, { distributorId });
+  };
+
+  // Name and email only: email is the address the order actually goes to, and
+  // everything else (phone, rep, initials) is optional detail that Settings
+  // handles. Asking for it here would turn a two-field detour into a form.
+  const handleCreateAndAssign = async () => {
+    const name = newDistName.trim();
+    const email = newDistEmail.trim();
+    if (!name || !email || savingDistributor) return;
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      setNewDistError('That email address looks incomplete.');
+      return;
+    }
+
+    const bottle = assigningBottle;
+    setSavingDistributor(true);
+    setNewDistError(null);
+    try {
+      const created = await addDistributor({
+        id: Math.random().toString(36).slice(2, 11),
+        name,
+        initials: name.slice(0, 2).toUpperCase(),
+        email,
+        phone: '',
+        repName: '',
+      });
+      if (bottle) assignToBottle(bottle, created.id);
+      closeAssignSheet();
+    } catch {
+      setNewDistError("Couldn't save that distributor. Check your connection and try again.");
+    } finally {
+      setSavingDistributor(false);
+    }
+  };
 
   const pendingNetworkRetries = bottles.filter(
     b => b.scanStatus === 'failed' && b.failureReason === 'network'
@@ -137,6 +211,15 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     return result;
   }, [filtered, distributors]);
 
+  // Collapsed sections keep their header (with a live count) but contribute no
+  // rows to the list — the point being to let a big multi-distributor order
+  // shrink down to just the sections still worth looking at, rather than
+  // scrolling past ones already handled every time.
+  const displaySections = useMemo(
+    () => sections.map(s => ({ ...s, count: s.data.length, data: collapsedSections.has(s.id) ? [] : s.data })),
+    [sections, collapsedSections]
+  );
+
   // Hydration is gated on having a location — if locations failed from both
   // cache and server, this spinner would never resolve. Surface that as a
   // retry state instead of spinning forever (the grocery-store bug: bad
@@ -185,27 +268,51 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         </TouchableOpacity>
       </View>
 
+      {autoResolvedCount > 0 && (
+        <TouchableOpacity style={styles.resolvedBanner} onPress={acknowledgeAutoResolved} activeOpacity={0.7}>
+          <Check size={14} color={COLORS.success} />
+          <Text style={styles.resolvedBannerText}>
+            {autoResolvedCount} scan{autoResolvedCount === 1 ? '' : 's'} finished identifying in the background
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {pendingNetworkRetries > 0 && (
         <View style={styles.offlineBanner}>
           <WifiOff size={14} color={COLORS.warning} />
           <Text style={styles.offlineBannerText}>
-            {pendingNetworkRetries} scan{pendingNetworkRetries === 1 ? '' : 's'} waiting for a stronger connection — {'they’ll'} finish on {'their'} own next time you open the app with good service
+            {pendingNetworkRetries} scan{pendingNetworkRetries === 1 ? '' : 's'} waiting on a better connection — {'they’ll'} identify {'themselves'} as soon as {'there’s'} signal, no tapping needed
           </Text>
         </View>
       )}
 
       {/* Bottle List */}
       <SectionList
-        sections={sections}
+        sections={displaySections}
         keyExtractor={item => item.id}
         renderSectionHeader={({ section }) =>
           section.title ? (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeaderText}>{section.title.toUpperCase()}</Text>
-              {section.id === '__none__' && (
+            <TouchableOpacity
+              style={styles.sectionHeader}
+              onPress={() => toggleSection(section.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeaderText}>{section.title.toUpperCase()}</Text>
+                <View style={styles.sectionHeaderRight}>
+                  <Text style={styles.sectionHeaderCount}>{section.count}</Text>
+                  {/* Rotating a plain View, not the icon itself — an SVG icon
+                      component's own style prop doesn't reliably take a
+                      transform on every renderer, a View's always does. */}
+                  <View style={collapsedSections.has(section.id) && styles.sectionChevronCollapsed}>
+                    <ChevronDown size={16} color={COLORS.textTertiary} />
+                  </View>
+                </View>
+              </View>
+              {section.id === '__none__' && !collapsedSections.has(section.id) && (
                 <Text style={styles.sectionHeaderHint}>Tap item to assign</Text>
               )}
-            </View>
+            </TouchableOpacity>
           ) : null
         }
         renderItem={({ item }) => (
@@ -238,64 +345,135 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setAssigningBottle(null)}
+          onPress={closeAssignSheet}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Assign Distributor</Text>
-                <Text style={styles.modalSubtitle} numberOfLines={1}>
-                  {assigningBottle?.name}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setAssigningBottle(null)}>
-                <Text style={styles.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            {distributors.length === 0 ? (
-              <View style={styles.modalEmptyState}>
-                <Text style={styles.modalEmptyTitle}>You're one step away from magic ✨</Text>
-                <Text style={styles.modalEmptyBody}>
-                  Add your distributors' emails in Settings and we'll send your entire inventory order to all of them at once — with one tap.
-                </Text>
-                <TouchableOpacity
-                  style={styles.modalEmptyButton}
-                  onPress={() => {
-                    setAssigningBottle(null);
-                    onNavigateToSettings();
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.modalEmptyButtonText}>Add My Distributors →</Text>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
+              <View style={styles.modalHandle} />
+              <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderText}>
+                  <Text style={styles.modalTitle}>
+                    {addingDistributor ? 'New Distributor' : 'Assign Distributor'}
+                  </Text>
+                  <Text style={styles.modalSubtitle} numberOfLines={1}>
+                    {assigningBottle?.name}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={closeAssignSheet} hitSlop={8}>
+                  <Text style={styles.modalClose}>✕</Text>
                 </TouchableOpacity>
               </View>
-            ) : (
-              distributors.map(dist => (
-                <TouchableOpacity
-                  key={dist.id}
-                  style={styles.modalDistRow}
-                  onPress={() => {
-                    if (assigningBottle) {
-                      if (assigningBottle.productId && currentLocation) {
-                        apiService.assignProductDistributor(currentLocation.id, assigningBottle.productId, dist.id)
-                          .catch(err => console.error('Failed to save assignment:', err));
-                      }
-                      updateBottle(assigningBottle.id, { distributorId: dist.id });
-                      setAssigningBottle(null);
-                    }
-                  }}
-                >
-                  <View style={styles.modalDistBadge}>
-                    <Text style={styles.modalDistInitials}>
-                      {dist.name.slice(0, 2).toUpperCase()}
+
+              {addingDistributor ? (
+                <View style={styles.distFormBody}>
+                  <Text style={styles.distFormLabel}>NAME</Text>
+                  <TextInput
+                    style={styles.distFormInput}
+                    placeholder="e.g. Southern Glazer's"
+                    placeholderTextColor={COLORS.textTertiary}
+                    value={newDistName}
+                    onChangeText={t => { setNewDistName(t); setNewDistError(null); }}
+                    autoFocus
+                    returnKeyType="next"
+                  />
+
+                  <Text style={styles.distFormLabel}>ORDER EMAIL</Text>
+                  <TextInput
+                    style={styles.distFormInput}
+                    placeholder="orders@example.com"
+                    placeholderTextColor={COLORS.textTertiary}
+                    value={newDistEmail}
+                    onChangeText={t => { setNewDistEmail(t); setNewDistError(null); }}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    onSubmitEditing={handleCreateAndAssign}
+                  />
+                  <Text style={styles.distFormHint}>
+                    Phone and rep details are optional — add them later in Settings.
+                  </Text>
+
+                  {!!newDistError && <Text style={styles.distFormError}>{newDistError}</Text>}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.distFormSave,
+                      (!newDistName.trim() || !newDistEmail.trim() || savingDistributor) && styles.distFormSaveDisabled,
+                    ]}
+                    onPress={handleCreateAndAssign}
+                    disabled={!newDistName.trim() || !newDistEmail.trim() || savingDistributor}
+                    activeOpacity={0.8}
+                  >
+                    {savingDistributor ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.distFormSaveText}>Save & Assign</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => { setAddingDistributor(false); setNewDistError(null); }}
+                    activeOpacity={0.7}
+                    style={styles.distFormBack}
+                  >
+                    <Text style={styles.distFormBackText}>
+                      {distributors.length > 0 ? 'Back to my distributors' : 'Cancel'}
                     </Text>
-                  </View>
-                  <Text style={styles.modalDistName}>{dist.name}</Text>
-                </TouchableOpacity>
-              ))
-            )}
-          </TouchableOpacity>
+                  </TouchableOpacity>
+                </View>
+              ) : distributors.length === 0 ? (
+                <View style={styles.modalEmptyState}>
+                  <Text style={styles.modalEmptyTitle}>You're one step away from magic ✨</Text>
+                  <Text style={styles.modalEmptyBody}>
+                    Add the distributor's order email and we'll send your whole inventory order to them — with one tap.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.modalEmptyButton}
+                    onPress={() => setAddingDistributor(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.modalEmptyButtonText}>Add a Distributor →</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <>
+                  {distributors.map(dist => (
+                    <TouchableOpacity
+                      key={dist.id}
+                      style={styles.modalDistRow}
+                      onPress={() => {
+                        if (assigningBottle) {
+                          assignToBottle(assigningBottle, dist.id);
+                          closeAssignSheet();
+                        }
+                      }}
+                    >
+                      <View style={styles.modalDistBadge}>
+                        <Text style={styles.modalDistInitials}>
+                          {dist.name.slice(0, 2).toUpperCase()}
+                        </Text>
+                      </View>
+                      <Text style={styles.modalDistName}>{dist.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {/* The missing exit: without this the sheet was a closed list,
+                      and a bottle whose distributor wasn't saved yet had nowhere
+                      to go. */}
+                  <TouchableOpacity
+                    style={styles.modalAddDistRow}
+                    onPress={() => setAddingDistributor(true)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.modalAddDistBadge}>
+                      <Plus size={18} color={COLORS.accentPrimary} />
+                    </View>
+                    <Text style={styles.modalAddDistText}>Add New Distributor</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
         </TouchableOpacity>
       </Modal>
 
@@ -315,6 +493,9 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
             : 'Finalize inventory and par levels'}
         </Text>
       </View>
+      {/* One accessory for every stepper row — the stock steppers use a
+          decimal pad, which has no return key on iOS. */}
+      <NumericDoneAccessory />
     </SafeAreaView>
   );
 }
@@ -436,6 +617,7 @@ function BottleRow({
             style={styles.stepperInput}
             value={stockDraft ?? formatStock(bottle.currentStock ?? 0)}
             keyboardType="decimal-pad"
+            inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
             returnKeyType="done"
             onFocus={() => setStockDraft(formatStock(bottle.currentStock ?? 0))}
             onChangeText={(text) => setStockDraft(text.replace(/[^0-9.]/g, ''))}
@@ -453,7 +635,7 @@ function BottleRow({
             <Plus size={10} color={COLORS.textSecondary} />
           </TouchableOpacity>
         </View>
-        <Text style={styles.stepperLabel}>CURRENT STOCK</Text>
+        <Text style={styles.stepperLabel}>ON HAND</Text>
       </View>
 
       {/* Par stepper */}
@@ -588,6 +770,25 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.semibold,
     color: COLORS.warning,
   },
+  resolvedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: `${COLORS.success}12`,
+    borderWidth: 1,
+    borderColor: `${COLORS.success}30`,
+    borderRadius: 10,
+  },
+  resolvedBannerText: {
+    flex: 1,
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.success,
+  },
   sectionHeader: {
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.md,
@@ -600,6 +801,24 @@ const styles = StyleSheet.create({
     color: COLORS.textTertiary,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  sectionHeaderCount: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textTertiary,
+  },
+  sectionChevronCollapsed: {
+    transform: [{ rotate: '-90deg' }],
   },
   listContent: {
     paddingHorizontal: SPACING.lg,
@@ -891,6 +1110,93 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
     borderBottomWidth: 1,
     borderBottomColor: `${COLORS.border}20`,
+  },
+  modalHeaderText: {
+    flex: 1,
+    paddingRight: SPACING.md,
+  },
+  modalAddDistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    gap: SPACING.md,
+    borderTopWidth: 1,
+    borderTopColor: `${COLORS.border}40`,
+  },
+  modalAddDistBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: `${COLORS.accentPrimary}60`,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalAddDistText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.accentPrimary,
+    letterSpacing: LETTER_SPACING,
+  },
+  distFormBody: {
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.sm,
+  },
+  distFormLabel: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textTertiary,
+    letterSpacing: 2,
+    marginBottom: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  distFormInput: {
+    backgroundColor: COLORS.primaryDark,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    fontSize: FONT_SIZES.base,
+    color: COLORS.textPrimary,
+  },
+  distFormHint: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: SPACING.sm,
+  },
+  distFormError: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.error,
+    marginTop: SPACING.md,
+  },
+  distFormSave: {
+    backgroundColor: COLORS.accentPrimary,
+    borderRadius: 12,
+    paddingVertical: SPACING.md,
+    alignItems: 'center',
+    marginTop: SPACING.lg,
+  },
+  distFormSaveDisabled: {
+    opacity: 0.4,
+  },
+  distFormSaveText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: '#FFFFFF',
+    letterSpacing: LETTER_SPACING,
+  },
+  distFormBack: {
+    alignItems: 'center',
+    paddingVertical: SPACING.md,
+    marginTop: SPACING.xs,
+  },
+  distFormBackText: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textSecondary,
   },
   modalDistBadge: {
     width: 36,

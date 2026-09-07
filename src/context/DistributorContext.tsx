@@ -7,9 +7,12 @@ import { useAuth } from './AuthContext';
 interface DistributorContextType {
   distributors: Distributor[];
   loading: boolean;
-  addDistributor: (distributor: Distributor) => Promise<void>;
-  updateDistributor: (id: string, updates: Partial<Distributor>) => void;
-  removeDistributor: (id: string) => void;
+  // Resolves with the distributor the server created — callers that need to
+  // use it straight away (assigning it to a bottle) need its real id, not the
+  // throwaway one they passed in.
+  addDistributor: (distributor: Distributor) => Promise<Distributor>;
+  updateDistributor: (id: string, updates: Partial<Distributor>) => Promise<void>;
+  removeDistributor: (id: string) => Promise<void>;
 }
 
 const DistributorContext = createContext<DistributorContextType | undefined>(undefined);
@@ -70,14 +73,29 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
       distributor.repName
     );
     setDistributors(prev => persist([...prev, created]));
+    return created;
   };
 
-  const updateDistributor = (id: string, updates: Partial<Distributor>) => {
+  const updateDistributor = async (id: string, updates: Partial<Distributor>) => {
+    const previous = distributors;
     setDistributors(prev => persist(prev.map(d => (d.id === id ? { ...d, ...updates } : d))));
+    try {
+      await apiService.updateDistributor(id, updates);
+    } catch (err) {
+      setDistributors(persist(previous));
+      throw err;
+    }
   };
 
-  const removeDistributor = (id: string) => {
+  const removeDistributor = async (id: string) => {
+    const previous = distributors;
     setDistributors(prev => persist(prev.filter(d => d.id !== id)));
+    try {
+      await apiService.deleteDistributor(id);
+    } catch (err) {
+      setDistributors(persist(previous));
+      throw err;
+    }
   };
 
   return (

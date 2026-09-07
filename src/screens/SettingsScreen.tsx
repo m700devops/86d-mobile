@@ -1,40 +1,59 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert, KeyboardAvoidingView, Keyboard, Platform, TouchableWithoutFeedback, Linking, ActivityIndicator } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store, MapPin } from 'lucide-react-native';
+import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store, MapPin, CreditCard, ChevronRight } from 'lucide-react-native';
 import { useDistributors } from '../context/DistributorContext';
+import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 import { useAuth } from '../context/AuthContext';
-import { useStaff } from '../context/StaffContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
+
+const REORDER_THRESHOLD_OPTIONS = [0.5, 0.6, 0.7, 0.8];
 
 export default function SettingsScreen() {
   const { distributors, addDistributor, updateDistributor, removeDistributor } = useDistributors();
   const { user, updateProfile, logout } = useAuth();
-  const { staff, addStaff, removeStaff } = useStaff();
-  const { currentLocation, locations, setCurrentLocation, addLocation, updateOrderRoundingMode } = useLocation();
-  const [savingRoundingMode, setSavingRoundingMode] = useState(false);
-  const orderRoundingMode = currentLocation?.order_rounding_mode ?? 'nearest';
+  const { currentLocation, locations, setCurrentLocation, addLocation, updateReorderThreshold } = useLocation();
+  const [savingReorderThreshold, setSavingReorderThreshold] = useState(false);
+  const reorderThreshold = currentLocation?.reorder_threshold ?? 0.7;
 
-  const handleToggleRoundingMode = async () => {
-    if (!currentLocation || savingRoundingMode) return;
-    const next = orderRoundingMode === 'up' ? 'nearest' : 'up';
-    setSavingRoundingMode(true);
+  const handleSetReorderThreshold = async (value: number) => {
+    if (!currentLocation || savingReorderThreshold || value === reorderThreshold) return;
+    setSavingReorderThreshold(true);
     try {
-      await updateOrderRoundingMode(next);
+      await updateReorderThreshold(value);
     } catch {
       Alert.alert('Save failed', "Couldn't update this setting. Check your connection and try again.");
     } finally {
-      setSavingRoundingMode(false);
+      setSavingReorderThreshold(false);
+    }
+  };
+
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+
+  const handleManageSubscription = async () => {
+    if (isOpeningPortal) return;
+    setIsOpeningPortal(true);
+    try {
+      const { portal_url } = await apiService.createPortalSession();
+      await Linking.openURL(portal_url);
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      Alert.alert(
+        "Couldn't open billing",
+        detail?.message ?? 'Check your connection and try again.'
+      );
+    } finally {
+      setIsOpeningPortal(false);
     }
   };
 
   const handleAddBar = () => {
     Alert.prompt(
       'Add a Bar',
-      'Each bar keeps its own inventory, staff, and settings.',
+      'Each bar keeps its own inventory and settings.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -133,13 +152,6 @@ export default function SettingsScreen() {
       ]
     );
   };
-  const [staffInput, setStaffInput] = useState('');
-
-  const handleAddStaff = () => {
-    if (!staffInput.trim()) return;
-    addStaff(staffInput);
-    setStaffInput('');
-  };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -148,6 +160,7 @@ export default function SettingsScreen() {
   const [phone, setPhone] = useState('');
   const [repName, setRepName] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savingDistributor, setSavingDistributor] = useState(false);
 
   const [businessNameInput, setBusinessNameInput] = useState('');
   const [managerNameInput, setManagerNameInput] = useState('');
@@ -211,42 +224,54 @@ export default function SettingsScreen() {
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
-    if (!name.trim() || !initials.trim() || !email.trim()) return;
+  const handleSave = async () => {
+    if (!name.trim() || !initials.trim() || !email.trim() || savingDistributor) return;
 
-    if (editingId) {
-      updateDistributor(editingId, {
-        name,
-        initials: initials.toUpperCase(),
-        email,
-        phone,
-        repName,
-      });
-    } else {
-      addDistributor({
-        id: Math.random().toString(36).substr(2, 9),
-        name,
-        initials: initials.toUpperCase(),
-        email,
-        phone,
-        repName,
-      });
+    setSavingDistributor(true);
+    try {
+      if (editingId) {
+        await updateDistributor(editingId, {
+          name,
+          initials: initials.toUpperCase(),
+          email,
+          phone,
+          repName,
+        });
+      } else {
+        await addDistributor({
+          id: Math.random().toString(36).substr(2, 9),
+          name,
+          initials: initials.toUpperCase(),
+          email,
+          phone,
+          repName,
+        });
+      }
+
+      setIsModalOpen(false);
+      setName('');
+      setInitials('');
+      setEmail('');
+      setPhone('');
+      setRepName('');
+      setEditingId(null);
+    } catch {
+      Alert.alert('Save failed', "Couldn't save this distributor. Check your connection and try again.");
+    } finally {
+      setSavingDistributor(false);
     }
-
-    setIsModalOpen(false);
-    setName('');
-    setInitials('');
-    setEmail('');
-    setPhone('');
-    setRepName('');
-    setEditingId(null);
   };
 
   const handleDelete = (id: string) => {
     setDeletingId(id);
-    setTimeout(() => {
-      removeDistributor(id);
-      setDeletingId(null);
+    setTimeout(async () => {
+      try {
+        await removeDistributor(id);
+      } catch {
+        Alert.alert('Delete failed', "Couldn't remove this distributor. Check your connection and try again.");
+      } finally {
+        setDeletingId(null);
+      }
     }, 200);
   };
 
@@ -269,94 +294,6 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Distributors Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>DISTRIBUTORS</Text>
-            <TouchableOpacity onPress={() => openModal()} style={styles.addNewButton} activeOpacity={0.7}>
-              <Plus size={14} color={COLORS.accentPrimary} />
-              <Text style={styles.addNewText}>Add New</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.distributorsList}>
-            {distributors.map(dist => (
-              <TouchableOpacity
-                key={dist.id}
-                style={[
-                  styles.distributorCard,
-                  deletingId === dist.id && styles.distributorCardDeleting,
-                ]}
-                onPress={() => openModal(dist)}
-                activeOpacity={0.8}
-              >
-                <View style={styles.distributorLeft}>
-                  <View style={styles.distributorBadge}>
-                    <Text style={styles.distributorInitials}>{dist.initials || 'D'}</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.distributorName}>{dist.name}</Text>
-                    <Text style={styles.distributorEmail}>{dist.email || 'No email'}</Text>
-                    {dist.repName ? (
-                      <Text style={styles.distributorRep}>Rep: {dist.repName}</Text>
-                    ) : null}
-                  </View>
-                </View>
-                <TouchableOpacity
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    handleDelete(dist.id);
-                  }}
-                  style={styles.deleteButton}
-                  activeOpacity={0.7}
-                >
-                  <Trash2 size={16} color={deletingId === dist.id ? COLORS.error : COLORS.textTertiary} />
-                </TouchableOpacity>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Staff Section — a named list for "who counted this", not a login */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>STAFF</Text>
-          <Text style={styles.sectionHint}>Shown on orders — not a separate login</Text>
-          <View style={styles.staffInputRow}>
-            <View style={[styles.inputWithIcon, { flex: 1 }]}>
-              <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Add staff name"
-                placeholderTextColor={COLORS.textTertiary}
-                value={staffInput}
-                onChangeText={setStaffInput}
-                onSubmitEditing={handleAddStaff}
-                returnKeyType="done"
-              />
-            </View>
-            <TouchableOpacity
-              style={[styles.staffAddButton, !staffInput.trim() && styles.saveButtonDisabled]}
-              onPress={handleAddStaff}
-              disabled={!staffInput.trim()}
-              activeOpacity={0.8}
-            >
-              <Plus size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
-          {staff.length > 0 && (
-            <View style={styles.staffChipRow}>
-              {staff.map(name => (
-                <View key={name} style={styles.staffChip}>
-                  <Text style={styles.staffChipText}>{name}</Text>
-                  <TouchableOpacity onPress={() => removeStaff(name)} hitSlop={8}>
-                    <X size={12} color={COLORS.textTertiary} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-
         {/* Restaurant Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>RESTAURANT</Text>
@@ -408,6 +345,84 @@ export default function SettingsScreen() {
           )}
         </View>
 
+        {/* Ordering Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ORDERING</Text>
+          <View style={styles.reorderCard}>
+            <Text style={styles.settingLabel}>Reorder Point</Text>
+            <Text style={styles.settingSubLabel}>
+              Flags a bottle to reorder once it drops below {Math.round(reorderThreshold * 100)}% of par
+            </Text>
+            <View style={styles.reorderChipRow}>
+              {REORDER_THRESHOLD_OPTIONS.map(value => {
+                const isActive = value === reorderThreshold;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    style={[styles.reorderChip, isActive && styles.reorderChipActive]}
+                    onPress={() => handleSetReorderThreshold(value)}
+                    disabled={savingReorderThreshold}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.reorderChipText, isActive && styles.reorderChipTextActive]}>
+                      {Math.round(value * 100)}%
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.reorderHint}>Busier bar? Go higher. Slower bar? Go lower.</Text>
+          </View>
+        </View>
+
+        {/* Distributors Section */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>DISTRIBUTORS</Text>
+            <TouchableOpacity onPress={() => openModal()} style={styles.addNewButton} activeOpacity={0.7}>
+              <Plus size={14} color={COLORS.accentPrimary} />
+              <Text style={styles.addNewText}>Add New</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.distributorsList}>
+            {distributors.map(dist => (
+              <TouchableOpacity
+                key={dist.id}
+                style={[
+                  styles.distributorCard,
+                  deletingId === dist.id && styles.distributorCardDeleting,
+                ]}
+                onPress={() => openModal(dist)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.distributorLeft}>
+                  <View style={styles.distributorBadge}>
+                    <Text style={styles.distributorInitials}>{dist.initials || 'D'}</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.distributorName}>{dist.name}</Text>
+                    <Text style={styles.distributorEmail}>{dist.email || 'No email'}</Text>
+                    {dist.repName ? (
+                      <Text style={styles.distributorRep}>Rep: {dist.repName}</Text>
+                    ) : null}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleDelete(dist.id);
+                  }}
+                  style={styles.deleteButton}
+                  activeOpacity={0.7}
+                >
+                  <Trash2 size={16} color={deletingId === dist.id ? COLORS.error : COLORS.textTertiary} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         {/* Bars Section — switch between locations, add a new one */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -440,32 +455,28 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Ordering Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>ORDERING</Text>
-          <View style={styles.settingCard}>
-            <View style={{ flex: 1, marginRight: 16 }}>
-              <Text style={styles.settingLabel}>Always Round Up</Text>
-              <Text style={styles.settingSubLabel}>
-                {orderRoundingMode === 'up'
-                  ? 'Orders a bottle for any shortfall, even a sip short'
-                  : 'Skips ordering when under half a bottle short'}
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={[styles.toggle, orderRoundingMode === 'up' && styles.toggleActive]}
-              onPress={handleToggleRoundingMode}
-              disabled={savingRoundingMode}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.toggleKnob, orderRoundingMode === 'up' && styles.toggleKnobActive]} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
         {/* Account Section — App Store guideline 5.1.1 requires in-app deletion */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>ACCOUNT</Text>
+          {user?.subscription_status === 'active' && (
+            <TouchableOpacity
+              style={[styles.settingCard, { marginBottom: SPACING.md }]}
+              onPress={handleManageSubscription}
+              disabled={isOpeningPortal}
+              activeOpacity={0.8}
+            >
+              <CreditCard size={16} color={COLORS.textTertiary} />
+              <View style={{ flex: 1, marginHorizontal: 16 }}>
+                <Text style={styles.settingLabel}>Manage Subscription</Text>
+                <Text style={styles.settingSubLabel}>Update payment method, view invoices, or cancel</Text>
+              </View>
+              {isOpeningPortal ? (
+                <ActivityIndicator size="small" color={COLORS.textTertiary} />
+              ) : (
+                <ChevronRight size={16} color={COLORS.textTertiary} />
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[styles.settingCard, { marginBottom: SPACING.md }]}
             onPress={() => setIsPasswordModalOpen(true)}
@@ -559,123 +570,147 @@ export default function SettingsScreen() {
 
       {/* Add/Edit Modal */}
       <Modal transparent visible={isModalOpen} onRequestClose={() => setIsModalOpen(false)} animationType="none">
-        <View style={styles.modalOverlay}>
-          <Animated.View 
-            style={[
-              styles.modalContent,
-              { 
-                transform: [{ scale: modalScale }],
-                opacity: modalOpacity,
-              }
-            ]}
-          >
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {editingId ? 'Edit Distributor' : 'New Distributor'}
-              </Text>
-              <TouchableOpacity onPress={() => setIsModalOpen(false)} activeOpacity={0.7}>
-                <X size={20} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalForm}>
-              {/* Name */}
-              <View style={styles.formGroup}>
-                <Text style={styles.fieldLabel}>NAME</Text>
-                <View style={styles.inputWithIcon}>
-                  <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="e.g. Southern Glazer's"
-                    placeholderTextColor={COLORS.textTertiary}
-                    value={name}
-                    onChangeText={setName}
-                  />
-                </View>
-              </View>
-
-              {/* Initials & Rep Name */}
-              <View style={styles.twoColumnRow}>
-                <View style={[styles.formGroup, { flex: 1 }]}>
-                  <Text style={styles.fieldLabel}>INITIALS</Text>
-                  <View style={styles.inputWithIcon}>
-                    <Hash size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.modalInput}
-                      placeholder="SG"
-                      placeholderTextColor={COLORS.textTertiary}
-                      value={initials}
-                      onChangeText={(text) => setInitials(text.toUpperCase())}
-                      maxLength={3}
-                    />
-                  </View>
-                </View>
-
-                <View style={[styles.formGroup, { flex: 2 }]}>
-                  <Text style={styles.fieldLabel}>REP NAME</Text>
-                  <View style={styles.inputWithIcon}>
-                    <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.modalInput}
-                      placeholder="John Smith"
-                      placeholderTextColor={COLORS.textTertiary}
-                      value={repName}
-                      onChangeText={setRepName}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* Email */}
-              <View style={styles.formGroup}>
-                <Text style={styles.fieldLabel}>EMAIL</Text>
-                <View style={styles.inputWithIcon}>
-                  <Mail size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="orders@example.com"
-                    placeholderTextColor={COLORS.textTertiary}
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-              </View>
-
-              {/* Phone */}
-              <View style={styles.formGroup}>
-                <Text style={styles.fieldLabel}>PHONE</Text>
-                <View style={styles.inputWithIcon}>
-                  <Phone size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="(555) 000-0000"
-                    placeholderTextColor={COLORS.textTertiary}
-                    value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="phone-pad"
-                  />
-                </View>
-              </View>
-            </View>
-
-            <TouchableOpacity
+        {/* Three separate escapes from the keyboard, because the phone field
+            uses a numeric pad with no return key on iOS: the Done bar above
+            the keyboard, tapping the dimmed area outside the card, and the
+            card lifting so Save is never buried under the keyboard. Before
+            this, focusing PHONE left no way out of the form at all.
+            The backdrop is a sibling behind the card rather than a wrapper
+            around it (same shape as Sidebar's) so it can't intercept taps
+            meant for the inputs. */}
+        <KeyboardAvoidingView
+          style={styles.modalOverlayFill}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()} accessible={false}>
+              <View style={styles.modalBackdropTouch} />
+            </TouchableWithoutFeedback>
+            <Animated.View
               style={[
-                styles.saveButton,
-                (!name.trim() || !initials.trim() || !email.trim()) && styles.saveButtonDisabled,
+                styles.modalContent,
+                {
+                  transform: [{ scale: modalScale }],
+                  opacity: modalOpacity,
+                }
               ]}
-              onPress={handleSave}
-              disabled={!name.trim() || !initials.trim() || !email.trim()}
-              activeOpacity={0.8}
             >
-              <Check size={18} color="#FFFFFF" />
-              <Text style={styles.saveButtonText}>
-                {editingId ? 'Update' : 'Save'}
-              </Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+              >
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    {editingId ? 'Edit Distributor' : 'New Distributor'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setIsModalOpen(false)} activeOpacity={0.7}>
+                    <X size={20} color={COLORS.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.modalForm}>
+                  {/* Name */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>NAME</Text>
+                    <View style={styles.inputWithIcon}>
+                      <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="e.g. Southern Glazer's"
+                        placeholderTextColor={COLORS.textTertiary}
+                        value={name}
+                        onChangeText={setName}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Initials & Rep Name */}
+                  <View style={styles.twoColumnRow}>
+                    <View style={[styles.formGroup, { flex: 1 }]}>
+                      <Text style={styles.fieldLabel}>INITIALS</Text>
+                      <View style={styles.inputWithIcon}>
+                        <Hash size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.modalInput}
+                          placeholder="SG"
+                          placeholderTextColor={COLORS.textTertiary}
+                          value={initials}
+                          onChangeText={(text) => setInitials(text.toUpperCase())}
+                          maxLength={3}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={[styles.formGroup, { flex: 2 }]}>
+                      <Text style={styles.fieldLabel}>REP NAME</Text>
+                      <View style={styles.inputWithIcon}>
+                        <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.modalInput}
+                          placeholder="John Smith"
+                          placeholderTextColor={COLORS.textTertiary}
+                          value={repName}
+                          onChangeText={setRepName}
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Email */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>EMAIL</Text>
+                    <View style={styles.inputWithIcon}>
+                      <Mail size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="orders@example.com"
+                        placeholderTextColor={COLORS.textTertiary}
+                        value={email}
+                        onChangeText={setEmail}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                  </View>
+
+                  {/* Phone */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>PHONE</Text>
+                    <View style={styles.inputWithIcon}>
+                      <Phone size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="(555) 000-0000"
+                        placeholderTextColor={COLORS.textTertiary}
+                        value={phone}
+                        onChangeText={setPhone}
+                        keyboardType="phone-pad"
+                        inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.saveButton,
+                    (!name.trim() || !initials.trim() || !email.trim() || savingDistributor) && styles.saveButtonDisabled,
+                  ]}
+                  onPress={handleSave}
+                  disabled={!name.trim() || !initials.trim() || !email.trim() || savingDistributor}
+                  activeOpacity={0.8}
+                >
+                  <Check size={18} color="#FFFFFF" />
+                  <Text style={styles.saveButtonText}>
+                    {savingDistributor ? 'Saving...' : editingId ? 'Update' : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </Animated.View>
+          </View>
+        </KeyboardAvoidingView>
+        <NumericDoneAccessory />
       </Modal>
     </SafeAreaView>
   );
@@ -790,46 +825,6 @@ const styles = StyleSheet.create({
   deleteButton: {
     padding: SPACING.md,
   },
-  sectionHint: {
-    fontSize: FONT_SIZES.xs,
-    color: COLORS.textTertiary,
-    marginTop: -SPACING.sm,
-    marginBottom: SPACING.md,
-  },
-  staffInputRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  staffAddButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: COLORS.accentPrimary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  staffChipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-    marginTop: SPACING.md,
-  },
-  staffChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 20,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-  },
-  staffChipText: {
-    fontSize: FONT_SIZES.sm,
-    fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.textPrimary,
-  },
   passwordMismatch: {
     fontSize: FONT_SIZES.xs,
     color: COLORS.error,
@@ -875,25 +870,48 @@ const styles = StyleSheet.create({
     color: COLORS.textTertiary,
     marginTop: 2,
   },
-  toggle: {
-    width: 48,
-    height: 24,
-    backgroundColor: COLORS.border,
-    borderRadius: 12,
-    padding: 2,
+  reorderCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    padding: SPACING.lg,
   },
-  toggleActive: {
-    backgroundColor: COLORS.accentPrimary,
+  reorderChipRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
   },
-  toggleKnob: {
-    width: 20,
-    height: 20,
-    backgroundColor: '#FFFFFF',
+  reorderChip: {
+    flex: 1,
+    paddingVertical: SPACING.sm,
     borderRadius: 10,
-    transform: [{ translateX: 0 }],
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
   },
-  toggleKnobActive: {
-    transform: [{ translateX: 24 }],
+  reorderChipActive: {
+    backgroundColor: COLORS.accentPrimary,
+    borderColor: COLORS.accentPrimary,
+  },
+  reorderChipText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
+  },
+  reorderChipTextActive: {
+    color: '#FFFFFF',
+  },
+  reorderHint: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: SPACING.sm,
+  },
+  modalOverlayFill: {
+    flex: 1,
+  },
+  modalBackdropTouch: {
+    ...StyleSheet.absoluteFillObject,
   },
   modalOverlay: {
     flex: 1,
@@ -910,6 +928,7 @@ const styles = StyleSheet.create({
     padding: SPACING.xl,
     width: '100%',
     maxWidth: 400,
+    maxHeight: '100%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 20 },
     shadowOpacity: 0.5,

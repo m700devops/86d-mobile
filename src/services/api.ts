@@ -263,7 +263,7 @@ class ApiService {
 
   async updateLocation(
     locationId: string,
-    updates: { order_rounding_mode?: 'up' | 'nearest'; staff_names?: string[] }
+    updates: { reorder_threshold?: number }
   ): Promise<Location> {
     const response = await this.client.patch<Location>(`/locations/${locationId}`, updates);
     return response.data;
@@ -393,6 +393,19 @@ class ApiService {
     return response.data.distributor;
   }
 
+  async updateDistributor(id: string, updates: { name?: string; email?: string; phone?: string; repName?: string }): Promise<void> {
+    await this.client.put(`/distributors/${id}`, {
+      name: updates.name,
+      email: updates.email,
+      phone: updates.phone,
+      rep_name: updates.repName,
+    });
+  }
+
+  async deleteDistributor(id: string): Promise<void> {
+    await this.client.delete(`/distributors/${id}`);
+  }
+
   // Product-distributor assignment methods
   async getProductDistributors(locationId: string): Promise<ProductDistributorAssignment[]> {
     const response = await this.client.get<{ assignments: ProductDistributorAssignment[] }>(
@@ -413,7 +426,6 @@ class ApiService {
   async sendOrderEmails(payload: {
     location_id: string;
     location_name: string;
-    staff_name?: string;
     orders: {
       distributor_id: string;
       items: { name: string; quantity: number; size?: string; price?: number }[];
@@ -465,6 +477,11 @@ class ApiService {
   // No Stripe SDK/keys ever live in the app itself.
   async createCheckoutSession(): Promise<{ checkout_url: string }> {
     const response = await this.client.post<{ checkout_url: string }>('/billing/create-checkout-session');
+    return response.data;
+  }
+
+  async createPortalSession(): Promise<{ portal_url: string }> {
+    const response = await this.client.post<{ portal_url: string }>('/billing/create-portal-session');
     return response.data;
   }
 
