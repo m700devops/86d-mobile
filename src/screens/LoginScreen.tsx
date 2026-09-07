@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
   },
   forgotText: {
     fontSize: 13,
-    color: '#A855F7',
+    color: '#FF6B35',
   },
   formErrorBox: {
     backgroundColor: 'rgba(255, 107, 53, 0.12)',
@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
   },
   createButton: {
     borderWidth: 1.5,
-    borderColor: 'rgba(168, 85, 247, 0.55)',
+    borderColor: 'rgba(255, 107, 53, 0.55)',
     borderRadius: 14,
     paddingVertical: 13,
     paddingHorizontal: 28,
@@ -393,7 +393,7 @@ const styles = StyleSheet.create({
   createButtonText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#A855F7',
+    color: '#FF6B35',
     letterSpacing: 0.3,
   },
 });
