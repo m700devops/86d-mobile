@@ -393,6 +393,19 @@ class ApiService {
     return response.data.distributor;
   }
 
+  async updateDistributor(id: string, updates: { name?: string; email?: string; phone?: string; repName?: string }): Promise<void> {
+    await this.client.put(`/distributors/${id}`, {
+      name: updates.name,
+      email: updates.email,
+      phone: updates.phone,
+      rep_name: updates.repName,
+    });
+  }
+
+  async deleteDistributor(id: string): Promise<void> {
+    await this.client.delete(`/distributors/${id}`);
+  }
+
   // Product-distributor assignment methods
   async getProductDistributors(locationId: string): Promise<ProductDistributorAssignment[]> {
     const response = await this.client.get<{ assignments: ProductDistributorAssignment[] }>(

@@ -160,6 +160,7 @@ export default function SettingsScreen() {
   const [phone, setPhone] = useState('');
   const [repName, setRepName] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savingDistributor, setSavingDistributor] = useState(false);
 
   const [businessNameInput, setBusinessNameInput] = useState('');
   const [managerNameInput, setManagerNameInput] = useState('');
@@ -223,42 +224,54 @@ export default function SettingsScreen() {
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
-    if (!name.trim() || !initials.trim() || !email.trim()) return;
+  const handleSave = async () => {
+    if (!name.trim() || !initials.trim() || !email.trim() || savingDistributor) return;
 
-    if (editingId) {
-      updateDistributor(editingId, {
-        name,
-        initials: initials.toUpperCase(),
-        email,
-        phone,
-        repName,
-      });
-    } else {
-      addDistributor({
-        id: Math.random().toString(36).substr(2, 9),
-        name,
-        initials: initials.toUpperCase(),
-        email,
-        phone,
-        repName,
-      });
+    setSavingDistributor(true);
+    try {
+      if (editingId) {
+        await updateDistributor(editingId, {
+          name,
+          initials: initials.toUpperCase(),
+          email,
+          phone,
+          repName,
+        });
+      } else {
+        await addDistributor({
+          id: Math.random().toString(36).substr(2, 9),
+          name,
+          initials: initials.toUpperCase(),
+          email,
+          phone,
+          repName,
+        });
+      }
+
+      setIsModalOpen(false);
+      setName('');
+      setInitials('');
+      setEmail('');
+      setPhone('');
+      setRepName('');
+      setEditingId(null);
+    } catch {
+      Alert.alert('Save failed', "Couldn't save this distributor. Check your connection and try again.");
+    } finally {
+      setSavingDistributor(false);
     }
-
-    setIsModalOpen(false);
-    setName('');
-    setInitials('');
-    setEmail('');
-    setPhone('');
-    setRepName('');
-    setEditingId(null);
   };
 
   const handleDelete = (id: string) => {
     setDeletingId(id);
-    setTimeout(() => {
-      removeDistributor(id);
-      setDeletingId(null);
+    setTimeout(async () => {
+      try {
+        await removeDistributor(id);
+      } catch {
+        Alert.alert('Delete failed', "Couldn't remove this distributor. Check your connection and try again.");
+      } finally {
+        setDeletingId(null);
+      }
     }, 200);
   };
 
@@ -682,15 +695,15 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   style={[
                     styles.saveButton,
-                    (!name.trim() || !initials.trim() || !email.trim()) && styles.saveButtonDisabled,
+                    (!name.trim() || !initials.trim() || !email.trim() || savingDistributor) && styles.saveButtonDisabled,
                   ]}
                   onPress={handleSave}
-                  disabled={!name.trim() || !initials.trim() || !email.trim()}
+                  disabled={!name.trim() || !initials.trim() || !email.trim() || savingDistributor}
                   activeOpacity={0.8}
                 >
                   <Check size={18} color="#FFFFFF" />
                   <Text style={styles.saveButtonText}>
-                    {editingId ? 'Update' : 'Save'}
+                    {savingDistributor ? 'Saving...' : editingId ? 'Update' : 'Save'}
                   </Text>
                 </TouchableOpacity>
               </ScrollView>
