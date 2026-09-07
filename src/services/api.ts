@@ -467,6 +467,11 @@ class ApiService {
     return response.data;
   }
 
+  async createPortalSession(): Promise<{ portal_url: string }> {
+    const response = await this.client.post<{ portal_url: string }>('/billing/create-portal-session');
+    return response.data;
+  }
+
   // Pre-warm the backend's AI connection so the first scan is as fast as the
   // rest. Fire-and-forget — errors are irrelevant.
   warmScanPath(): void {

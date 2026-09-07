@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert, KeyboardAvoidingView, Keyboard, Platform, TouchableWithoutFeedback } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert, KeyboardAvoidingView, Keyboard, Platform, TouchableWithoutFeedback, Linking, ActivityIndicator } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store, MapPin } from 'lucide-react-native';
+import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store, MapPin, CreditCard, ChevronRight } from 'lucide-react-native';
 import { useDistributors } from '../context/DistributorContext';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +28,25 @@ export default function SettingsScreen() {
       Alert.alert('Save failed', "Couldn't update this setting. Check your connection and try again.");
     } finally {
       setSavingReorderThreshold(false);
+    }
+  };
+
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+
+  const handleManageSubscription = async () => {
+    if (isOpeningPortal) return;
+    setIsOpeningPortal(true);
+    try {
+      const { portal_url } = await apiService.createPortalSession();
+      await Linking.openURL(portal_url);
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      Alert.alert(
+        "Couldn't open billing",
+        detail?.message ?? 'Check your connection and try again.'
+      );
+    } finally {
+      setIsOpeningPortal(false);
     }
   };
 
@@ -426,6 +445,25 @@ export default function SettingsScreen() {
         {/* Account Section — App Store guideline 5.1.1 requires in-app deletion */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>ACCOUNT</Text>
+          {user?.subscription_status === 'active' && (
+            <TouchableOpacity
+              style={[styles.settingCard, { marginBottom: SPACING.md }]}
+              onPress={handleManageSubscription}
+              disabled={isOpeningPortal}
+              activeOpacity={0.8}
+            >
+              <CreditCard size={16} color={COLORS.textTertiary} />
+              <View style={{ flex: 1, marginHorizontal: 16 }}>
+                <Text style={styles.settingLabel}>Manage Subscription</Text>
+                <Text style={styles.settingSubLabel}>Update payment method, view invoices, or cancel</Text>
+              </View>
+              {isOpeningPortal ? (
+                <ActivityIndicator size="small" color={COLORS.textTertiary} />
+              ) : (
+                <ChevronRight size={16} color={COLORS.textTertiary} />
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[styles.settingCard, { marginBottom: SPACING.md }]}
             onPress={() => setIsPasswordModalOpen(true)}
