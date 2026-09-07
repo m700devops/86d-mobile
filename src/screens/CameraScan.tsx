@@ -1137,33 +1137,42 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                   Already scanned — {formatStock(existingBottle.currentStock ?? 0)} in stock. Enter your new total.
                 </Text>
               )}
-
-              {/* Typed value */}
-              <View style={styles.padValueRow}>
-                <Text style={styles.padValue}>{stockInput === '' ? '0' : stockInput}</Text>
-                <Text style={styles.padValueLabel}>BOTTLES ON HAND</Text>
-              </View>
-
-              {/* Keypad */}
-              <View style={styles.keypad}>
-                {KEYPAD_ROWS.map((row, i) => (
-                  <View key={i} style={styles.keypadRow}>
-                    {row.map(key => (
-                      <TouchableOpacity
-                        key={key}
-                        style={styles.keypadKey}
-                        onPress={() => handleKeyPress(key)}
-                        activeOpacity={0.6}
-                      >
-                        {key === 'back'
-                          ? <Delete size={22} color={COLORS.textPrimary} />
-                          : <Text style={styles.keypadKeyText}>{key}</Text>}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                ))}
-              </View>
             </ScrollView>
+
+            {/* Typed value + keypad — deliberately NOT inside the ScrollView
+                above. Those are the only genuinely variable-length parts
+                (a long identified name, the two-line "Already scanned"
+                note); the keypad and Cancel/Add are the controls someone
+                actually needs to reach, and on a short screen the sheet's
+                capped height previously let the ScrollView clip the
+                keypad's last row right where it met the actions below —
+                numbers rendering underneath Cancel/Add instead of above
+                them. Keeping this fixed-size content out of the shrinkable
+                region means only the status text ever scrolls, so the
+                keypad is always shown in full. */}
+            <View style={styles.padValueRow}>
+              <Text style={styles.padValue}>{stockInput === '' ? '0' : stockInput}</Text>
+              <Text style={styles.padValueLabel}>BOTTLES ON HAND</Text>
+            </View>
+
+            <View style={styles.keypad}>
+              {KEYPAD_ROWS.map((row, i) => (
+                <View key={i} style={styles.keypadRow}>
+                  {row.map(key => (
+                    <TouchableOpacity
+                      key={key}
+                      style={styles.keypadKey}
+                      onPress={() => handleKeyPress(key)}
+                      activeOpacity={0.6}
+                    >
+                      {key === 'back'
+                        ? <Delete size={22} color={COLORS.textPrimary} />
+                        : <Text style={styles.keypadKeyText}>{key}</Text>}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ))}
+            </View>
 
             {/* Actions — fixed sibling below the ScrollView, not part of the
                 scrollable/shrinkable content, so it always renders at full
