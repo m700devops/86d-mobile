@@ -188,10 +188,10 @@ export interface Location {
   name: string;
   address?: string;
   isCurrent?: boolean;
-  // 'nearest' (default) skips ordering when the shortfall is under half a
-  // bottle; 'up' always rounds up to the next whole bottle. Per-location —
-  // set in Settings.
-  order_rounding_mode?: 'up' | 'nearest';
+  // Fraction of par a product's stock must fall below before it's flagged
+  // for reorder (e.g. 0.7 = reorder once stock drops below 70% of par).
+  // Per-location — set in Settings.
+  reorder_threshold?: number;
   // Named staff list for "who counted" attribution — synced server-side so
   // every device on the account sees the same list
   staff_names?: string[];

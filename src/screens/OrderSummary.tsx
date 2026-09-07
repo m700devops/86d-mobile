@@ -67,14 +67,15 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       )
     : bottles
         .map(b => {
-          // Stock is decimal (4.75 = 4 backups + one open at 3/4) — order whole
-          // bottles. 'nearest' (default) skips ordering for a shortfall under
-          // half a bottle; 'up' always rounds up so it never under-orders.
-          const shortfall = b.parLevel - (b.currentStock || 0);
-          const roundedShortfall = currentLocation?.order_rounding_mode === 'up'
-            ? Math.ceil(shortfall)
-            : Math.round(shortfall);
-          const totalQuantity = Math.max(0, roundedShortfall);
+          // Reorder point is a fraction of par (default 0.7, adjustable in
+          // Settings) — flag it once stock drops below that line. Once
+          // flagged, order whole bottles back up to full par (stock is
+          // decimal — 4.75 = 4 backups + one open at 3/4 — so the order
+          // itself always rounds up; you can't order a fractional bottle).
+          const stock = b.currentStock || 0;
+          const reorderPoint = b.parLevel * (currentLocation?.reorder_threshold ?? 0.7);
+          const needsReorder = stock < reorderPoint;
+          const totalQuantity = needsReorder ? Math.max(0, Math.ceil(b.parLevel - stock)) : 0;
 
           return {
             bottleId: b.id,

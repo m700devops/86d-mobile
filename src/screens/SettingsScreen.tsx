@@ -11,24 +11,25 @@ import { useStaff } from '../context/StaffContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 
+const REORDER_THRESHOLD_OPTIONS = [0.5, 0.6, 0.7, 0.8];
+
 export default function SettingsScreen() {
   const { distributors, addDistributor, updateDistributor, removeDistributor } = useDistributors();
   const { user, updateProfile, logout } = useAuth();
   const { staff, addStaff, removeStaff } = useStaff();
-  const { currentLocation, locations, setCurrentLocation, addLocation, updateOrderRoundingMode } = useLocation();
-  const [savingRoundingMode, setSavingRoundingMode] = useState(false);
-  const orderRoundingMode = currentLocation?.order_rounding_mode ?? 'nearest';
+  const { currentLocation, locations, setCurrentLocation, addLocation, updateReorderThreshold } = useLocation();
+  const [savingReorderThreshold, setSavingReorderThreshold] = useState(false);
+  const reorderThreshold = currentLocation?.reorder_threshold ?? 0.7;
 
-  const handleToggleRoundingMode = async () => {
-    if (!currentLocation || savingRoundingMode) return;
-    const next = orderRoundingMode === 'up' ? 'nearest' : 'up';
-    setSavingRoundingMode(true);
+  const handleSetReorderThreshold = async (value: number) => {
+    if (!currentLocation || savingReorderThreshold || value === reorderThreshold) return;
+    setSavingReorderThreshold(true);
     try {
-      await updateOrderRoundingMode(next);
+      await updateReorderThreshold(value);
     } catch {
       Alert.alert('Save failed', "Couldn't update this setting. Check your connection and try again.");
     } finally {
-      setSavingRoundingMode(false);
+      setSavingReorderThreshold(false);
     }
   };
 
@@ -444,23 +445,30 @@ export default function SettingsScreen() {
         {/* Ordering Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>ORDERING</Text>
-          <View style={styles.settingCard}>
-            <View style={{ flex: 1, marginRight: 16 }}>
-              <Text style={styles.settingLabel}>Always Round Up</Text>
-              <Text style={styles.settingSubLabel}>
-                {orderRoundingMode === 'up'
-                  ? 'Orders a bottle for any shortfall, even a sip short'
-                  : 'Skips ordering when under half a bottle short'}
-              </Text>
+          <View style={styles.reorderCard}>
+            <Text style={styles.settingLabel}>Reorder Point</Text>
+            <Text style={styles.settingSubLabel}>
+              Flags a bottle to reorder once it drops below {Math.round(reorderThreshold * 100)}% of par
+            </Text>
+            <View style={styles.reorderChipRow}>
+              {REORDER_THRESHOLD_OPTIONS.map(value => {
+                const isActive = value === reorderThreshold;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    style={[styles.reorderChip, isActive && styles.reorderChipActive]}
+                    onPress={() => handleSetReorderThreshold(value)}
+                    disabled={savingReorderThreshold}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.reorderChipText, isActive && styles.reorderChipTextActive]}>
+                      {Math.round(value * 100)}%
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-            <TouchableOpacity
-              style={[styles.toggle, orderRoundingMode === 'up' && styles.toggleActive]}
-              onPress={handleToggleRoundingMode}
-              disabled={savingRoundingMode}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.toggleKnob, orderRoundingMode === 'up' && styles.toggleKnobActive]} />
-            </TouchableOpacity>
+            <Text style={styles.reorderHint}>Busier bar? Go higher. Slower bar? Go lower.</Text>
           </View>
         </View>
 
@@ -900,25 +908,42 @@ const styles = StyleSheet.create({
     color: COLORS.textTertiary,
     marginTop: 2,
   },
-  toggle: {
-    width: 48,
-    height: 24,
-    backgroundColor: COLORS.border,
-    borderRadius: 12,
-    padding: 2,
+  reorderCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    padding: SPACING.lg,
   },
-  toggleActive: {
-    backgroundColor: COLORS.accentPrimary,
+  reorderChipRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
   },
-  toggleKnob: {
-    width: 20,
-    height: 20,
-    backgroundColor: '#FFFFFF',
+  reorderChip: {
+    flex: 1,
+    paddingVertical: SPACING.sm,
     borderRadius: 10,
-    transform: [{ translateX: 0 }],
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
   },
-  toggleKnobActive: {
-    transform: [{ translateX: 24 }],
+  reorderChipActive: {
+    backgroundColor: COLORS.accentPrimary,
+    borderColor: COLORS.accentPrimary,
+  },
+  reorderChipText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
+  },
+  reorderChipTextActive: {
+    color: '#FFFFFF',
+  },
+  reorderHint: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: SPACING.sm,
   },
   modalOverlayFill: {
     flex: 1,

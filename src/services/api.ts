@@ -263,7 +263,7 @@ class ApiService {
 
   async updateLocation(
     locationId: string,
-    updates: { order_rounding_mode?: 'up' | 'nearest'; staff_names?: string[] }
+    updates: { reorder_threshold?: number; staff_names?: string[] }
   ): Promise<Location> {
     const response = await this.client.patch<Location>(`/locations/${locationId}`, updates);
     return response.data;
