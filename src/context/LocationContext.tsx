@@ -21,9 +21,9 @@ interface LocationContextType {
 
 const LocationContext = createContext<LocationContextType | undefined>(undefined);
 
-// Locations are the root of the whole offline story: inventory drafts, staff
-// lists, and price lookups are all keyed by location id, and every one of
-// those flows dies if currentLocation is null. Fetching locations only from
+// Locations are the root of the whole offline story: inventory drafts and
+// price lookups are all keyed by location id, and every one of those flows
+// dies if currentLocation is null. Fetching locations only from
 // the server meant one failed request on launch (bad cell signal in a
 // stockroom, Render cold start, captive wifi) left the app permanently
 // spinner-locked — Review, Order Summary, and Order History all gate on

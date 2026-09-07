@@ -7,7 +7,6 @@ import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store, MapPin } from '
 import { useDistributors } from '../context/DistributorContext';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 import { useAuth } from '../context/AuthContext';
-import { useStaff } from '../context/StaffContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 
@@ -16,7 +15,6 @@ const REORDER_THRESHOLD_OPTIONS = [0.5, 0.6, 0.7, 0.8];
 export default function SettingsScreen() {
   const { distributors, addDistributor, updateDistributor, removeDistributor } = useDistributors();
   const { user, updateProfile, logout } = useAuth();
-  const { staff, addStaff, removeStaff } = useStaff();
   const { currentLocation, locations, setCurrentLocation, addLocation, updateReorderThreshold } = useLocation();
   const [savingReorderThreshold, setSavingReorderThreshold] = useState(false);
   const reorderThreshold = currentLocation?.reorder_threshold ?? 0.7;
@@ -36,7 +34,7 @@ export default function SettingsScreen() {
   const handleAddBar = () => {
     Alert.prompt(
       'Add a Bar',
-      'Each bar keeps its own inventory, staff, and settings.',
+      'Each bar keeps its own inventory and settings.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -134,13 +132,6 @@ export default function SettingsScreen() {
         },
       ]
     );
-  };
-  const [staffInput, setStaffInput] = useState('');
-
-  const handleAddStaff = () => {
-    if (!staffInput.trim()) return;
-    addStaff(staffInput);
-    setStaffInput('');
   };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -271,94 +262,6 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Distributors Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>DISTRIBUTORS</Text>
-            <TouchableOpacity onPress={() => openModal()} style={styles.addNewButton} activeOpacity={0.7}>
-              <Plus size={14} color={COLORS.accentPrimary} />
-              <Text style={styles.addNewText}>Add New</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.distributorsList}>
-            {distributors.map(dist => (
-              <TouchableOpacity
-                key={dist.id}
-                style={[
-                  styles.distributorCard,
-                  deletingId === dist.id && styles.distributorCardDeleting,
-                ]}
-                onPress={() => openModal(dist)}
-                activeOpacity={0.8}
-              >
-                <View style={styles.distributorLeft}>
-                  <View style={styles.distributorBadge}>
-                    <Text style={styles.distributorInitials}>{dist.initials || 'D'}</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.distributorName}>{dist.name}</Text>
-                    <Text style={styles.distributorEmail}>{dist.email || 'No email'}</Text>
-                    {dist.repName ? (
-                      <Text style={styles.distributorRep}>Rep: {dist.repName}</Text>
-                    ) : null}
-                  </View>
-                </View>
-                <TouchableOpacity
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    handleDelete(dist.id);
-                  }}
-                  style={styles.deleteButton}
-                  activeOpacity={0.7}
-                >
-                  <Trash2 size={16} color={deletingId === dist.id ? COLORS.error : COLORS.textTertiary} />
-                </TouchableOpacity>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Staff Section — a named list for "who counted this", not a login */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>STAFF</Text>
-          <Text style={styles.sectionHint}>Shown on orders — not a separate login</Text>
-          <View style={styles.staffInputRow}>
-            <View style={[styles.inputWithIcon, { flex: 1 }]}>
-              <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Add staff name"
-                placeholderTextColor={COLORS.textTertiary}
-                value={staffInput}
-                onChangeText={setStaffInput}
-                onSubmitEditing={handleAddStaff}
-                returnKeyType="done"
-              />
-            </View>
-            <TouchableOpacity
-              style={[styles.staffAddButton, !staffInput.trim() && styles.saveButtonDisabled]}
-              onPress={handleAddStaff}
-              disabled={!staffInput.trim()}
-              activeOpacity={0.8}
-            >
-              <Plus size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
-          {staff.length > 0 && (
-            <View style={styles.staffChipRow}>
-              {staff.map(name => (
-                <View key={name} style={styles.staffChip}>
-                  <Text style={styles.staffChipText}>{name}</Text>
-                  <TouchableOpacity onPress={() => removeStaff(name)} hitSlop={8}>
-                    <X size={12} color={COLORS.textTertiary} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-
         {/* Restaurant Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>RESTAURANT</Text>
@@ -410,6 +313,84 @@ export default function SettingsScreen() {
           )}
         </View>
 
+        {/* Ordering Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ORDERING</Text>
+          <View style={styles.reorderCard}>
+            <Text style={styles.settingLabel}>Reorder Point</Text>
+            <Text style={styles.settingSubLabel}>
+              Flags a bottle to reorder once it drops below {Math.round(reorderThreshold * 100)}% of par
+            </Text>
+            <View style={styles.reorderChipRow}>
+              {REORDER_THRESHOLD_OPTIONS.map(value => {
+                const isActive = value === reorderThreshold;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    style={[styles.reorderChip, isActive && styles.reorderChipActive]}
+                    onPress={() => handleSetReorderThreshold(value)}
+                    disabled={savingReorderThreshold}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.reorderChipText, isActive && styles.reorderChipTextActive]}>
+                      {Math.round(value * 100)}%
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={styles.reorderHint}>Busier bar? Go higher. Slower bar? Go lower.</Text>
+          </View>
+        </View>
+
+        {/* Distributors Section */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>DISTRIBUTORS</Text>
+            <TouchableOpacity onPress={() => openModal()} style={styles.addNewButton} activeOpacity={0.7}>
+              <Plus size={14} color={COLORS.accentPrimary} />
+              <Text style={styles.addNewText}>Add New</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.distributorsList}>
+            {distributors.map(dist => (
+              <TouchableOpacity
+                key={dist.id}
+                style={[
+                  styles.distributorCard,
+                  deletingId === dist.id && styles.distributorCardDeleting,
+                ]}
+                onPress={() => openModal(dist)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.distributorLeft}>
+                  <View style={styles.distributorBadge}>
+                    <Text style={styles.distributorInitials}>{dist.initials || 'D'}</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.distributorName}>{dist.name}</Text>
+                    <Text style={styles.distributorEmail}>{dist.email || 'No email'}</Text>
+                    {dist.repName ? (
+                      <Text style={styles.distributorRep}>Rep: {dist.repName}</Text>
+                    ) : null}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleDelete(dist.id);
+                  }}
+                  style={styles.deleteButton}
+                  activeOpacity={0.7}
+                >
+                  <Trash2 size={16} color={deletingId === dist.id ? COLORS.error : COLORS.textTertiary} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         {/* Bars Section — switch between locations, add a new one */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -439,36 +420,6 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               );
             })}
-          </View>
-        </View>
-
-        {/* Ordering Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>ORDERING</Text>
-          <View style={styles.reorderCard}>
-            <Text style={styles.settingLabel}>Reorder Point</Text>
-            <Text style={styles.settingSubLabel}>
-              Flags a bottle to reorder once it drops below {Math.round(reorderThreshold * 100)}% of par
-            </Text>
-            <View style={styles.reorderChipRow}>
-              {REORDER_THRESHOLD_OPTIONS.map(value => {
-                const isActive = value === reorderThreshold;
-                return (
-                  <TouchableOpacity
-                    key={value}
-                    style={[styles.reorderChip, isActive && styles.reorderChipActive]}
-                    onPress={() => handleSetReorderThreshold(value)}
-                    disabled={savingReorderThreshold}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.reorderChipText, isActive && styles.reorderChipTextActive]}>
-                      {Math.round(value * 100)}%
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <Text style={styles.reorderHint}>Busier bar? Go higher. Slower bar? Go lower.</Text>
           </View>
         </View>
 
@@ -822,46 +773,6 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     padding: SPACING.md,
-  },
-  sectionHint: {
-    fontSize: FONT_SIZES.xs,
-    color: COLORS.textTertiary,
-    marginTop: -SPACING.sm,
-    marginBottom: SPACING.md,
-  },
-  staffInputRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  staffAddButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: COLORS.accentPrimary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  staffChipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-    marginTop: SPACING.md,
-  },
-  staffChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 20,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-  },
-  staffChipText: {
-    fontSize: FONT_SIZES.sm,
-    fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.textPrimary,
   },
   passwordMismatch: {
     fontSize: FONT_SIZES.xs,

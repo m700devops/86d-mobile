@@ -7,7 +7,6 @@ import { LocationProvider } from './context/LocationContext';
 import { InventoryProvider, useInventory } from './context/InventoryContext';
 import { DistributorProvider } from './context/DistributorContext';
 import { PricingProvider } from './context/PricingContext';
-import { StaffProvider } from './context/StaffContext';
 import { AppScreen, OrderDistributorSummary } from './types';
 import { LoginScreen } from './screens/LoginScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
@@ -234,9 +233,7 @@ export default function App() {
         <InventoryProvider>
           <DistributorProvider>
             <PricingProvider>
-              <StaffProvider>
-                <AppContent />
-              </StaffProvider>
+              <AppContent />
             </PricingProvider>
           </DistributorProvider>
         </InventoryProvider>

@@ -192,9 +192,6 @@ export interface Location {
   // for reorder (e.g. 0.7 = reorder once stock drops below 70% of par).
   // Per-location — set in Settings.
   reorder_threshold?: number;
-  // Named staff list for "who counted" attribution — synced server-side so
-  // every device on the account sees the same list
-  staff_names?: string[];
 }
 
 export interface Distributor {
