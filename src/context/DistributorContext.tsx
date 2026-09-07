@@ -8,8 +8,8 @@ interface DistributorContextType {
   distributors: Distributor[];
   loading: boolean;
   addDistributor: (distributor: Distributor) => Promise<void>;
-  updateDistributor: (id: string, updates: Partial<Distributor>) => void;
-  removeDistributor: (id: string) => void;
+  updateDistributor: (id: string, updates: Partial<Distributor>) => Promise<void>;
+  removeDistributor: (id: string) => Promise<void>;
 }
 
 const DistributorContext = createContext<DistributorContextType | undefined>(undefined);
@@ -72,12 +72,26 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setDistributors(prev => persist([...prev, created]));
   };
 
-  const updateDistributor = (id: string, updates: Partial<Distributor>) => {
+  const updateDistributor = async (id: string, updates: Partial<Distributor>) => {
+    const previous = distributors;
     setDistributors(prev => persist(prev.map(d => (d.id === id ? { ...d, ...updates } : d))));
+    try {
+      await apiService.updateDistributor(id, updates);
+    } catch (err) {
+      setDistributors(persist(previous));
+      throw err;
+    }
   };
 
-  const removeDistributor = (id: string) => {
+  const removeDistributor = async (id: string) => {
+    const previous = distributors;
     setDistributors(prev => persist(prev.filter(d => d.id !== id)));
+    try {
+      await apiService.deleteDistributor(id);
+    } catch (err) {
+      setDistributors(persist(previous));
+      throw err;
+    }
   };
 
   return (
