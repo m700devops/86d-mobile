@@ -1,0 +1,61 @@
+name: Submit iOS App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Setup Expo
+      uses: expo/expo-github-action@v8
+      with:
+        eas-version: latest
+        token: ${{ secrets.EXPO_TOKEN }}
+
+    - name: Install dependencies
+      run: npm ci
+
+    # Written to the runner's local disk only — never committed, never logged.
+    # Cleaned up in the "always()" step below regardless of submit outcome.
+    - name: Write App Store Connect API key
+      run: |
+        cat > asc-api-key.p8 << 'EOF'
+        ${{ secrets.ASC_API_KEY_P8 }}
+        EOF
+
+    # eas.json's committed submit.production.ios only carries ascAppId (public,
+    # safe to commit). The credential fields are injected here at runtime so
+    # they never touch a tracked file — see .claude/skills/ship-ios-build.
+    - name: Inject submit credentials into eas.json
+      run: |
+        node -e "
+          const fs = require('fs');
+          const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+          eas.submit.production.ios.ascApiKeyPath = './asc-api-key.p8';
+          eas.submit.production.ios.ascApiKeyId = process.env.ASC_API_KEY_ID;
+          eas.submit.production.ios.ascApiKeyIssuerId = process.env.ASC_API_KEY_ISSUER_ID;
+          fs.writeFileSync('eas.json', JSON.stringify(eas, null, 2));
+        "
+      env:
+        ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+        ASC_API_KEY_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+
+    - name: Submit latest build to App Store Connect
+      run: eas submit --platform ios --profile production --latest --non-interactive
+
+    - name: Clean up credentials
+      if: always()
+      run: |
+        rm -f asc-api-key.p8
+        git checkout -- eas.json
