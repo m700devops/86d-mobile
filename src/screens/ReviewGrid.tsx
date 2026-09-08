@@ -916,7 +916,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   stepperValue: {
-    fontSize: FONT_SIZES.sm,
+    fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
     fontFamily: 'monospace',
