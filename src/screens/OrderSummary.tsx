@@ -10,7 +10,7 @@ import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
-import { useProductBook, useBottleDefaults } from '../context/ProductBookContext';
+import { useProductBook, useBottleDefaults, bookProduct } from '../context/ProductBookContext';
 import { apiService } from '../services/api';
 import { OrderItem, OrderDistributorSummary } from '../types';
 import ConnectionNotice from '../components/ConnectionNotice';
@@ -528,7 +528,8 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                           // assigning here was previously local-only, so the
                           // same bottle came back unassigned on the next count.
                           const bottle = bottles.find(b => b.id === assigningItem.bottleId);
-                          if (bottle?.productId) setDistributor(bottle.productId, dist.id);
+                          const product = bottle ? bookProduct(bottle) : undefined;
+                          if (product) setDistributor(product, dist.id);
                           updateBottle(assigningItem.bottleId, { distributorId: dist.id });
                           setAssigningItem(null);
                         }

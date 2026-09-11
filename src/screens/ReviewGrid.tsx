@@ -11,7 +11,7 @@ import { Search, Plus, ChevronRight, ChevronDown, Trash2, Minus, WifiOff, Check 
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
-import { useProductBook, useBottleDefaults } from '../context/ProductBookContext';
+import { useProductBook, useBottleDefaults, bookProduct } from '../context/ProductBookContext';
 import { apiService } from '../services/api';
 import { Bottle } from '../types';
 import ConnectionNotice from '../components/ConnectionNotice';
@@ -84,7 +84,8 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   // saved against the product, so this is the last time anyone is asked for it:
   // every future scan of the same bottle arrives already filed under it.
   const assignToBottle = (bottle: Bottle, distributorId: string) => {
-    if (bottle.productId) setDistributor(bottle.productId, distributorId);
+    const product = bookProduct(bottle);
+    if (product) setDistributor(product, distributorId);
     // Mirrored onto the row as well, so a bottle still identifying in the
     // background (no productId yet) keeps the assignment for this count.
     updateBottle(bottle.id, { distributorId });
@@ -155,8 +156,9 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     // A par set here is set for good. Undebounced on purpose: the par stepper
     // is tap-only (no long-press repeat), so each tap is already one decision,
     // and the book's own write queue collapses rapid taps by product anyway.
-    if (updates.parLevel !== undefined && bottle.productId) {
-      setPar(bottle.productId, updates.parLevel);
+    if (updates.parLevel !== undefined) {
+      const product = bookProduct(bottle);
+      if (product) setPar(product, updates.parLevel);
     }
     if (updates.currentStock === undefined || !bottle.productId || !currentLocation) return;
     const productId = bottle.productId;

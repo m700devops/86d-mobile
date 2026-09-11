@@ -13,13 +13,14 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Search, X, Trash2, DollarSign, Tag, Merge } from 'lucide-react-native';
+import { Search, X, DollarSign, Tag, Merge, BookOpen } from 'lucide-react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { useProductBook, PriceableProduct } from '../context/ProductBookContext';
+import { useProductBook, PriceableProduct, BookEntry } from '../context/ProductBookContext';
 import { useInventory } from '../context/InventoryContext';
 import { useLocation } from '../context/LocationContext';
+import { useDistributors } from '../context/DistributorContext';
 import { apiService } from '../services/api';
 import { Product } from '../types';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
@@ -29,10 +30,30 @@ const SEARCH_DEBOUNCE_MS = 300;
 const displayName = (p: { brand?: string | null; name: string }) =>
   [p.brand, p.name].filter(Boolean).join(' ').trim() || p.name;
 
+// A bottle is "set up" when all three of its decisions are made. Par and
+// distributor matter as much as price here: without a par the order quantity
+// is guesswork, and without a distributor the line has nowhere to go.
+const isComplete = (e: BookEntry) =>
+  e.price !== undefined && e.par !== undefined && e.distributorId !== undefined;
+
 export default function PricingScreen() {
-  const { entries, loading, priceFor, setPrice, clearPrice, mergeInto } = useProductBook();
+  const {
+    entries,
+    loading,
+    priceFor,
+    parFor,
+    distributorFor,
+    setPrice,
+    clearPrice,
+    setPar,
+    setDistributor,
+    clearDistributor,
+    trackProduct,
+    mergeInto,
+  } = useProductBook();
   const { bottles, repointProduct } = useInventory();
   const { currentLocation } = useLocation();
+  const { distributors } = useDistributors();
 
   const [query, setQuery] = useState('');
   const [catalogResults, setCatalogResults] = useState<Product[]>([]);
@@ -40,41 +61,67 @@ export default function PricingScreen() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchSeq = useRef(0);
 
+  // Whether the book list is narrowed to bottles still missing something. Off
+  // by default: the list is also how you look a bottle up, not only a to-do.
+  const [showOnlyGaps, setShowOnlyGaps] = useState(false);
+
   const [editing, setEditing] = useState<PriceableProduct | null>(null);
   const [priceInput, setPriceInput] = useState('');
+  const [parInput, setParInput] = useState('');
+  const [distDraft, setDistDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // The duplicate being folded into an already-priced bottle, once the client
-  // spots that the AI read the same label two different ways.
+  // The duplicate being folded into a bottle already in the book, once the
+  // client spots that the AI read the same label two different ways.
   const [merging, setMerging] = useState<PriceableProduct | null>(null);
   const [mergeBusyId, setMergeBusyId] = useState<string | null>(null);
 
-  // Bottles counted in the current session that the price book has no answer
-  // for. This is the whole reason pricing gets its own screen: instead of
-  // hunting row by row while counting, everything missing a price collects
-  // here in one list.
-  const needsPrice = useMemo(() => {
+  const distributorName = useCallback(
+    (id?: string) => distributors.find(d => d.id === id)?.name,
+    [distributors]
+  );
+
+  // Bottles counted in the current session that still need something. This is
+  // the whole reason the book gets its own screen: instead of hunting row by
+  // row while counting, everything unfinished collects here in one list.
+  const sessionGaps = useMemo(() => {
     const seen = new Set<string>();
     const out: PriceableProduct[] = [];
     bottles.forEach(b => {
       if (!b.productId || b.scanStatus !== undefined) return;
       if (seen.has(b.productId)) return;
-      if (priceFor(b.productId) !== undefined) return;
+      const settled =
+        priceFor(b.productId) !== undefined &&
+        parFor(b.productId) !== undefined &&
+        distributorFor(b.productId) !== undefined;
+      if (settled) return;
       seen.add(b.productId);
       out.push({ id: b.productId, name: b.name, brand: b.brand, size: b.size, category: b.category });
     });
     return out;
-  }, [bottles, priceFor]);
+  }, [bottles, priceFor, parFor, distributorFor]);
 
   const normalizedQuery = query.trim().toLowerCase();
 
-  const filteredEntries = useMemo(() => {
-    if (!normalizedQuery) return entries;
-    return entries.filter(e => displayName(e).toLowerCase().includes(normalizedQuery));
-  }, [entries, normalizedQuery]);
+  // The book list minus whatever the NEEDS SETUP section is already showing, so
+  // a bottle counted this session appears once on the screen, not twice.
+  const bookEntries = useMemo(() => {
+    const shownAbove = new Set(sessionGaps.map(p => p.id));
+    return entries.filter(e => !shownAbove.has(e.productId));
+  }, [entries, sessionGaps]);
 
-  // Catalog search only fills the gap the price book can't: products this bar
-  // hasn't scanned yet but wants to price ahead of time.
+  const gapCount = useMemo(() => bookEntries.filter(e => !isComplete(e)).length, [bookEntries]);
+
+  const filteredEntries = useMemo(() => {
+    let list = showOnlyGaps ? bookEntries.filter(e => !isComplete(e)) : bookEntries;
+    if (normalizedQuery) {
+      list = list.filter(e => displayName(e).toLowerCase().includes(normalizedQuery));
+    }
+    return list;
+  }, [bookEntries, showOnlyGaps, normalizedQuery]);
+
+  // Catalog search only fills the gap the book can't: products this bar hasn't
+  // scanned yet but wants to set up ahead of time.
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (normalizedQuery.length < 2) {
@@ -101,35 +148,88 @@ export default function PricingScreen() {
     };
   }, [normalizedQuery, query]);
 
-  // Anything the price book or the needs-price list already covers is dropped
-  // here so a product never shows up twice on one screen.
+  // Anything the book or the needs-setup list already covers is dropped here so
+  // a product never shows up twice on one screen.
   const catalogSuggestions = useMemo(() => {
     if (!normalizedQuery) return [];
-    const known = new Set([...entries.map(e => e.productId), ...needsPrice.map(p => p.id)]);
+    const known = new Set([...entries.map(e => e.productId), ...sessionGaps.map(p => p.id)]);
     return catalogResults.filter(p => !known.has(p.id));
-  }, [catalogResults, entries, needsPrice, normalizedQuery]);
+  }, [catalogResults, entries, sessionGaps, normalizedQuery]);
 
-  const openEditor = useCallback((product: PriceableProduct, existing?: number) => {
-    setEditing(product);
-    setPriceInput(existing !== undefined ? String(existing) : '');
-  }, []);
+  const openEditor = useCallback(
+    (product: PriceableProduct) => {
+      setEditing(product);
+      const price = priceFor(product.id);
+      const par = parFor(product.id);
+      setPriceInput(price !== undefined ? String(price) : '');
+      setParInput(par !== undefined ? String(par) : '');
+      setDistDraft(distributorFor(product.id) ?? null);
+    },
+    [priceFor, parFor, distributorFor]
+  );
 
   const closeEditor = () => {
     setEditing(null);
     setPriceInput('');
+    setParInput('');
+    setDistDraft(null);
     setSaving(false);
   };
 
+  // One save for all three fields. Only what actually changed is written, so
+  // opening a bottle to check it and closing again costs nothing.
   const handleSave = async () => {
     if (!editing) return;
-    const value = parseFloat(priceInput.replace(/[^0-9.]/g, ''));
-    if (Number.isNaN(value) || value <= 0) {
-      Alert.alert('Enter a price', 'Type what you pay for this bottle, e.g. 24.99.');
-      return;
+    const product = editing;
+
+    const priceRaw = priceInput.trim();
+    const parRaw = parInput.trim();
+
+    let nextPrice: number | undefined;
+    if (priceRaw) {
+      const value = parseFloat(priceRaw);
+      if (Number.isNaN(value) || value <= 0) {
+        Alert.alert('Check the price', 'Type what you pay for this bottle, e.g. 24.99 — or leave it blank.');
+        return;
+      }
+      nextPrice = Math.round(value * 100) / 100;
     }
+
+    let nextPar: number | undefined;
+    if (parRaw) {
+      const value = parseInt(parRaw, 10);
+      if (Number.isNaN(value) || value < 1) {
+        Alert.alert('Check the par level', 'Par is how many bottles you want on hand — 1 or more, or leave it blank.');
+        return;
+      }
+      nextPar = value;
+    }
+
+    const prevPrice = priceFor(product.id);
+    const prevPar = parFor(product.id);
+    const prevDist = distributorFor(product.id);
+    const wroteSomething =
+      nextPrice !== prevPrice || nextPar !== prevPar || (distDraft ?? undefined) !== prevDist;
+
     setSaving(true);
     try {
-      await setPrice(editing, value);
+      // Price first, and awaited: it's the only one of the three that reports a
+      // failure back rather than queueing (see ProductBookContext), so a dead
+      // connection should stop here instead of half-saving the row.
+      if (nextPrice !== prevPrice) {
+        if (nextPrice !== undefined) await setPrice(product, nextPrice);
+        else await clearPrice(product.id);
+      }
+      if (nextPar !== prevPar) setPar(product, nextPar ?? 0);
+      if ((distDraft ?? undefined) !== prevDist) {
+        if (distDraft) setDistributor(product, distDraft);
+        else clearDistributor(product.id);
+      }
+      // Saved with nothing filled in — usually a catalog bottle being added
+      // ahead of time. Still give it a book row so it's here to come back to.
+      if (!wroteSomething && !entries.some(e => e.productId === product.id)) {
+        trackProduct(product);
+      }
       closeEditor();
     } catch {
       setSaving(false);
@@ -142,7 +242,7 @@ export default function PricingScreen() {
     const source = merging;
     Alert.alert(
       'Same bottle?',
-      `"${displayName(source)}" will be folded into "${displayName(target)}" and use its price. ` +
+      `"${displayName(source)}" will be folded into "${displayName(target)}" and use its price, par and distributor. ` +
         'Future scans of either name will land on the same bottle.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -175,40 +275,60 @@ export default function PricingScreen() {
     );
   };
 
-  const handleClear = (productId: string, label: string) => {
-    Alert.alert('Remove price?', `${label} will have no price on future orders.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () => {
-          clearPrice(productId).catch(() =>
-            Alert.alert('Could not remove', 'That change did not save. Check your connection and try again.')
-          );
-        },
-      },
-    ]);
-  };
-
   if (!currentLocation) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Pricing</Text>
+          <Text style={styles.headerTitle}>Bottle Book</Text>
         </View>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Set up a bar in Settings before adding prices.</Text>
+          <Text style={styles.emptyText}>Set up a bar in Settings before adding bottles.</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const renderSetupLine = (entry: BookEntry) => {
+    const parts: { key: string; text: string; missing: boolean }[] = [
+      {
+        key: 'price',
+        text: entry.price !== undefined ? `$${entry.price.toFixed(2)}` : 'No price',
+        missing: entry.price === undefined,
+      },
+      {
+        key: 'par',
+        text: entry.par !== undefined ? `Par ${entry.par}` : 'No par',
+        missing: entry.par === undefined,
+      },
+      {
+        key: 'dist',
+        text: distributorName(entry.distributorId) ?? 'No distributor',
+        missing: entry.distributorId === undefined,
+      },
+    ];
+    return (
+      <View style={styles.setupLine}>
+        {parts.map((part, i) => (
+          <React.Fragment key={part.key}>
+            {i > 0 && <Text style={styles.setupDot}>·</Text>}
+            <Text
+              style={[styles.setupvalue, part.missing && styles.setupValueMissing]}
+              numberOfLines={1}
+            >
+              {part.text}
+            </Text>
+          </React.Fragment>
+        ))}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Pricing</Text>
+        <Text style={styles.headerTitle}>Bottle Book</Text>
         <Text style={styles.headerSubtitle}>
-          What you pay per bottle — set once, used on every order
+          Price, par and distributor — set once, used on every order
         </Text>
       </View>
 
@@ -236,11 +356,11 @@ export default function PricingScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {needsPrice.length > 0 && (
+        {sessionGaps.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>NEEDS A PRICE</Text>
-            <Text style={styles.sectionHint}>Counted this session, no price yet</Text>
-            {needsPrice.map(product => (
+            <Text style={styles.sectionTitle}>NEEDS SETUP</Text>
+            <Text style={styles.sectionHint}>Counted this session, not finished yet</Text>
+            {sessionGaps.map(product => (
               <TouchableOpacity
                 key={product.id}
                 style={[styles.row, styles.rowUnpriced]}
@@ -253,7 +373,13 @@ export default function PricingScreen() {
                   </View>
                   <View style={styles.rowText}>
                     <Text style={styles.rowName} numberOfLines={1}>{displayName(product)}</Text>
-                    {product.size ? <Text style={styles.rowMeta}>{product.size}</Text> : null}
+                    {renderSetupLine({
+                      productId: product.id,
+                      name: product.name,
+                      price: priceFor(product.id),
+                      par: parFor(product.id),
+                      distributorId: distributorFor(product.id),
+                    })}
                   </View>
                 </View>
                 <View style={styles.rowRight}>
@@ -269,23 +395,38 @@ export default function PricingScreen() {
                       <Merge size={15} color={COLORS.textTertiary} />
                     </TouchableOpacity>
                   )}
-                  <Text style={styles.addPriceText}>Add price</Text>
+                  <Text style={styles.addPriceText}>Set up</Text>
                 </View>
               </TouchableOpacity>
             ))}
             {entries.length > 0 && (
               <Text style={styles.sectionHint}>
-                Already priced under another name? Tap the merge icon to combine them.
+                Already in the book under another name? Tap the merge icon to combine them.
               </Text>
             )}
           </View>
         )}
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            PRICE BOOK{entries.length > 0 ? ` (${entries.length})` : ''}
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>
+              YOUR BOTTLES{bookEntries.length > 0 ? ` (${bookEntries.length})` : ''}
+            </Text>
+            {gapCount > 0 && (
+              <TouchableOpacity
+                style={[styles.filterChip, showOnlyGaps && styles.filterChipActive]}
+                onPress={() => setShowOnlyGaps(v => !v)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.filterChipText, showOnlyGaps && styles.filterChipTextActive]}>
+                  {showOnlyGaps ? 'Show all' : `Needs setup (${gapCount})`}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={styles.sectionHint}>
+            Saved for this bar — tap any bottle to change its price, par or distributor
           </Text>
-          <Text style={styles.sectionHint}>Saved for this bar — tap any bottle to change it</Text>
 
           {loading && entries.length === 0 ? (
             <View style={styles.loadingRow}>
@@ -293,53 +434,42 @@ export default function PricingScreen() {
             </View>
           ) : filteredEntries.length === 0 ? (
             <View style={styles.emptyState}>
-              <DollarSign size={28} color={COLORS.textTertiary} />
+              <BookOpen size={28} color={COLORS.textTertiary} />
               <Text style={styles.emptyText}>
                 {normalizedQuery
-                  ? 'No priced bottles match that search.'
-                  : 'No prices yet. Scan a few bottles, or search above to price one now.'}
+                  ? 'No bottles match that search.'
+                  : showOnlyGaps
+                    ? 'Every bottle in your book is fully set up.'
+                    : 'No bottles yet. Scan a few, or search above to set one up now.'}
               </Text>
             </View>
           ) : (
             filteredEntries.map(entry => (
               <TouchableOpacity
                 key={entry.productId}
-                style={styles.row}
+                style={[styles.row, !isComplete(entry) && styles.rowIncomplete]}
                 onPress={() =>
-                  openEditor(
-                    {
-                      id: entry.productId,
-                      name: entry.name,
-                      brand: entry.brand,
-                      size: entry.size,
-                      category: entry.category,
-                    },
-                    entry.price
-                  )
+                  openEditor({
+                    id: entry.productId,
+                    name: entry.name,
+                    brand: entry.brand,
+                    size: entry.size,
+                    category: entry.category,
+                  })
                 }
                 activeOpacity={0.8}
               >
                 <View style={styles.rowLeft}>
                   <View style={styles.rowBadge}>
-                    <DollarSign size={14} color={COLORS.accentPrimary} />
+                    <DollarSign
+                      size={14}
+                      color={isComplete(entry) ? COLORS.accentPrimary : COLORS.textTertiary}
+                    />
                   </View>
                   <View style={styles.rowText}>
                     <Text style={styles.rowName} numberOfLines={1}>{displayName(entry)}</Text>
-                    {entry.size ? <Text style={styles.rowMeta}>{entry.size}</Text> : null}
+                    {renderSetupLine(entry)}
                   </View>
-                </View>
-                <View style={styles.rowRight}>
-                  <Text style={styles.rowPrice}>${entry.price.toFixed(2)}</Text>
-                  <TouchableOpacity
-                    onPress={e => {
-                      e.stopPropagation();
-                      handleClear(entry.productId, displayName(entry));
-                    }}
-                    hitSlop={8}
-                    style={styles.clearButton}
-                  >
-                    <Trash2 size={15} color={COLORS.textTertiary} />
-                  </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             ))
@@ -380,7 +510,7 @@ export default function PricingScreen() {
                       {product.size ? <Text style={styles.rowMeta}>{product.size}</Text> : null}
                     </View>
                   </View>
-                  <Text style={styles.addPriceText}>Add price</Text>
+                  <Text style={styles.addPriceText}>Set up</Text>
                 </TouchableOpacity>
               ))
             )}
@@ -400,7 +530,7 @@ export default function PricingScreen() {
               {merging ? displayName(merging) : ''}
             </Text>
             <Text style={styles.modalSubtitle}>
-              Which priced bottle is this the same as?
+              Which bottle in your book is this the same as?
             </Text>
 
             <ScrollView style={styles.mergeList} keyboardShouldPersistTaps="handled">
@@ -418,7 +548,9 @@ export default function PricingScreen() {
                   {mergeBusyId === entry.productId ? (
                     <ActivityIndicator size="small" color={COLORS.accentPrimary} />
                   ) : (
-                    <Text style={styles.mergeOptionPrice}>${entry.price.toFixed(2)}</Text>
+                    <Text style={styles.mergeOptionPrice}>
+                      {entry.price !== undefined ? `$${entry.price.toFixed(2)}` : '—'}
+                    </Text>
                   )}
                 </TouchableOpacity>
               ))}
@@ -444,23 +576,87 @@ export default function PricingScreen() {
             <Text style={styles.modalTitle} numberOfLines={2}>
               {editing ? displayName(editing) : ''}
             </Text>
-            <Text style={styles.modalSubtitle}>What do you pay per bottle?</Text>
+            <Text style={styles.modalSubtitle}>
+              Set once — every future scan of this bottle uses it
+            </Text>
 
-            <View style={styles.priceInputRow}>
-              <Text style={styles.currency}>$</Text>
-              <TextInput
-                style={styles.priceInput}
-                placeholder="0.00"
-                placeholderTextColor={COLORS.textTertiary}
-                value={priceInput}
-                onChangeText={text => setPriceInput(text.replace(/[^0-9.]/g, ''))}
-                keyboardType="decimal-pad"
-                inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
-                autoFocus
-                returnKeyType="done"
-                onSubmitEditing={handleSave}
-              />
-            </View>
+            <ScrollView
+              style={styles.editorScroll}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.fieldLabel}>WHAT YOU PAY</Text>
+              <View style={styles.priceInputRow}>
+                <Text style={styles.currency}>$</Text>
+                <TextInput
+                  style={styles.priceInput}
+                  placeholder="0.00"
+                  placeholderTextColor={COLORS.textTertiary}
+                  value={priceInput}
+                  onChangeText={text => setPriceInput(text.replace(/[^0-9.]/g, ''))}
+                  keyboardType="decimal-pad"
+                  inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
+                  returnKeyType="done"
+                />
+              </View>
+
+              <Text style={styles.fieldLabel}>PAR — HOW MANY TO KEEP ON HAND</Text>
+              <View style={styles.priceInputRow}>
+                <TextInput
+                  style={styles.priceInput}
+                  placeholder="Not set"
+                  placeholderTextColor={COLORS.textTertiary}
+                  value={parInput}
+                  onChangeText={text => setParInput(text.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                  inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
+                  returnKeyType="done"
+                />
+              </View>
+
+              <Text style={styles.fieldLabel}>DISTRIBUTOR</Text>
+              {distributors.length === 0 ? (
+                <Text style={styles.fieldHint}>
+                  No distributors yet — add them in Settings, then come back to assign one.
+                </Text>
+              ) : (
+                <View style={styles.distChips}>
+                  <TouchableOpacity
+                    style={[styles.distChip, distDraft === null && styles.distChipActive]}
+                    onPress={() => setDistDraft(null)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[styles.distChipText, distDraft === null && styles.distChipTextActive]}
+                    >
+                      None
+                    </Text>
+                  </TouchableOpacity>
+                  {distributors.map(dist => (
+                    <TouchableOpacity
+                      key={dist.id}
+                      style={[styles.distChip, distDraft === dist.id && styles.distChipActive]}
+                      onPress={() => setDistDraft(dist.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          styles.distChipText,
+                          distDraft === dist.id && styles.distChipTextActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {dist.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <Text style={styles.fieldHint}>
+                Leave a field blank to clear it.
+              </Text>
+            </ScrollView>
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelButton} onPress={closeEditor} activeOpacity={0.8}>
@@ -567,6 +763,106 @@ const styles = StyleSheet.create({
   rowUnpriced: {
     borderColor: `${COLORS.accentSecondary}55`,
   },
+  // A bottle missing one of its three settings reads as unfinished without
+  // shouting — it's a normal row with a dimmer edge, not a warning.
+  rowIncomplete: {
+    borderColor: `${COLORS.border}`,
+    backgroundColor: 'transparent',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.md,
+  },
+  filterChip: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  filterChipActive: {
+    borderColor: COLORS.accentPrimary,
+    backgroundColor: `${COLORS.accentPrimary}1A`,
+  },
+  filterChipText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
+  },
+  filterChipTextActive: {
+    color: COLORS.accentPrimary,
+  },
+  // The three settings on one line under the name. Missing ones stay visible
+  // rather than being omitted — the gap is the information.
+  setupLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 5,
+    marginTop: 3,
+  },
+  setupvalue: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
+    flexShrink: 1,
+  },
+  setupValueMissing: {
+    fontWeight: FONT_WEIGHTS.regular,
+    color: COLORS.textTertiary,
+    fontStyle: 'italic',
+  },
+  setupDot: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+  },
+  editorScroll: {
+    marginTop: SPACING.md,
+    maxHeight: 380,
+  },
+  fieldLabel: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.textTertiary,
+    letterSpacing: 1.5,
+    marginTop: SPACING.lg,
+  },
+  fieldHint: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textTertiary,
+    marginTop: SPACING.sm,
+  },
+  distChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  distChip: {
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: '100%',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.primaryDark,
+  },
+  distChipActive: {
+    borderColor: COLORS.accentPrimary,
+    backgroundColor: `${COLORS.accentPrimary}1A`,
+  },
+  distChipText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textSecondary,
+  },
+  distChipTextActive: {
+    color: COLORS.accentPrimary,
+  },
   rowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -608,9 +904,6 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,
     letterSpacing: LETTER_SPACING,
-  },
-  clearButton: {
-    padding: SPACING.xs,
   },
   mergeButton: {
     padding: SPACING.xs,
@@ -690,7 +983,7 @@ const styles = StyleSheet.create({
   priceInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: SPACING.lg,
+    marginTop: SPACING.sm,
     paddingHorizontal: SPACING.md,
     height: 56,
     borderRadius: 10,
@@ -706,6 +999,7 @@ const styles = StyleSheet.create({
   },
   priceInput: {
     flex: 1,
+    minWidth: 0,
     fontSize: FONT_SIZES['2xl'],
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textPrimary,

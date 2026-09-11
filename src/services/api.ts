@@ -422,6 +422,14 @@ class ApiService {
     return response.data;
   }
 
+  // Clear a product's distributor at a location. Idempotent server-side, so a
+  // retry after a dropped response is a success rather than a 404.
+  async unassignProductDistributor(locationId: string, productId: string): Promise<void> {
+    await this.client.delete(
+      `/locations/${locationId}/product-distributors/${productId}`
+    );
+  }
+
   // Send order emails to distributors (backend delivers via Resend)
   async sendOrderEmails(payload: {
     location_id: string;

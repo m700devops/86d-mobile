@@ -41,10 +41,15 @@ Don't describe either in UI copy or docs.
 - src/screens/OrderHistory.tsx — past orders, spend-by-distributor and most-ordered-item
   summary, reorder-from-history. Deliberately not variance/shrinkage detection — there's
   no per-scan usage log, so the only trustworthy signal is what was actually ordered
-- src/screens/PricingScreen.tsx — the price half of the product book: set a price once,
-  it auto-matches on every future scan (par and distributor work the same way, but are
-  set from ReviewGrid rather than here). "Needs a price" list + full price list + catalog
-  search + duplicate-product merge picker
+- src/screens/PricingScreen.tsx — the Bottle Book (sidebar label; screen key is still
+  `pricing`). The place to review and edit all three per-bottle settings — price, par,
+  distributor — outside a count, one editor sheet per bottle. Sections: NEEDS SETUP
+  (counted this session, still missing one of the three), YOUR BOTTLES (the rest of the
+  book, with a "Needs setup (n)" filter), ADD FROM CATALOG (set a bottle up before it's
+  ever scanned — `trackProduct` gives it a book row), plus the duplicate-product merge
+  picker. The two lists are deliberately disjoint: a session bottle shows in the first
+  and is filtered out of the second. Blanking a field clears it; price is awaited and can
+  fail, par/distributor queue (see ProductBookContext), so the editor saves price first
 - src/screens/PaywallScreen.tsx — shown when trial/subscription has lapsed; blocks the
   rest of the app except sign-out. Checkout opens Stripe's hosted page in the system
   browser — no Stripe code or IAP runs inside the app itself
@@ -75,7 +80,9 @@ Don't describe either in UI copy or docs.
   (the old mount-effect hydration in ReviewGrid only ever reached bottles that already
   existed, so anything scanned afterwards silently lost its saved distributor).
   `parLevel`/`distributorId` on Bottle are fallbacks only, for rows with no productId
-  yet. Price writes are optimistic with rollback; par/distributor writes apply locally
+  yet. `entries` is every bottle with a book row, however little is filled in — the
+  Bottle Book can't show what's missing if bottles only appear once something is set.
+  Price writes are optimistic with rollback; par/distributor writes apply locally
   and queue for retry on reconnect rather than rolling back — those are tapped mid-count
   on bad bar wifi, and reverting the number under someone's thumb is worse than a write
   that lands a minute late. Reconnect-triggered refresh via NetInfo. Backed by

@@ -26,14 +26,22 @@ import { Bottle } from '../types';
 // still identifying in the background, a manual add) and drafts saved before
 // this book existed. Book first, bottle second: see `useBottleDefaults`.
 
-export interface PriceBookEntry {
+// One bottle as this bar has it set up. Every field beyond the identity is
+// optional because they're set independently and at different moments — a
+// price from the Bottle Book, a par and a distributor mid-count — and "not set
+// yet" has to stay distinguishable from "set to zero".
+export interface BookEntry {
   productId: string;
-  price: number;
   name: string;
   brand?: string | null;
   size?: string | null;
   category?: string | null;
+  price?: number;
+  par?: number;
+  distributorId?: string;
 }
+
+type ProductInfo = Pick<BookEntry, 'productId' | 'name' | 'brand' | 'size' | 'category'>;
 
 export interface PriceableProduct {
   id: string;
@@ -44,7 +52,11 @@ export interface PriceableProduct {
 }
 
 interface ProductBookContextType {
-  entries: PriceBookEntry[];
+  // Every bottle this bar has a book row for, however little is filled in —
+  // including ones that only have a row because they were counted once. That's
+  // deliberate: the Bottle Book's job is showing what's still missing, which it
+  // can't do if bottles appear only after someone has already set something.
+  entries: BookEntry[];
   loading: boolean;
   priceFor: (productId?: string) => number | undefined;
   // undefined means "no par has ever been set for this bottle at this bar",
@@ -57,8 +69,12 @@ interface ProductBookContextType {
   // Par and distributor are set mid-count, one tap at a time, often on a bar's
   // bad wifi — so unlike setPrice these don't make the caller await a round
   // trip or handle a rejection. They apply locally at once and queue the write.
-  setPar: (productId: string, par: number) => void;
-  setDistributor: (productId: string, distributorId: string) => void;
+  setPar: (product: PriceableProduct, par: number) => void;
+  setDistributor: (product: PriceableProduct, distributorId: string) => void;
+  clearDistributor: (productId: string) => void;
+  // Adds a bottle to the book with nothing set yet, so it can be filled in from
+  // the Bottle Book before it's ever scanned.
+  trackProduct: (product: PriceableProduct) => void;
   mergeInto: (sourceProductId: string, targetProductId: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -72,7 +88,11 @@ const WRITE_DEBOUNCE_MS = 350;
 
 export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentLocation } = useLocation();
-  const [byProductId, setByProductId] = useState<Record<string, PriceBookEntry>>({});
+  // Identity is kept apart from the three settable fields so a bottle can be in
+  // the book with nothing filled in — which is most of them, right up until
+  // someone sets a price, a par or a distributor.
+  const [infoByProductId, setInfoByProductId] = useState<Record<string, ProductInfo>>({});
+  const [priceByProductId, setPriceByProductId] = useState<Record<string, number>>({});
   const [parByProductId, setParByProductId] = useState<Record<string, number>>({});
   const [distByProductId, setDistByProductId] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -133,6 +153,27 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, [send]);
 
+  // Records a bottle's identity in the book without touching its settings.
+  // Existing info wins: what came back from the server is richer than what a
+  // scan row can supply (a real size and category, not the blanks a scan
+  // carries), so a later write must never overwrite it with less.
+  const rememberInfo = useCallback((product: PriceableProduct) => {
+    setInfoByProductId(prev =>
+      prev[product.id]
+        ? prev
+        : {
+            ...prev,
+            [product.id]: {
+              productId: product.id,
+              name: product.name,
+              brand: product.brand ?? null,
+              size: product.size ?? null,
+              category: product.category ?? null,
+            },
+          }
+    );
+  }, []);
+
   const load = useCallback(async (locationId: string) => {
     setLoading(true);
     try {
@@ -144,33 +185,51 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
       ]);
 
       if (parResult.status === 'fulfilled') {
-        const prices: Record<string, PriceBookEntry> = {};
+        const info: Record<string, ProductInfo> = {};
+        const prices: Record<string, number> = {};
         const pars: Record<string, number> = {};
         parResult.value.forEach(pl => {
-          if (pl.price && pl.price > 0) {
-            prices[pl.product_id] = {
-              productId: pl.product_id,
-              price: pl.price,
-              name: pl.product?.name ?? 'Unknown bottle',
-              brand: pl.product?.brand ?? null,
-              size: pl.product?.size ?? null,
-              category: pl.product?.category ?? null,
-            };
-          }
-          // 0 is the backend's "never set" for par, same as it is for price.
+          info[pl.product_id] = {
+            productId: pl.product_id,
+            name: pl.product?.name ?? 'Unknown bottle',
+            brand: pl.product?.brand ?? null,
+            size: pl.product?.size ?? null,
+            category: pl.product?.category ?? null,
+          };
+          // 0 is the backend's "never set", for price and par alike.
+          if (pl.price && pl.price > 0) prices[pl.product_id] = pl.price;
           if (pl.par_quantity && pl.par_quantity > 0) pars[pl.product_id] = pl.par_quantity;
         });
-        setByProductId(prices);
-        setParByProductId(pars);
-        // Only claim the book belongs to this bar once the prices/pars behind
-        // it are really loaded — see the gate on the readers below.
-        setBookLocationId(locationId);
-      }
 
-      if (distResult.status === 'fulfilled') {
+        // An assignment can exist with no par_levels row behind it, so the
+        // distributor list contributes bottles to the book too, not just a
+        // field on bottles already in it.
         const dists: Record<string, string> = {};
-        distResult.value.forEach(a => { dists[a.product_id] = a.distributor_id; });
+        if (distResult.status === 'fulfilled') {
+          distResult.value.forEach(a => {
+            dists[a.product_id] = a.distributor_id;
+            if (!info[a.product_id]) {
+              info[a.product_id] = {
+                productId: a.product_id,
+                name: a.product?.name ?? 'Unknown bottle',
+                brand: a.product?.brand ?? null,
+                size: a.product?.size ?? null,
+                category: null,
+              };
+            }
+          });
+        }
+        // Emptied rather than left alone when that fetch failed: these maps are
+        // about to be published as this bar's book, and holding another bar's
+        // assignments in them would be worse than holding none. loadFailed
+        // below brings them back on the next reconnect.
         setDistByProductId(dists);
+        setInfoByProductId(info);
+        setPriceByProductId(prices);
+        setParByProductId(pars);
+        // Only claim the book belongs to this bar once the rows behind it are
+        // really loaded — see the gate on the readers below.
+        setBookLocationId(locationId);
       }
 
       loadFailedRef.current =
@@ -247,8 +306,8 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const priceFor = useCallback(
     (productId?: string) =>
-      productId && bookMatchesLocation ? byProductId[productId]?.price : undefined,
-    [byProductId, bookMatchesLocation]
+      productId && bookMatchesLocation ? priceByProductId[productId] : undefined,
+    [priceByProductId, bookMatchesLocation]
   );
 
   const parFor = useCallback(
@@ -270,33 +329,24 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
     async (product: PriceableProduct, price: number) => {
       if (!currentLocation) throw new Error('No location selected');
       const rounded = Math.round(price * 100) / 100;
-      const previous = byProductId[product.id];
+      const previous = priceByProductId[product.id];
 
-      setByProductId(prev => ({
-        ...prev,
-        [product.id]: {
-          productId: product.id,
-          price: rounded,
-          name: product.name,
-          brand: product.brand ?? null,
-          size: product.size ?? null,
-          category: product.category ?? null,
-        },
-      }));
+      rememberInfo(product);
+      setPriceByProductId(prev => ({ ...prev, [product.id]: rounded }));
 
       try {
         await apiService.updateProductStock(currentLocation.id, product.id, { price: rounded });
       } catch (err) {
-        setByProductId(prev => {
+        setPriceByProductId(prev => {
           const next = { ...prev };
-          if (previous) next[product.id] = previous;
+          if (previous !== undefined) next[product.id] = previous;
           else delete next[product.id];
           return next;
         });
         throw err;
       }
     },
-    [currentLocation, byProductId]
+    [currentLocation, priceByProductId, rememberInfo]
   );
 
   // The backend treats a price of 0 as "unset" and hands back null, so
@@ -304,9 +354,9 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const clearPrice = useCallback(
     async (productId: string) => {
       if (!currentLocation) throw new Error('No location selected');
-      const previous = byProductId[productId];
+      const previous = priceByProductId[productId];
 
-      setByProductId(prev => {
+      setPriceByProductId(prev => {
         const next = { ...prev };
         delete next[productId];
         return next;
@@ -315,22 +365,26 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
       try {
         await apiService.updateProductStock(currentLocation.id, productId, { price: 0 });
       } catch (err) {
-        if (previous) setByProductId(prev => ({ ...prev, [productId]: previous }));
+        if (previous !== undefined) {
+          setPriceByProductId(prev => ({ ...prev, [productId]: previous }));
+        }
         throw err;
       }
     },
-    [currentLocation, byProductId]
+    [currentLocation, priceByProductId]
   );
 
   // Applied locally first and never rolled back on failure: the tap is the
   // bartender's intent, and reverting the number under their thumb mid-count
   // is worse than a write that lands a minute later off the retry queue.
   const setPar = useCallback(
-    (productId: string, par: number) => {
+    (product: PriceableProduct, par: number) => {
       if (!currentLocation) return;
       const locationId = currentLocation.id;
+      const productId = product.id;
       const rounded = Math.max(0, Math.round(par));
 
+      rememberInfo(product);
       setParByProductId(prev => {
         const next = { ...prev };
         // 0 is "no par", so setting it back to 0 clears the entry rather than
@@ -344,21 +398,58 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
         apiService.updateProductStock(locationId, productId, { par: rounded })
       );
     },
-    [currentLocation, runWrite]
+    [currentLocation, runWrite, rememberInfo]
   );
 
   const setDistributor = useCallback(
-    (productId: string, distributorId: string) => {
+    (product: PriceableProduct, distributorId: string) => {
       if (!currentLocation) return;
       const locationId = currentLocation.id;
+      const productId = product.id;
 
+      rememberInfo(product);
       setDistByProductId(prev => ({ ...prev, [productId]: distributorId }));
 
       runWrite(`dist:${productId}`, () =>
         apiService.assignProductDistributor(locationId, productId, distributorId)
       );
     },
+    [currentLocation, runWrite, rememberInfo]
+  );
+
+  const clearDistributor = useCallback(
+    (productId: string) => {
+      if (!currentLocation) return;
+      const locationId = currentLocation.id;
+
+      setDistByProductId(prev => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
+
+      // Same key as setDistributor, so assigning and then clearing sends one
+      // write carrying whichever the user landed on rather than racing the two.
+      runWrite(`dist:${productId}`, () =>
+        apiService.unassignProductDistributor(locationId, productId)
+      );
+    },
     [currentLocation, runWrite]
+  );
+
+  // Give a bottle a book row before anything is set on it, so it can be looked
+  // up and filled in later. An empty PATCH is enough: it upserts the par_levels
+  // row without claiming a price or a par, both of which stay 0 (= unset).
+  const trackProduct = useCallback(
+    (product: PriceableProduct) => {
+      if (!currentLocation) return;
+      const locationId = currentLocation.id;
+      rememberInfo(product);
+      runWrite(`track:${product.id}`, () =>
+        apiService.updateProductStock(locationId, product.id, {})
+      );
+    },
+    [currentLocation, runWrite, rememberInfo]
   );
 
   // Merging rewrites par_levels and assignment rows server-side (prices, pars
@@ -373,13 +464,25 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
     [currentLocation, load]
   );
 
-  // Same gate as priceFor — the price list must not show the previous bar's
-  // prices while the newly selected one is still loading or failed to load.
-  const entries = bookMatchesLocation
-    ? Object.values(byProductId).sort((a, b) =>
-        `${a.brand ?? ''} ${a.name}`.trim().localeCompare(`${b.brand ?? ''} ${b.name}`.trim())
-      )
-    : [];
+  // Same gate as priceFor — the book list must not show the previous bar's
+  // prices, pars or distributors while the newly selected one is still loading
+  // or failed to load.
+  const entries = useMemo(
+    () =>
+      bookMatchesLocation
+        ? Object.values(infoByProductId)
+            .map(info => ({
+              ...info,
+              price: priceByProductId[info.productId],
+              par: parByProductId[info.productId],
+              distributorId: distByProductId[info.productId],
+            }))
+            .sort((a, b) =>
+              `${a.brand ?? ''} ${a.name}`.trim().localeCompare(`${b.brand ?? ''} ${b.name}`.trim())
+            )
+        : [],
+    [bookMatchesLocation, infoByProductId, priceByProductId, parByProductId, distByProductId]
+  );
 
   return (
     <ProductBookContext.Provider
@@ -393,6 +496,8 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
         clearPrice,
         setPar,
         setDistributor,
+        clearDistributor,
+        trackProduct,
         mergeInto,
         refresh,
       }}
@@ -414,6 +519,19 @@ export const useProductBook = () => {
 // key on yet — a scan still identifying in the background, a manual add, a
 // draft saved before this book existed — so they're the fallback, never the
 // answer when the book has one.
+// A Bottle as the book wants it. Undefined when the scan hasn't resolved to a
+// product yet, which is exactly when there's nothing the book could key on.
+export const bookProduct = (bottle: Bottle): PriceableProduct | undefined =>
+  bottle.productId
+    ? {
+        id: bottle.productId,
+        name: bottle.name,
+        brand: bottle.brand,
+        size: bottle.size,
+        category: bottle.category,
+      }
+    : undefined;
+
 export const useBottleDefaults = () => {
   const { parFor, distributorFor } = useProductBook();
   return useMemo(
