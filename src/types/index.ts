@@ -208,7 +208,10 @@ export interface Distributor {
   email?: string;
   phone?: string;
   repName?: string;
-  initials?: string;
+  // No `initials` here on purpose. The backend has no such column, so one set
+  // on a Distributor could never survive a reload. Badges come from
+  // `useDistributors().initialsFor(id)`, which derives them from the names and
+  // keeps them distinct across the list.
 }
 
 export interface OrderItem {

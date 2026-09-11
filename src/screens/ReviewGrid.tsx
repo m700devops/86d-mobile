@@ -92,8 +92,9 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   };
 
   // Name and email only: email is the address the order actually goes to, and
-  // everything else (phone, rep, initials) is optional detail that Settings
-  // handles. Asking for it here would turn a two-field detour into a form.
+  // everything else (phone, rep) is optional detail that Settings handles.
+  // Asking for it here would turn a two-field detour into a form. Initials
+  // aren't asked for anywhere — they're derived from the name.
   const handleCreateAndAssign = async () => {
     const name = newDistName.trim();
     const email = newDistEmail.trim();
@@ -110,7 +111,6 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
       const created = await addDistributor({
         id: Math.random().toString(36).slice(2, 11),
         name,
-        initials: name.slice(0, 2).toUpperCase(),
         email,
         phone: '',
         repName: '',

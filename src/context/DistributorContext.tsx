@@ -1,12 +1,18 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Distributor } from '../types';
+import { buildInitialsMap } from '../utils/distributorInitials';
 import { apiService } from '../services/api';
 import { useAuth } from './AuthContext';
 
 interface DistributorContextType {
   distributors: Distributor[];
   loading: boolean;
+  // Badge initials, derived from the names and guaranteed distinct across the
+  // list. Nobody types these: the field that used to ask for them was never
+  // persisted (the API has no initials column and addDistributor never sent
+  // one), so every badge quietly rendered a literal "D".
+  initialsFor: (id: string) => string;
   // Resolves with the distributor the server created — callers that need to
   // use it straight away (assigning it to a bottle) need its real id, not the
   // throwaway one they passed in.
@@ -60,6 +66,15 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return () => { cancelled = true; };
   }, [isAuthenticated, userId]);
 
+  // Recomputed whenever the list changes — a rename should move the badge with
+  // it, and a new distributor that collides has to be resolved against
+  // everyone else, not just against itself.
+  const initialsMap = useMemo(
+    () => buildInitialsMap(distributors.map(d => ({ id: d.id, name: d.name }))),
+    [distributors]
+  );
+  const initialsFor = useCallback((id: string) => initialsMap[id] ?? 'D', [initialsMap]);
+
   const persist = (next: Distributor[]) => {
     if (userId) AsyncStorage.setItem(distributorsKey(userId), JSON.stringify(next)).catch(() => {});
     return next;
@@ -99,7 +114,9 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   return (
-    <DistributorContext.Provider value={{ distributors, loading, addDistributor, updateDistributor, removeDistributor }}>
+    <DistributorContext.Provider
+      value={{ distributors, loading, initialsFor, addDistributor, updateDistributor, removeDistributor }}
+    >
       {children}
     </DistributorContext.Provider>
   );

@@ -70,7 +70,15 @@ Don't describe either in UI copy or docs.
   couldn't identify it" answers are capped, at 3
 - src/context/LocationContext.tsx — bar location selection (multiple bars per account)
 - src/context/DistributorContext.tsx — distributor list state (name/email/phone/repName;
-  used by Settings, ReviewGrid, OrderSummary)
+  used by Settings, ReviewGrid, OrderSummary). Also exposes `initialsFor(id)` — badge
+  initials are DERIVED from the name, never typed and never stored. Settings used to ask
+  for them and require them, but the backend has no initials column and `addDistributor`
+  never sent one, so every badge silently fell back to a literal "D"
+- src/utils/distributorInitials.ts — `buildInitialsMap()`, the derivation behind that.
+  Resolves collisions across the whole list so two distributors never share a badge
+  ("Blue Bottle" takes BB, "Breakthru Beverage" falls to BE). Sorts by name internally, so
+  the result doesn't shift when the context appends a new distributor to local state and
+  then reloads it name-sorted from the API
 - src/context/ProductBookContext.tsx — the product book: everything a bar decides
   ONCE per bottle and should never be asked again — price, par level, and distributor —
   held per (location, product) and looked up by productId (`priceFor`/`parFor`/

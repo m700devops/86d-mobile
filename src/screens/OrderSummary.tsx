@@ -25,7 +25,7 @@ interface Props {
 
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
   const { bottles, isHydrated, updateBottle, clearBottles } = useInventory();
-  const { distributors } = useDistributors();
+  const { distributors, initialsFor } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
   const { priceFor, setDistributor } = useProductBook();
@@ -37,7 +37,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   // from `bottles` — already emptied by clearBottles() in the same handler, so
   // it rendered "Orders Sent!" above an empty list.
   const [sentGroups, setSentGroups] = useState<
-    { id: string; name: string; email?: string | null; initials?: string }[]
+    { id: string; name: string; email?: string | null; initials: string }[]
   >([]);
   const [checkAnim] = useState(new Animated.Value(0));
   const [assigningItem, setAssigningItem] = useState<OrderItem | null>(null);
@@ -208,7 +208,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             id: g.distributor.id,
             name: g.distributor.name,
             email: g.distributor.email,
-            initials: (g.distributor as any).initials,
+            initials: initialsFor(g.distributor.id),
           }))
         );
         Animated.spring(checkAnim, {
@@ -367,7 +367,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
               <View key={group.id} style={styles.sentDistributorCard}>
                 <View style={styles.distributorBadge}>
                   <Text style={styles.distributorInitials}>
-                    {group.initials || 'D'}
+                    {group.initials}
                   </Text>
                 </View>
                 <View style={styles.distributorInfo}>
@@ -449,7 +449,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                   idx === 2 && styles.initialsBadgeGreen,
                 ]}>
                   <Text style={styles.initialsText}>
-                    {group.distributor.initials || 'D'}
+                    {initialsFor(group.distributor.id)}
                   </Text>
                 </View>
               </View>
@@ -537,7 +537,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                     >
                       <View style={styles.modalDistBadge}>
                         <Text style={styles.modalDistInitials}>
-                          {dist.initials || dist.name.charAt(0).toUpperCase()}
+                          {initialsFor(dist.id)}
                         </Text>
                       </View>
                       <Text style={styles.modalDistName}>{dist.name}</Text>
@@ -648,7 +648,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
               >
                 <View style={styles.modalDistBadge}>
                   <Text style={styles.modalDistInitials}>
-                    {group.distributor.initials || group.distributor.name.charAt(0).toUpperCase()}
+                    {initialsFor(group.distributor.id)}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
