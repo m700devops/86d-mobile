@@ -17,7 +17,7 @@ import { Search, X, Trash2, DollarSign, Tag, Merge } from 'lucide-react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { usePricing, PriceableProduct } from '../context/PricingContext';
+import { useProductBook, PriceableProduct } from '../context/ProductBookContext';
 import { useInventory } from '../context/InventoryContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
@@ -30,7 +30,7 @@ const displayName = (p: { brand?: string | null; name: string }) =>
   [p.brand, p.name].filter(Boolean).join(' ').trim() || p.name;
 
 export default function PricingScreen() {
-  const { entries, loading, priceFor, setPrice, clearPrice, mergeInto } = usePricing();
+  const { entries, loading, priceFor, setPrice, clearPrice, mergeInto } = useProductBook();
   const { bottles, repointProduct } = useInventory();
   const { currentLocation } = useLocation();
 

@@ -22,7 +22,13 @@ Don't describe either in UI copy or docs.
 - eas.json — build profiles (use "preview" for testing)
 - src/screens/CameraScan.tsx — the scanning screen: camera → AI bottle ID → manual count
   entry via number pad (`padVisible`/`stockInput`)
-- src/screens/ReviewGrid.tsx — multi-bottle review grid (uses distributors)
+- src/screens/ReviewGrid.tsx — multi-bottle review grid. Par level and distributor
+  are read from the product book by productId, not off the Bottle, so a bottle this
+  bar has counted before arrives already parred and already grouped under its
+  distributor. Both are editable here and every edit writes back to the book — the
+  distributor chip shows the saved name and stays tappable so a wrong one can be
+  corrected. Par's minimum is 1: 0 is the backend's "never set"
+
 - src/screens/OrderSummary.tsx — order summary: distributor breakdown, Email/Call/Print
   actions, first-send restaurant-name setup modal
 - src/screens/SettingsScreen.tsx — manage distributors (add/edit/remove) + Restaurant
@@ -35,8 +41,9 @@ Don't describe either in UI copy or docs.
 - src/screens/OrderHistory.tsx — past orders, spend-by-distributor and most-ordered-item
   summary, reorder-from-history. Deliberately not variance/shrinkage detection — there's
   no per-scan usage log, so the only trustworthy signal is what was actually ordered
-- src/screens/PricingScreen.tsx — permanent per-bar Price Book: set a price once, it
-  auto-matches on every future scan. "Needs a price" list + full price list + catalog
+- src/screens/PricingScreen.tsx — the price half of the product book: set a price once,
+  it auto-matches on every future scan (par and distributor work the same way, but are
+  set from ReviewGrid rather than here). "Needs a price" list + full price list + catalog
   search + duplicate-product merge picker
 - src/screens/PaywallScreen.tsx — shown when trial/subscription has lapsed; blocks the
   rest of the app except sign-out. Checkout opens Stripe's hosted page in the system
@@ -59,8 +66,20 @@ Don't describe either in UI copy or docs.
 - src/context/LocationContext.tsx — bar location selection (multiple bars per account)
 - src/context/DistributorContext.tsx — distributor list state (name/email/phone/repName;
   used by Settings, ReviewGrid, OrderSummary)
-- src/context/PricingContext.tsx — price book state backing PricingScreen; optimistic
-  writes with rollback, reconnect-triggered refresh via NetInfo
+- src/context/ProductBookContext.tsx — the product book: everything a bar decides
+  ONCE per bottle and should never be asked again — price, par level, and distributor —
+  held per (location, product) and looked up by productId (`priceFor`/`parFor`/
+  `distributorFor`, or `useBottleDefaults`'s `parOf`/`isParSet`/`distributorOf`).
+  Lookup, never copied onto a Bottle: that's what lets a scan "know" its par and
+  distributor the instant it resolves to a productId, with no hydration step to race
+  (the old mount-effect hydration in ReviewGrid only ever reached bottles that already
+  existed, so anything scanned afterwards silently lost its saved distributor).
+  `parLevel`/`distributorId` on Bottle are fallbacks only, for rows with no productId
+  yet. Price writes are optimistic with rollback; par/distributor writes apply locally
+  and queue for retry on reconnect rather than rolling back — those are tapped mid-count
+  on bad bar wifi, and reverting the number under someone's thumb is worse than a write
+  that lands a minute late. Reconnect-triggered refresh via NetInfo. Backed by
+  `par_levels` (price + par) and `location_product_distributors` in 86d-api
 - src/context/StaffContext.tsx — per-bar list of staff names for "who counted this" —
   no logins, no passwords, no roles
 - src/utils/productKey.ts — `bottleMatchKey()`, swap/normalize-tolerant dedupe key used

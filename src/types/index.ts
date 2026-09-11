@@ -142,11 +142,19 @@ export interface Bottle {
   category: string;
   size: string;
   currentLevel: number;
+  // Fallbacks, not the source of truth. A bottle's real par level and
+  // distributor are saved per (bar, product) in the product book and looked up
+  // by productId (see ProductBookContext / useBottleDefaults) — set once, and
+  // every future scan of the same bottle arrives with both already filled in.
+  // These two fields only answer for rows the book can't key on yet: a scan
+  // still identifying in the background, or a draft saved before the book
+  // existed. Read them through parOf()/distributorOf(), never directly.
   parLevel: number;
   // Every new scan defaults parLevel to 1 — this tracks whether a human
   // actually confirmed that number (via the Review stepper) versus it
   // just being the untouched default, so Review/Order Summary can warn
-  // before ordering off a number nobody set.
+  // before ordering off a number nobody set. A saved par in the book counts
+  // as confirmed too; isParSet() is the combined answer.
   parLevelSet?: boolean;
   distributorId?: string;
   upc?: string;

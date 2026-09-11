@@ -11,6 +11,7 @@ import { Search, Plus, ChevronRight, ChevronDown, Trash2, Minus, WifiOff, Check 
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
+import { useProductBook, useBottleDefaults } from '../context/ProductBookContext';
 import { apiService } from '../services/api';
 import { Bottle } from '../types';
 import ConnectionNotice from '../components/ConnectionNotice';
@@ -42,6 +43,10 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   const { bottles, isHydrated, updateBottle, removeBottle, retryScan, autoResolvedCount, acknowledgeAutoResolved } = useInventory();
   const { distributors, addDistributor } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
+  // Par level and distributor are per-bottle decisions this bar makes once and
+  // never again — they come from the product book, not from the scan.
+  const { setPar, setDistributor } = useProductBook();
+  const { parOf, isParSet, distributorOf } = useBottleDefaults();
   const [searchQuery, setSearchQuery] = useState('');
   // Which distributor sections are folded — by id, so it survives the list
   // re-sorting itself as stock/par values change. Session-only on purpose:
@@ -75,13 +80,13 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     setNewDistError(null);
   };
 
-  // Assign a distributor to the bottle the sheet was opened for, and persist
-  // the choice against the product so future scans of it come pre-assigned.
+  // Assign a distributor to the bottle the sheet was opened for. The choice is
+  // saved against the product, so this is the last time anyone is asked for it:
+  // every future scan of the same bottle arrives already filed under it.
   const assignToBottle = (bottle: Bottle, distributorId: string) => {
-    if (bottle.productId && currentLocation) {
-      apiService.assignProductDistributor(currentLocation.id, bottle.productId, distributorId)
-        .catch(err => console.error('Failed to save assignment:', err));
-    }
+    if (bottle.productId) setDistributor(bottle.productId, distributorId);
+    // Mirrored onto the row as well, so a bottle still identifying in the
+    // background (no productId yet) keeps the assignment for this count.
     updateBottle(bottle.id, { distributorId });
   };
 
@@ -123,7 +128,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   ).length;
 
   const unsetParCount = bottles.filter(
-    b => b.scanStatus === undefined && !b.parLevelSet
+    b => b.scanStatus === undefined && !isParSet(b)
   ).length;
 
   // Orders are quantity = par − current stock, so an untouched default par
@@ -147,6 +152,12 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   // into one PATCH per bottle once the value settles.
   const handleBottleUpdate = (bottle: Bottle, updates: Partial<Bottle>) => {
     updateBottle(bottle.id, updates);
+    // A par set here is set for good. Undebounced on purpose: the par stepper
+    // is tap-only (no long-press repeat), so each tap is already one decision,
+    // and the book's own write queue collapses rapid taps by product anyway.
+    if (updates.parLevel !== undefined && bottle.productId) {
+      setPar(bottle.productId, updates.parLevel);
+    }
     if (updates.currentStock === undefined || !bottle.productId || !currentLocation) return;
     const productId = bottle.productId;
     const locationId = currentLocation.id;
@@ -159,23 +170,14 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     }, 600);
   };
 
-  // Load saved distributor assignments on mount. Prices deliberately aren't
-  // hydrated onto bottles here — they're looked up from the price book by
-  // productId wherever they're needed (see PricingContext), so counting never
-  // has to stop for a price and an edit in Pricing applies to orders at once.
-  useEffect(() => {
-    if (!currentLocation) return;
-    apiService.getProductDistributors(currentLocation.id)
-      .then(assignments => {
-        assignments.forEach(assignment => {
-          const bottle = bottles.find(b => b.productId === assignment.product_id);
-          if (bottle) {
-            updateBottle(bottle.id, { distributorId: assignment.distributor_id });
-          }
-        });
-      })
-      .catch(err => console.error('[ReviewGrid] failed to load assignments:', err));
-  }, [currentLocation]);
+  // Nothing is hydrated onto bottles here on purpose. This used to copy saved
+  // distributor assignments onto rows in a mount effect, which only ever
+  // reached the bottles that existed at that instant — every bottle scanned
+  // afterwards, and every row whose productId arrived later from a background
+  // identification, silently kept no distributor and had to be assigned by
+  // hand again. Par and distributor are read straight from the product book by
+  // productId instead (parOf/distributorOf), so there is no hydration step
+  // left to race and a bottle is filed correctly the moment it's identified.
 
   const filtered = bottles.filter(b =>
     b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -186,7 +188,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   const sections = useMemo(() => {
     const grouped: Record<string, Bottle[]> = {};
     filtered.forEach(bottle => {
-      const key = bottle.distributorId ?? '__none__';
+      const key = distributorOf(bottle) ?? '__none__';
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(bottle);
     });
@@ -209,7 +211,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
     }
 
     return result;
-  }, [filtered, distributors]);
+  }, [filtered, distributors, distributorOf]);
 
   // Collapsed sections keep their header (with a live count) but contribute no
   // rows to the list — the point being to let a big multi-distributor order
@@ -318,16 +320,19 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
         renderItem={({ item }) => (
           <BottleRow
             bottle={item}
+            par={parOf(item)}
+            parSet={isParSet(item)}
             onUpdate={(updates) => handleBottleUpdate(item, updates)}
             onRemove={() => removeBottle(item.id)}
             onRetryIdentify={item.scanStatus === 'failed' ? () => retryScan(item) : undefined}
-            onAssign={!item.distributorId ? () => {
+            distributorName={distributors.find(d => d.id === distributorOf(item))?.name}
+            onAssign={() => {
               if (!currentLocation) {
                 Alert.alert('Location Required', 'Set up a location in Settings before assigning distributors.');
                 return;
               }
               setAssigningBottle(item);
-            } : undefined}
+            }}
           />
         )}
         contentContainerStyle={styles.listContent}
@@ -502,12 +507,22 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
 
 function BottleRow({
   bottle,
+  par,
+  parSet,
+  distributorName,
   onUpdate,
   onRemove,
   onAssign,
   onRetryIdentify,
 }: {
   bottle: Bottle;
+  // Resolved by the parent against the product book — the saved par for this
+  // bottle at this bar, or the row's own default when nobody has set one.
+  par: number;
+  parSet: boolean;
+  // The saved distributor's name, when there is one. Present means the chip
+  // reads as "already handled, tap to change" rather than "do this".
+  distributorName?: string;
   onUpdate: (updates: Partial<Bottle>) => void;
   onRemove: () => void;
   onAssign?: () => void;
@@ -594,8 +609,17 @@ function BottleRow({
         )}
         <View style={styles.chipRow}>
           {onAssign && bottle.scanStatus === undefined && (
-            <TouchableOpacity style={styles.assignChip} onPress={onAssign} activeOpacity={0.7}>
-              <Text style={styles.assignChipText}>Assign →</Text>
+            <TouchableOpacity
+              style={[styles.assignChip, distributorName && styles.assignedChip]}
+              onPress={onAssign}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[styles.assignChipText, distributorName && styles.assignedChipText]}
+                numberOfLines={1}
+              >
+                {distributorName ? distributorName.toUpperCase() : 'Assign →'}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -643,20 +667,20 @@ function BottleRow({
         <View style={[styles.stepperBox, styles.parBox]}>
           <TouchableOpacity
             style={styles.stepperButton}
-            onPress={() => onUpdate({ parLevel: Math.max(0, bottle.parLevel - 1), parLevelSet: true })}
+            onPress={() => onUpdate({ parLevel: Math.max(1, par - 1), parLevelSet: true })}
           >
             <Minus size={10} color={COLORS.accentPrimary} />
           </TouchableOpacity>
-          <Text style={[styles.stepperValue, styles.parValue]}>{bottle.parLevel}</Text>
+          <Text style={[styles.stepperValue, styles.parValue]}>{par}</Text>
           <TouchableOpacity
             style={styles.stepperButton}
-            onPress={() => onUpdate({ parLevel: bottle.parLevel + 1, parLevelSet: true })}
+            onPress={() => onUpdate({ parLevel: par + 1, parLevelSet: true })}
           >
             <Plus size={10} color={COLORS.accentPrimary} />
           </TouchableOpacity>
         </View>
         <Text style={styles.parLabel}>PAR</Text>
-        {!bottle.parLevelSet && bottle.scanStatus === undefined && (
+        {!parSet && bottle.scanStatus === undefined && (
           <Text style={styles.parUnsetBadge}>Not set</Text>
         )}
       </View>
@@ -1022,6 +1046,16 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.accentPrimary,
     letterSpacing: 0.5,
+  },
+  // An assigned bottle needs no call to action — it's a label you can tap to
+  // correct, so it recedes instead of competing with the ones still to do.
+  assignedChip: {
+    maxWidth: 150,
+    borderColor: COLORS.border,
+    backgroundColor: 'transparent',
+  },
+  assignedChipText: {
+    color: COLORS.textTertiary,
   },
   chipRow: {
     flexDirection: 'row',
