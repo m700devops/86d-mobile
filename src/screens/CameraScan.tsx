@@ -28,6 +28,8 @@ import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
 import { bottleMatchKey } from '../utils/productKey';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
+import { useProductBook } from '../context/ProductBookContext';
+import { useDistributors } from '../context/DistributorContext';
 import { Bottle } from '../types';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
@@ -75,12 +77,24 @@ const KEYPAD_ROWS: string[][] = [
 
 // --- Component ---
 
+// "Grey Goose — Southern Glazer's · par 6" — the part of the scan the bar
+// already decided, read back so it's obvious it stuck.
+function describeRemembered(
+  distributorName: string | undefined,
+  par: number | undefined
+): string {
+  const parts = [distributorName, par !== undefined ? `par ${par}` : undefined].filter(Boolean);
+  return parts.length ? ` — ${parts.join(' · ')}` : '';
+}
+
 export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [showScanHint, setShowScanHint] = useState(false);
   const scanHintPulse = useRef(new Animated.Value(0)).current;
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
   const { logout, refreshUser } = useAuth();
+  const { parFor, distributorFor } = useProductBook();
+  const { distributors } = useDistributors();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
@@ -517,6 +531,15 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     successTimeoutRef.current = setTimeout(() => setStatusText(IDLE_STATUS), 2500);
   }, [failMessage, setBorderValue]);
 
+  const rememberedSuffix = useCallback(
+    (productId?: string) => {
+      const distributorId = distributorFor(productId);
+      const distributor = distributors.find(d => d.id === distributorId);
+      return describeRemembered(distributor?.name, parFor(productId));
+    },
+    [distributorFor, parFor, distributors]
+  );
+
   const commitBottle = useCallback(() => {
     const result = scanResultRef.current;
     if (!result) {
@@ -546,11 +569,16 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         currentLevel: 1,
         parLevel: 1,
         currentStock: stock,       // typed on the pad — total back-up bottles
-        distributorId: (result as any).distributorId,
+        // No distributor or par copied onto the row: both are looked up from
+        // the product book by productId wherever they're needed, so a bottle
+        // this bar has counted before is already parred and already filed
+        // under its distributor without anyone touching it again.
       };
       addBottle(newBottle);
       setLastBottleId(newBottle.id);
-      setStatusText(label);
+      // Say out loud what came back from the book. Silence here is what made
+      // the saved settings feel like they hadn't saved at all.
+      setStatusText(label + rememberedSuffix(result.matched_product_id ?? undefined));
     }
 
     setPadVisible(false);
@@ -563,7 +591,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     successTimeoutRef.current = setTimeout(() => {
       resetToIdle();
     }, SUCCESS_DISPLAY_MS);
-  }, [stockInput, existingBottle, addBottle, updateBottle, setBorderValue, flashGreen, closePadWithFail]);
+  }, [stockInput, existingBottle, addBottle, updateBottle, setBorderValue, flashGreen, closePadWithFail, rememberedSuffix]);
 
   const handlePadAdd = useCallback(() => {
     dismissScanHint();

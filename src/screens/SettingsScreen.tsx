@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, Tex
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Plus, X, Trash2, User, Mail, Hash, Check, Phone, Store, MapPin, CreditCard, ChevronRight } from 'lucide-react-native';
+import { Plus, X, Trash2, User, Mail, Check, Phone, Store, MapPin, CreditCard, ChevronRight } from 'lucide-react-native';
 import { useDistributors } from '../context/DistributorContext';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 import { useAuth } from '../context/AuthContext';
@@ -13,7 +13,7 @@ import { apiService } from '../services/api';
 const REORDER_THRESHOLD_OPTIONS = [0.5, 0.6, 0.7, 0.8];
 
 export default function SettingsScreen() {
-  const { distributors, addDistributor, updateDistributor, removeDistributor } = useDistributors();
+  const { distributors, initialsFor, addDistributor, updateDistributor, removeDistributor } = useDistributors();
   const { user, updateProfile, logout } = useAuth();
   const { currentLocation, locations, setCurrentLocation, addLocation, updateReorderThreshold } = useLocation();
   const [savingReorderThreshold, setSavingReorderThreshold] = useState(false);
@@ -155,7 +155,6 @@ export default function SettingsScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
-  const [initials, setInitials] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [repName, setRepName] = useState('');
@@ -209,14 +208,12 @@ export default function SettingsScreen() {
     if (dist) {
       setEditingId(dist.id);
       setName(dist.name);
-      setInitials(dist.initials || '');
       setEmail(dist.email || '');
       setPhone(dist.phone || '');
       setRepName(dist.repName || '');
     } else {
       setEditingId(null);
       setName('');
-      setInitials('');
       setEmail('');
       setPhone('');
       setRepName('');
@@ -225,14 +222,13 @@ export default function SettingsScreen() {
   };
 
   const handleSave = async () => {
-    if (!name.trim() || !initials.trim() || !email.trim() || savingDistributor) return;
+    if (!name.trim() || !email.trim() || savingDistributor) return;
 
     setSavingDistributor(true);
     try {
       if (editingId) {
         await updateDistributor(editingId, {
           name,
-          initials: initials.toUpperCase(),
           email,
           phone,
           repName,
@@ -241,7 +237,6 @@ export default function SettingsScreen() {
         await addDistributor({
           id: Math.random().toString(36).substr(2, 9),
           name,
-          initials: initials.toUpperCase(),
           email,
           phone,
           repName,
@@ -250,7 +245,6 @@ export default function SettingsScreen() {
 
       setIsModalOpen(false);
       setName('');
-      setInitials('');
       setEmail('');
       setPhone('');
       setRepName('');
@@ -398,7 +392,7 @@ export default function SettingsScreen() {
               >
                 <View style={styles.distributorLeft}>
                   <View style={styles.distributorBadge}>
-                    <Text style={styles.distributorInitials}>{dist.initials || 'D'}</Text>
+                    <Text style={styles.distributorInitials}>{initialsFor(dist.id)}</Text>
                   </View>
                   <View>
                     <Text style={styles.distributorName}>{dist.name}</Text>
@@ -625,35 +619,21 @@ export default function SettingsScreen() {
                     </View>
                   </View>
 
-                  {/* Initials & Rep Name */}
-                  <View style={styles.twoColumnRow}>
-                    <View style={[styles.formGroup, { flex: 1 }]}>
-                      <Text style={styles.fieldLabel}>INITIALS</Text>
-                      <View style={styles.inputWithIcon}>
-                        <Hash size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                        <TextInput
-                          style={styles.modalInput}
-                          placeholder="SG"
-                          placeholderTextColor={COLORS.textTertiary}
-                          value={initials}
-                          onChangeText={(text) => setInitials(text.toUpperCase())}
-                          maxLength={3}
-                        />
-                      </View>
-                    </View>
-
-                    <View style={[styles.formGroup, { flex: 2 }]}>
-                      <Text style={styles.fieldLabel}>REP NAME</Text>
-                      <View style={styles.inputWithIcon}>
-                        <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
-                        <TextInput
-                          style={styles.modalInput}
-                          placeholder="John Smith"
-                          placeholderTextColor={COLORS.textTertiary}
-                          value={repName}
-                          onChangeText={setRepName}
-                        />
-                      </View>
+                  {/* Rep Name. This used to share a row with an INITIALS field;
+                      the badge is derived from the name now (see
+                      utils/distributorInitials), so there's nothing to ask and
+                      the field takes the row on its own. */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>REP NAME</Text>
+                    <View style={styles.inputWithIcon}>
+                      <User size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="John Smith"
+                        placeholderTextColor={COLORS.textTertiary}
+                        value={repName}
+                        onChangeText={setRepName}
+                      />
                     </View>
                   </View>
 
@@ -695,10 +675,10 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   style={[
                     styles.saveButton,
-                    (!name.trim() || !initials.trim() || !email.trim() || savingDistributor) && styles.saveButtonDisabled,
+                    (!name.trim() || !email.trim() || savingDistributor) && styles.saveButtonDisabled,
                   ]}
                   onPress={handleSave}
-                  disabled={!name.trim() || !initials.trim() || !email.trim() || savingDistributor}
+                  disabled={!name.trim() || !email.trim() || savingDistributor}
                   activeOpacity={0.8}
                 >
                   <Check size={18} color="#FFFFFF" />
@@ -977,10 +957,6 @@ const styles = StyleSheet.create({
     flex: 1,
     color: COLORS.textPrimary,
     fontSize: FONT_SIZES.base,
-  },
-  twoColumnRow: {
-    flexDirection: 'row',
-    gap: SPACING.md,
   },
   saveButton: {
     height: 52,

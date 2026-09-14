@@ -10,7 +10,7 @@ import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
-import { usePricing } from '../context/PricingContext';
+import { useProductBook, useBottleDefaults, bookProduct } from '../context/ProductBookContext';
 import { apiService } from '../services/api';
 import { OrderItem, OrderDistributorSummary } from '../types';
 import ConnectionNotice from '../components/ConnectionNotice';
@@ -25,10 +25,11 @@ interface Props {
 
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
   const { bottles, isHydrated, updateBottle, clearBottles } = useInventory();
-  const { distributors } = useDistributors();
+  const { distributors, initialsFor } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
-  const { priceFor } = usePricing();
+  const { priceFor, setDistributor } = useProductBook();
+  const { parOf, distributorOf } = useBottleDefaults();
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
   // Snapshot of what actually went out, captured before the draft is cleared.
@@ -36,7 +37,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   // from `bottles` — already emptied by clearBottles() in the same handler, so
   // it rendered "Orders Sent!" above an empty list.
   const [sentGroups, setSentGroups] = useState<
-    { id: string; name: string; email?: string | null; initials?: string }[]
+    { id: string; name: string; email?: string | null; initials: string }[]
   >([]);
   const [checkAnim] = useState(new Animated.Value(0));
   const [assigningItem, setAssigningItem] = useState<OrderItem | null>(null);
@@ -70,9 +71,13 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           // decimal — 4.75 = 4 backups + one open at 3/4 — so the order
           // itself always rounds up; you can't order a fractional bottle).
           const stock = b.currentStock || 0;
-          const reorderPoint = b.parLevel * (currentLocation?.reorder_threshold ?? 0.7);
+          // Par comes from the product book by product, for the same reason the
+          // price does: set once for this bar, and already correct on a bottle
+          // this week's scan just identified.
+          const par = parOf(b);
+          const reorderPoint = par * (currentLocation?.reorder_threshold ?? 0.7);
           const needsReorder = stock < reorderPoint;
-          const totalQuantity = needsReorder ? Math.max(0, Math.ceil(b.parLevel - stock)) : 0;
+          const totalQuantity = needsReorder ? Math.max(0, Math.ceil(par - stock)) : 0;
 
           return {
             bottleId: b.id,
@@ -86,7 +91,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             price: priceFor(b.productId) ?? 0,
             category: b.category,
             urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
-            distributorId: b.distributorId,
+            distributorId: distributorOf(b),
           };
         })
         .filter(b => b.quantity > 0);
@@ -203,7 +208,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             id: g.distributor.id,
             name: g.distributor.name,
             email: g.distributor.email,
-            initials: (g.distributor as any).initials,
+            initials: initialsFor(g.distributor.id),
           }))
         );
         Animated.spring(checkAnim, {
@@ -362,7 +367,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
               <View key={group.id} style={styles.sentDistributorCard}>
                 <View style={styles.distributorBadge}>
                   <Text style={styles.distributorInitials}>
-                    {group.initials || 'D'}
+                    {group.initials}
                   </Text>
                 </View>
                 <View style={styles.distributorInfo}>
@@ -444,7 +449,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                   idx === 2 && styles.initialsBadgeGreen,
                 ]}>
                   <Text style={styles.initialsText}>
-                    {group.distributor.initials || 'D'}
+                    {initialsFor(group.distributor.id)}
                   </Text>
                 </View>
               </View>
@@ -519,6 +524,12 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                       activeOpacity={0.7}
                       onPress={() => {
                         if (assigningItem) {
+                          // Saved against the product, not just this order —
+                          // assigning here was previously local-only, so the
+                          // same bottle came back unassigned on the next count.
+                          const bottle = bottles.find(b => b.id === assigningItem.bottleId);
+                          const product = bottle ? bookProduct(bottle) : undefined;
+                          if (product) setDistributor(product, dist.id);
                           updateBottle(assigningItem.bottleId, { distributorId: dist.id });
                           setAssigningItem(null);
                         }
@@ -526,7 +537,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                     >
                       <View style={styles.modalDistBadge}>
                         <Text style={styles.modalDistInitials}>
-                          {dist.initials || dist.name.charAt(0).toUpperCase()}
+                          {initialsFor(dist.id)}
                         </Text>
                       </View>
                       <Text style={styles.modalDistName}>{dist.name}</Text>
@@ -637,7 +648,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
               >
                 <View style={styles.modalDistBadge}>
                   <Text style={styles.modalDistInitials}>
-                    {group.distributor.initials || group.distributor.name.charAt(0).toUpperCase()}
+                    {initialsFor(group.distributor.id)}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>

@@ -1,0 +1,73 @@
+name: Publish OTA Update
+
+# A JS-only change does not need a new binary or an App Store review: the
+# installed app fetches it on next launch. This is for exactly that case —
+# screens, logic, copy. Anything that touches native code, a new native
+# dependency, the app version, or app.json's native config needs a real build
+# through build-ios.yml instead, because an OTA cannot change the binary.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'EAS Update branch (must match the channel the live build listens on)'
+        required: true
+        default: 'production'
+        type: string
+      message:
+        description: 'What this update changes — shows in the EAS dashboard'
+        required: true
+        type: string
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Setup Expo
+      uses: expo/expo-github-action@v8
+      with:
+        eas-version: latest
+        token: ${{ secrets.EXPO_TOKEN }}
+
+    - name: Install dependencies
+      run: npm ci
+
+    # Printed BEFORE publishing, and deliberately not allowed to fail the run.
+    # An update goes to a BRANCH; an installed build listens on a CHANNEL; the
+    # two are joined by a mapping. Publish to a branch no channel points at and
+    # the update reaches nobody, silently and with a green tick. This is the
+    # log line that tells you which happened.
+    - name: Show which channels point where
+      continue-on-error: true
+      run: |
+        echo "── channels ──"
+        eas channel:list --non-interactive || true
+        echo "── branches ──"
+        eas branch:list --non-interactive || true
+        echo "── runtime version comes from app.json version (policy: appVersion) ──"
+        node -e "console.log(require('./app.json').expo.version)"
+
+    - name: Publish the update
+      run: |
+        eas update \
+          --branch "${{ github.event.inputs.branch }}" \
+          --message "${{ github.event.inputs.message }}" \
+          --non-interactive
+
+    # An update is reversible: eas update:rollback, or republish an older one
+    # onto the branch. Worth knowing before you need it.
+    - name: How to undo this
+      if: success()
+      run: |
+        echo "To roll back: eas update:rollback --branch ${{ github.event.inputs.branch }}"
+        echo "Or republish a previous update onto that branch from the EAS dashboard."

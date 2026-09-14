@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Modal, Animated
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { X, Camera, LayoutGrid, History, DollarSign, Settings, LogOut, Trash2 } from 'lucide-react-native';
+import { X, Camera, LayoutGrid, History, BookOpen, Settings, LogOut, Trash2 } from 'lucide-react-native';
 import SidebarItem from './SidebarItem';
 import { BrandMark } from './Brand';
 import { useAuth } from '../context/AuthContext';
@@ -178,8 +178,8 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
 
               <Text style={styles.sectionTitle}>MANAGEMENT</Text>
               <SidebarItem
-                icon={<DollarSign size={18} color={currentScreen === 'pricing' ? '#FFFFFF' : COLORS.accentPrimary} />}
-                label="Pricing"
+                icon={<BookOpen size={18} color={currentScreen === 'pricing' ? '#FFFFFF' : COLORS.accentPrimary} />}
+                label="Bottle Book"
                 active={currentScreen === 'pricing'}
                 onPress={() => handleNavigate('pricing')}
               />
