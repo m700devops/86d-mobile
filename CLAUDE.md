@@ -181,8 +181,12 @@ globally installed — don't assume either is there. Options, in order of prefer
   alongside the base auth columns
 - `POST /orders/email` sends via Resend's raw REST API through `httpx`, not the `resend`
   pip package — reads `RESEND_API_KEY` and `ORDER_EMAIL_FROM` from env
-- Render free tier cold-starts in ~30-60s after ~15 min idle. The mobile app has
-  client-side retry/warm-up logic to soften this, but that's a mitigation, not a fix —
-  the real fix is upgrading the Render instance off the Free tier. (This is about the
-  web service specifically — can't confirm its current Render plan from the repo; that's
-  dashboard state. Postgres is confirmed on a paid tier separately.)
+- **The backend is on Render's Starter plan, NOT Free** ($7/mo, 0.5 CPU, 512MB) — confirmed
+  from the Render dashboard on 2026-09-15. Starter does not spin down, so there is no
+  ~30-60s cold start to design around and nothing to upgrade. This note previously said the
+  opposite and hedged that the plan couldn't be confirmed from the repo; it can't, and the
+  guess was wrong. Postgres is on a paid tier separately.
+- The client-side retry/warm-up logic in the app is still worth keeping — a deploy, a
+  restart or a bad bar wifi connection all produce the same slow first request — but it is
+  no longer papering over a sleeping server. Don't cite cold starts as the reason for
+  latency without checking the dashboard first.
