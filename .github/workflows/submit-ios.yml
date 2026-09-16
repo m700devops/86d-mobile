@@ -34,6 +34,50 @@ jobs:
         ${{ secrets.ASC_API_KEY_P8 }}
         EOF
 
+    # Fails in seconds on a malformed key instead of burning a submit cycle on
+    # "Something went wrong", which names nothing. Prints only the key's type and
+    # curve — never any key material, and never the secret's length.
+    - name: Verify the key parses as PKCS#8
+      run: |
+        for v in ASC_API_KEY_ID ASC_API_KEY_ISSUER_ID; do
+          if [ -z "${!v}" ]; then
+            echo "::error::$v is empty or unset in repo secrets."
+            exit 1
+          fi
+        done
+        node -e "
+          const fs = require('fs'), crypto = require('crypto');
+          const pem = fs.readFileSync('asc-api-key.p8', 'utf8');
+          const lines = pem.trimEnd().split('\n');
+          if (!/^-----BEGIN PRIVATE KEY-----/.test(pem.trimStart())) {
+            console.log('::error::asc-api-key.p8 is missing the PKCS#8 BEGIN armor. ' +
+              'Re-store ASC_API_KEY_P8 straight from the file: gh secret set ASC_API_KEY_P8 < AuthKey_XXXXXXXXXX.p8');
+            process.exit(1);
+          }
+          if (lines.length < 4) {
+            console.log('::error::asc-api-key.p8 has only ' + lines.length + ' line(s); a real ASC key has 5. ' +
+              'The secret lost its line breaks — re-store it with: gh secret set ASC_API_KEY_P8 < AuthKey_XXXXXXXXXX.p8');
+            process.exit(1);
+          }
+          let key;
+          try {
+            key = crypto.createPrivateKey(pem);
+          } catch (e) {
+            console.log('::error::asc-api-key.p8 is not a valid PKCS#8 private key (' + e.message + '). ' +
+              'This is the same failure EAS reports as \'pkcs8 must be PKCS#8 formatted string\'.');
+            process.exit(1);
+          }
+          if (key.asymmetricKeyType !== 'ec') {
+            console.log('::error::Key is ' + key.asymmetricKeyType + ', not ec. An App Store Connect API key is EC P-256 — ' +
+              'this looks like a different .p8 (an Apple Push key, perhaps).');
+            process.exit(1);
+          }
+          console.log('Key OK: ' + key.asymmetricKeyType + ' ' + key.asymmetricKeyDetails.namedCurve + ', ' + lines.length + ' PEM lines');
+        "
+      env:
+        ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+        ASC_API_KEY_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+
     # eas.json's committed submit.production.ios only carries ascAppId (public,
     # safe to commit). The credential fields are injected here at runtime so
     # they never touch a tracked file — see .claude/skills/ship-ios-build.
