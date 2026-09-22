@@ -2148,7 +2148,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textTertiary,
     lineHeight: 17,
-    marginTop: SPACING.md,
+    // The tips block above already ends with a 32pt margin, which used to be
+    // the whole gap to the button. Taking a top margin here as well put all
+    // of that space above the note and none below it, leaving the second line
+    // flush against a button that casts a 20pt glow — measured at a 0pt gap,
+    // which reads as clipped text.
+    marginBottom: SPACING.xl,
   },
   startButton: {
     height: 56,
