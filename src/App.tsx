@@ -23,6 +23,7 @@ import ManualAdd from './components/ManualAdd';
 import Sidebar from './components/Sidebar';
 import TrialBanner from './components/TrialBanner';
 import { isEntitled, trialDaysLeft } from './utils/entitlements';
+import { track } from './services/analytics';
 
 type ReorderSource = { distributors: OrderDistributorSummary[] };
 
@@ -53,6 +54,12 @@ function AppContent() {
     setReorderOrder(order);
     setCurrentScreen('order');
   };
+
+  // One per launch, before auth resolves: this is the denominator for
+  // everything else — how many people opened the app at all.
+  useEffect(() => {
+    track('app_opened');
+  }, []);
 
   // Once auth has settled, resume the last main screen for an authenticated
   // user — nothing to resume for a signed-out session.

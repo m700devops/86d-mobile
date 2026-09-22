@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,9 +14,12 @@ import {
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { BrandMark, GlowBackground } from '../components/Brand';
+import { track } from '../services/analytics';
 
-// Render free tier cold-starts in ~30-60s. Each attempt gets 12s and timeouts
-// auto-retry, so a cold start rides through instead of failing at the first cap.
+// Retries are for a slow link, not a sleeping server: the API is on Render's
+// Starter plan and does not spin down. What does still stall a first request is
+// bar wifi, a captive portal, or a deploy restarting the instance mid-login —
+// each attempt gets 12s and a timeout retries rather than failing outright.
 const LOGIN_TIMEOUT_MS = 12000;
 const LOGIN_MAX_ATTEMPTS = 4;
 
@@ -37,6 +40,10 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
   const passwordRef = useRef<TextInput>(null);
 
   const { login } = useAuth();
+
+  useEffect(() => {
+    track('login_viewed');
+  }, []);
 
   const validateForm = (): boolean => {
     const newErrors: { email?: string; password?: string } = {};
@@ -77,10 +84,10 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
           }
           if (controller.signal.aborted) {
             if (attempt < LOGIN_MAX_ATTEMPTS) {
-              setFormError('Server is waking up — retrying...');
+              setFormError('Slow connection — retrying...');
               continue;
             }
-            setFormError('Server is still waking up. Give it a minute, then try again.');
+            setFormError("Couldn't reach the server. Check your connection and try again.");
             return;
           }
           setFormError("Couldn't reach server. Check your connection.");
