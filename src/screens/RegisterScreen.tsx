@@ -17,6 +17,8 @@ import { API_URL } from '../config/api';
 import { User, Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { BrandMark, GlowBackground } from '../components/Brand';
+import { AppleSignInButton } from '../components/AppleSignInButton';
+import { User as AppUser } from '../types';
 import { track } from '../services/analytics';
 
 // Retries are for a slow link, not a sleeping server: the API is on Render's
@@ -29,11 +31,12 @@ const REGISTER_MAX_ATTEMPTS = 4;
 interface RegisterScreenProps {
   onNavigateToLogin: () => void;
   onRegisterSuccess: () => void;
+  onAppleSignIn: (user: AppUser) => void;
 }
 
 type Field = 'name' | 'email' | 'confirmEmail' | 'password';
 
-export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: RegisterScreenProps) {
+export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess, onAppleSignIn }: RegisterScreenProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [confirmEmail, setConfirmEmail] = useState('');
@@ -234,6 +237,12 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
               <BrandMark size={87} />
               <Text style={styles.slogan}>Scan it. Count it. Order it.</Text>
             </View>
+
+            <AppleSignInButton
+              onSignedIn={onAppleSignIn}
+              onError={setFormError}
+              disabled={isLoading}
+            />
 
             {/* Sign-up card */}
             <View style={styles.card}>

@@ -14,6 +14,8 @@ import {
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { BrandMark, GlowBackground } from '../components/Brand';
+import { AppleSignInButton } from '../components/AppleSignInButton';
+import { User } from '../types';
 import { track } from '../services/analytics';
 
 // Retries are for a slow link, not a sleeping server: the API is on Render's
@@ -27,9 +29,10 @@ interface LoginScreenProps {
   onNavigateToRegister: () => void;
   onLoginSuccess: () => void;
   onForgotPassword: () => void;
+  onAppleSignIn: (user: User) => void;
 }
 
-export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPassword }: LoginScreenProps) {
+export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPassword, onAppleSignIn }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -120,6 +123,14 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
               <Text style={styles.slogan}>Scan it. Count it. Order it.</Text>
               <Text style={styles.subSlogan}>AI Bar inventory in 10 minutes — not hours.</Text>
             </View>
+
+            {/* One tap, no form. Above the card on purpose: it is the fastest
+                way in, and burying it under five fields wastes it. */}
+            <AppleSignInButton
+              onSignedIn={onAppleSignIn}
+              onError={setFormError}
+              disabled={isLoading}
+            />
 
             {/* Sign-in card */}
             <View style={styles.card}>

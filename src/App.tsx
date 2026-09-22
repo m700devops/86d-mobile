@@ -7,7 +7,7 @@ import { LocationProvider } from './context/LocationContext';
 import { InventoryProvider, useInventory } from './context/InventoryContext';
 import { DistributorProvider } from './context/DistributorContext';
 import { ProductBookProvider } from './context/ProductBookContext';
-import { AppScreen, OrderDistributorSummary } from './types';
+import { AppScreen, OrderDistributorSummary, User } from './types';
 import { LoginScreen } from './screens/LoginScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
 import { ForgotPasswordScreen } from './screens/ForgotPasswordScreen';
@@ -19,6 +19,7 @@ import OrderHistory from './screens/OrderHistory';
 import PricingScreen from './screens/PricingScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import PaywallScreen from './screens/PaywallScreen';
+import BarNameScreen from './screens/BarNameScreen';
 import ManualAdd from './components/ManualAdd';
 import Sidebar from './components/Sidebar';
 import TrialBanner from './components/TrialBanner';
@@ -38,14 +39,14 @@ const RESUMABLE_SCREENS: AppScreen[] = ['camera', 'review', 'order', 'orders', '
 function AppContent() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const { addBottle } = useInventory();
-  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password'>('onboarding');
+  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password' | 'bar-name'>('onboarding');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
   const [isRestoringScreen, setIsRestoringScreen] = useState(true);
   const trialDays = trialDaysLeft(user);
 
-  const navigate = (screen: AppScreen | 'login' | 'register' | 'forgot-password') => {
+  const navigate = (screen: AppScreen | 'login' | 'register' | 'forgot-password' | 'bar-name') => {
     setReorderOrder(null);
     setCurrentScreen(screen);
   };
@@ -86,6 +87,14 @@ function AppContent() {
     }
   }, [currentScreen]);
 
+  // A social sign-in skips the whole form, which means it also skips the one
+  // useful thing the form collected. Ask for the bar's name once, here, if the
+  // account hasn't got one — it heads every order email, and it is the only
+  // handle sales attribution has left when Apple hides the address.
+  const handleAppleSignIn = (signedIn: User) => {
+    navigate(signedIn.business_name ? 'camera' : 'bar-name');
+  };
+
   // Show loading state while checking auth
   if (isLoading || isRestoringScreen) {
     return (
@@ -107,6 +116,7 @@ function AppContent() {
             <RegisterScreen
               onNavigateToLogin={() => navigate('login')}
               onRegisterSuccess={() => navigate('onboarding')}
+              onAppleSignIn={handleAppleSignIn}
             />
           );
         case 'forgot-password':
@@ -118,6 +128,7 @@ function AppContent() {
               onNavigateToRegister={() => navigate('register')}
               onLoginSuccess={() => navigate('onboarding')}
               onForgotPassword={() => navigate('forgot-password')}
+              onAppleSignIn={handleAppleSignIn}
             />
           );
       }
@@ -137,6 +148,8 @@ function AppContent() {
     }
 
     switch (currentScreen) {
+      case 'bar-name':
+        return <BarNameScreen onDone={() => navigate('camera')} />;
       case 'onboarding':
         return <Onboarding onComplete={() => navigate('camera')} />;
       case 'camera':
