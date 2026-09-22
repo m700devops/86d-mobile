@@ -238,7 +238,6 @@ export interface OrderItem {
 export type LiquidLevel = 'full' | 'almost_full' | '3/4' | 'half' | '1/4' | 'empty';
 
 export type AppScreen =
-  | 'onboarding'
   | 'camera'
   | 'review'
   | 'order'

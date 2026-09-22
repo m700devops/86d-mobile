@@ -11,7 +11,6 @@ import { AppScreen, OrderDistributorSummary, User } from './types';
 import { LoginScreen } from './screens/LoginScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
 import { ForgotPasswordScreen } from './screens/ForgotPasswordScreen';
-import Onboarding from './screens/Onboarding';
 import CameraScan from './screens/CameraScan';
 import ReviewGrid from './screens/ReviewGrid';
 import OrderSummary from './screens/OrderSummary';
@@ -29,9 +28,9 @@ import { track } from './services/analytics';
 type ReorderSource = { distributors: OrderDistributorSummary[] };
 
 // A killed app (call comes in, phone gets put away, iOS reclaims memory)
-// shouldn't dump someone back on the onboarding screen mid-order — resume
-// whichever main screen they were actually on. Onboarding/login/etc. aren't
-// meaningful "resume points", so they're deliberately excluded.
+// shouldn't dump someone back at the start mid-order — resume whichever main
+// screen they were actually on. Login/register/bar-name aren't meaningful
+// "resume points", so they're deliberately excluded.
 const LAST_SCREEN_KEY = '@86d_last_screen';
 const RESUMABLE_SCREENS: AppScreen[] = ['camera', 'review', 'order', 'orders', 'pricing', 'settings'];
 
@@ -39,7 +38,7 @@ const RESUMABLE_SCREENS: AppScreen[] = ['camera', 'review', 'order', 'orders', '
 function AppContent() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const { addBottle } = useInventory();
-  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password' | 'bar-name'>('onboarding');
+  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password' | 'bar-name'>('camera');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
@@ -115,7 +114,7 @@ function AppContent() {
           return (
             <RegisterScreen
               onNavigateToLogin={() => navigate('login')}
-              onRegisterSuccess={() => navigate('onboarding')}
+              onRegisterSuccess={() => navigate('camera')}
               onAppleSignIn={handleAppleSignIn}
             />
           );
@@ -126,7 +125,7 @@ function AppContent() {
           return (
             <LoginScreen
               onNavigateToRegister={() => navigate('register')}
-              onLoginSuccess={() => navigate('onboarding')}
+              onLoginSuccess={() => navigate('camera')}
               onForgotPassword={() => navigate('forgot-password')}
               onAppleSignIn={handleAppleSignIn}
             />
@@ -142,16 +141,20 @@ function AppContent() {
       return <PaywallScreen />;
     }
 
-    // If coming from login/register, redirect to onboarding
+    // Just signed in and the screen state hasn't caught up yet — the camera
+    // is where they were going anyway.
     if (currentScreen === 'login' || currentScreen === 'register') {
-      return <Onboarding onComplete={() => navigate('camera')} />;
+      return (
+        <CameraScan
+          onReview={() => navigate('review')}
+          onOpenMenu={() => setIsSidebarOpen(true)}
+        />
+      );
     }
 
     switch (currentScreen) {
       case 'bar-name':
         return <BarNameScreen onDone={() => navigate('camera')} />;
-      case 'onboarding':
-        return <Onboarding onComplete={() => navigate('camera')} />;
       case 'camera':
         return (
           <CameraScan
@@ -187,7 +190,12 @@ function AppContent() {
       case 'settings':
         return <SettingsScreen />;
       default:
-        return <Onboarding onComplete={() => navigate('camera')} />;
+        return (
+          <CameraScan
+            onReview={() => navigate('review')}
+            onOpenMenu={() => setIsSidebarOpen(true)}
+          />
+        );
     }
   };
 
