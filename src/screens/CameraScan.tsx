@@ -57,7 +57,7 @@ const CAPTURE_WATCHDOG_MS = 25000;       // fail a stuck scan after 25s (backend
 // may leave before the name lands — so the first time someone sits in that
 // state, say it outright.
 const SCAN_HINT_KEY = '@86d_seen_scan_hint';
-const IDLE_STATUS = 'Point at bottle';
+const IDLE_STATUS = 'Point at the label';
 const STOCK_MAX = 999.99;
 
 function clampStock(value: number): number {
@@ -1017,14 +1017,30 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={onBack ?? handleDone}
-          activeOpacity={0.7}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <ChevronLeft size={24} color={COLORS.textPrimary} />
-        </TouchableOpacity>
+        {/* This was `onBack ?? handleDone` with no onBack ever passed, so a
+            back arrow silently ended the count and jumped to Review — the
+            same thing as the Done button a few inches below it. Finishing is
+            Done's job; this is just the way out to the rest of the app, and
+            it now matches the start screen's header. */}
+        {onBack ? (
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={onBack}
+            activeOpacity={0.7}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <ChevronLeft size={24} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+        ) : onOpenMenu ? (
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={onOpenMenu}
+            activeOpacity={0.7}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Menu size={22} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           style={styles.counterButton}
           onPress={() => bottleCount > 0 && setShowScannedList(true)}
@@ -1036,7 +1052,10 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               : isCapturing ? 'Scanning'
               : bottleCount > 0
                 ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
-                : 'Scanning'}
+                // Nothing counted and nothing happening — "Scanning" was the
+                // first thing a new user read on this screen, and it wasn't
+                // true yet.
+                : 'Ready'}
           </Text>
           {bottleCount > 0 && <ChevronDown size={14} color={COLORS.textSecondary} />}
         </TouchableOpacity>
@@ -1046,6 +1065,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
           activeOpacity={0.7}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
+          {/* Stays a quiet icon on purpose. A barcode read is a fine
+              fallback, but the label photo is the better path — it is what
+              the AI is good at, and it works on the bottles whose barcode is
+              turned to the wall or worn off. Labelling this control would
+              advertise the weaker option next to the shutter. */}
           <Barcode size={18} color={COLORS.textSecondary} />
         </TouchableOpacity>
         <TouchableOpacity
@@ -1083,11 +1107,12 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 <Text style={[styles.statusHintText, styles.statusHintTextActive]}>Scanning...</Text>
               </View>
             )}
-            {scanState === 'idle' && (
-              <View style={styles.statusHint}>
-                <Text style={styles.statusHintText}>Point at bottle · tap shutter</Text>
-              </View>
-            )}
+            {/* The idle hint here read "Point at bottle · tap shutter" — which
+                is exactly the bottom bar's two lines joined up, over a
+                viewfinder that already has corner guides and a labelled
+                shutter. The bottom block keeps it because that one carries
+                state through the whole flow ("Identifying bottle...", "Move
+                to next bottle"); this one only ever repeated it. */}
 
             {/* Catalog auto-create toast */}
             {catalogToast ? (
