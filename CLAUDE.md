@@ -21,7 +21,20 @@ Don't describe either in UI copy or docs.
 - app.json — EAS config, bundleIdentifier: com.my86d.app, icon: assets/icon.png
 - eas.json — build profiles (use "preview" for testing)
 - src/screens/CameraScan.tsx — the scanning screen: camera → AI bottle ID → manual count
-  entry via number pad (`padVisible`/`stockInput`)
+  entry via number pad (`padVisible`/`stockInput`). First run goes through the start
+  screen (`showStartScreen`), which is the real onboarding: three steps, shown only when
+  nothing has been counted yet, and a heads-up that camera access is about to be asked
+  for and why — a pre-prompt materially lifts opt-in, and iOS only offers the dialog once.
+  **That "once" is the thing to be careful with**: after a single "Don't Allow", every
+  later `requestPermission()` resolves denied WITHOUT showing anything, so a button wired
+  to it does nothing forever. The blocked screen therefore branches on
+  `permission.canAskAgain` and offers `Linking.openSettings()` when the system won't ask
+  again, carries a menu button (App.tsx hides the hamburger while the camera is up, so
+  without one a denied permission left no way out of the app at all), and re-reads the
+  permission on foreground. That re-read also has to call `initScanning()` itself —
+  clearing the block alone lands on the "Starting camera..." placeholder with nothing to
+  move it along. The foreground listener is only subscribed while permission is
+  ungranted, which is what keeps it clear of the normal startup path
 - src/screens/ReviewGrid.tsx — multi-bottle review grid. Par level and distributor
   are read from the product book by productId, not off the Bottle, so a bottle this
   bar has counted before arrives already parred and already grouped under its
