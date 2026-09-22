@@ -9,7 +9,6 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
-  Platform,
   TextInput,
   FlatList,
   ScrollView,
@@ -1136,10 +1135,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 onPress={triggerCapture}
                 disabled={isCapturing || isPaused}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Scan the bottle label"
+                accessibilityState={{ disabled: isCapturing || isPaused }}
               >
-                <View style={styles.shutterInner}>
-                  <Text style={styles.shutterText}>SCAN</Text>
-                </View>
+                <View style={styles.shutterInner} />
               </TouchableOpacity>
             )}
 
@@ -1693,13 +1693,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  shutterText: {
-    fontSize: 12,
-    fontFamily: Platform.select({ ios: 'AvenirNext-DemiBold', default: undefined }),
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.primaryDark,
-    letterSpacing: 1.5,
   },
 
   // --- Stock number pad ---
