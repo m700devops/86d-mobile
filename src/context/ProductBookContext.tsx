@@ -34,6 +34,7 @@ export interface BookEntry {
   productId: string;
   name: string;
   brand?: string | null;
+  productType?: string | null;
   size?: string | null;
   category?: string | null;
   price?: number;
@@ -41,12 +42,13 @@ export interface BookEntry {
   distributorId?: string;
 }
 
-type ProductInfo = Pick<BookEntry, 'productId' | 'name' | 'brand' | 'size' | 'category'>;
+type ProductInfo = Pick<BookEntry, 'productId' | 'name' | 'brand' | 'productType' | 'size' | 'category'>;
 
 export interface PriceableProduct {
   id: string;
   name: string;
   brand?: string | null;
+  productType?: string | null;
   size?: string | null;
   category?: string | null;
 }
@@ -167,6 +169,7 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
               productId: product.id,
               name: product.name,
               brand: product.brand ?? null,
+              productType: product.productType ?? null,
               size: product.size ?? null,
               category: product.category ?? null,
             },
@@ -193,6 +196,7 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
             productId: pl.product_id,
             name: pl.product?.name ?? 'Unknown bottle',
             brand: pl.product?.brand ?? null,
+            productType: pl.product?.product_type ?? null,
             size: pl.product?.size ?? null,
             category: pl.product?.category ?? null,
           };
@@ -213,6 +217,7 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 productId: a.product_id,
                 name: a.product?.name ?? 'Unknown bottle',
                 brand: a.product?.brand ?? null,
+                productType: a.product?.product_type ?? null,
                 size: a.product?.size ?? null,
                 category: null,
               };
@@ -527,6 +532,7 @@ export const bookProduct = (bottle: Bottle): PriceableProduct | undefined =>
         id: bottle.productId,
         name: bottle.name,
         brand: bottle.brand,
+        productType: bottle.productType,
         size: bottle.size,
         category: bottle.category,
       }

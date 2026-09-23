@@ -39,6 +39,7 @@ export interface Product {
   name: string;
   brand: string | null;
   category: string;
+  product_type?: string | null;
   size: string | null;
   upc: string | null;
   price: number | null;
@@ -140,6 +141,9 @@ export interface Bottle {
   name: string;
   brand: string;
   category: string;
+  // Specific class/type from the vision scan (e.g. "Vodka", "Tennessee Whiskey").
+  // Null/undefined on rows scanned before this field existed. See bottleSubtitle().
+  productType?: string;
   size: string;
   currentLevel: number;
   // Fallbacks, not the source of truth. A bottle's real par level and
@@ -188,7 +192,7 @@ export interface ProductDistributorAssignment {
   product_id: string;
   distributor_id: string;
   distributor: { id: string; name: string; email?: string };
-  product: { id: string; name: string; brand?: string; size?: string };
+  product: { id: string; name: string; brand?: string; product_type?: string; size?: string };
 }
 
 export interface Location {

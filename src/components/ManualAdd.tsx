@@ -8,6 +8,7 @@ import { CATEGORIES } from '../constants';
 import * as ImagePicker from 'expo-image-picker';
 import { apiService } from '../services/api';
 import { Bottle, Product } from '../types';
+import { bottleSubtitle } from '../utils/bottleSubtitle';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from './NumericDoneAccessory';
 
@@ -269,9 +270,12 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
                           activeOpacity={0.7}
                         >
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.suggestionName}>{product.name}</Text>
+                            <Text style={styles.suggestionName}>{product.brand || product.name}</Text>
                             <Text style={styles.suggestionSubtext}>
-                              {[product.brand, product.category].filter(Boolean).join(' · ')}
+                              {[
+                                bottleSubtitle({ brand: product.brand, name: product.name, productType: product.product_type }),
+                                product.category,
+                              ].filter(Boolean).join(' · ')}
                             </Text>
                           </View>
                         </TouchableOpacity>

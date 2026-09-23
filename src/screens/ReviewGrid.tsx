@@ -14,6 +14,7 @@ import { useLocation } from '../context/LocationContext';
 import { useProductBook, useBottleDefaults, bookProduct } from '../context/ProductBookContext';
 import { apiService } from '../services/api';
 import { Bottle } from '../types';
+import { bottleSubtitle } from '../utils/bottleSubtitle';
 import ConnectionNotice from '../components/ConnectionNotice';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 
@@ -586,7 +587,7 @@ function BottleRow({
           {bottle.brand || bottle.name}
         </Text>
         <Text style={styles.bottleBrand} numberOfLines={1}>
-          {(bottle.brand ? bottle.name : '').toUpperCase()}
+          {bottleSubtitle(bottle).toUpperCase()}
         </Text>
         {/* Two very different failures wear the same chip otherwise: a weak
             connection (self-heals, and tapping now will just fail again) vs.
