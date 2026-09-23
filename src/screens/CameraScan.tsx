@@ -373,9 +373,16 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         imageSizeKb,
       });
 
-      // Auto-created: briefly surface so bad auto-creates are visible during testing
+      // Auto-created: briefly surface so bad auto-creates are visible during testing.
+      // Not dev-gated — a customer's first scan of any bottle nobody at this bar
+      // has scanned before hits this path too, so it must read as cleanly as
+      // every other bottle label, never the raw scanned "Original".
       if (scanOk && result.is_new_product) {
-        const label = [result.brand, result.name].filter(Boolean).join(' ');
+        const label = result.brand
+          ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
+              .filter(Boolean)
+              .join(' ')
+          : result.name;
         setCatalogToast(`Adding to catalog: ${label}`);
         if (catalogToastTimerRef.current) clearTimeout(catalogToastTimerRef.current);
         catalogToastTimerRef.current = setTimeout(() => setCatalogToast(null), 1500);
