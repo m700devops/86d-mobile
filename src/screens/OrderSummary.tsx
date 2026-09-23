@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { useProductBook, useBottleDefaults, bookProduct } from '../context/ProductBookContext';
 import { apiService } from '../services/api';
 import { OrderItem, OrderDistributorSummary } from '../types';
+import { bottleSubtitle } from '../utils/bottleSubtitle';
 import ConnectionNotice from '../components/ConnectionNotice';
 
 interface Props {
@@ -79,11 +80,14 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           const needsReorder = stock < reorderPoint;
           const totalQuantity = needsReorder ? Math.max(0, Math.ceil(par - stock)) : 0;
 
+          // Order lines show the full product: "Belvedere Vodka", "Gatorade Blue Bolt" —
+          // never the raw scanned name, which is literally "Original" for a base product.
+          const label = [b.brand, bottleSubtitle(b)].filter(Boolean).join(' ') || b.name;
+
           return {
             bottleId: b.id,
-            // Order lines show the full product: "Sprite Original", "Gatorade Blue Bolt"
-            bottleName: [b.brand, b.name].filter(Boolean).join(' '),
-            name: [b.brand, b.name].filter(Boolean).join(' '),
+            bottleName: label,
+            name: label,
             quantity: totalQuantity,
             // Looked up from the price book by product rather than read off the
             // bottle, so a bottle the AI just identified is already priced and a

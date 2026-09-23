@@ -20,6 +20,7 @@ interface ResolvedScanInfo {
   name: string;
   brand: string;
   category: string;
+  productType?: string;
 }
 
 interface InventoryContextType {
@@ -321,6 +322,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           name: result.name,
           brand: result.brand,
           category: result.category,
+          productType: result.product_type || undefined,
         });
         if (auto) setAutoResolvedCount(n => n + 1);
         return;

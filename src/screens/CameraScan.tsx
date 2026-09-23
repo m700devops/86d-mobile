@@ -26,6 +26,7 @@ import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
 import { bottleMatchKey } from '../utils/productKey';
+import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { useInventory } from '../context/InventoryContext';
 import { useAuth } from '../context/AuthContext';
 import { useProductBook } from '../context/ProductBookContext';
@@ -391,6 +392,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
             name: result.name,
             brand: result.brand,
             category: result.category,
+            productType: result.product_type || undefined,
           });
         } else {
           markScanFailed(committedRowId);
@@ -425,7 +427,13 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
       scanResultRef.current = result;
       identifyStatusRef.current = 'ok';
-      setIdentifiedLabel([result.brand, result.name].filter(Boolean).join(' — '));
+      setIdentifiedLabel(
+        result.brand
+          ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
+              .filter(Boolean)
+              .join(' — ')
+          : result.name
+      );
       setIdentifyStatus('ok');
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
@@ -547,7 +555,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       return;
     }
     const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
-    const label = [result.brand, result.name].filter(Boolean).join(', ');
+    const label = result.brand
+      ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
+          .filter(Boolean)
+          .join(', ')
+      : result.name;
 
     // Identified synchronously (before the user hit Add) — this row will
     // never need a retry, so there's nothing worth keeping the photo for.
@@ -565,6 +577,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         name: result.name,
         brand: result.brand,
         category: result.category,
+        productType: result.product_type || undefined,
         size: '',
         currentLevel: 1,
         parLevel: 1,
@@ -709,6 +722,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
             name: product.name,
             brand: product.brand ?? '',
             category: product.category,
+            productType: product.product_type ?? undefined,
           });
         } else {
           markScanFailed(committedRowId, 'other');
@@ -728,6 +742,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         name: product.name,
         brand: product.brand ?? '',
         category: product.category,
+        product_type: product.product_type ?? undefined,
         liquidLevel: 1,
         confidence: 1,
         matched_product_id: product.id,
@@ -741,7 +756,13 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
       scanResultRef.current = result;
       identifyStatusRef.current = 'ok';
-      setIdentifiedLabel([result.brand, result.name].filter(Boolean).join(' — '));
+      setIdentifiedLabel(
+        result.brand
+          ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
+              .filter(Boolean)
+              .join(' — ')
+          : result.name
+      );
       setIdentifyStatus('ok');
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {
@@ -1319,8 +1340,8 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                     <Text style={styles.scannedListRowName} numberOfLines={1}>
                       {item.brand || item.name}
                     </Text>
-                    {!!item.brand && (
-                      <Text style={styles.scannedListRowSub} numberOfLines={1}>{item.name}</Text>
+                    {!!bottleSubtitle(item) && (
+                      <Text style={styles.scannedListRowSub} numberOfLines={1}>{bottleSubtitle(item)}</Text>
                     )}
                   </View>
                   {item.scanStatus === 'pending' ? (

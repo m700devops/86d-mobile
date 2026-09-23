@@ -23,12 +23,13 @@ import { useLocation } from '../context/LocationContext';
 import { useDistributors } from '../context/DistributorContext';
 import { apiService } from '../services/api';
 import { Product } from '../types';
+import { bottleSubtitle } from '../utils/bottleSubtitle';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
-const displayName = (p: { brand?: string | null; name: string }) =>
-  [p.brand, p.name].filter(Boolean).join(' ').trim() || p.name;
+const displayName = (p: { brand?: string | null; name: string; productType?: string | null }) =>
+  [p.brand, bottleSubtitle(p)].filter(Boolean).join(' ').trim() || p.name;
 
 // A bottle is "set up" when all three of its decisions are made. Par and
 // distributor matter as much as price here: without a par the order quantity
@@ -96,7 +97,7 @@ export default function PricingScreen() {
         distributorFor(b.productId) !== undefined;
       if (settled) return;
       seen.add(b.productId);
-      out.push({ id: b.productId, name: b.name, brand: b.brand, size: b.size, category: b.category });
+      out.push({ id: b.productId, name: b.name, brand: b.brand, productType: b.productType, size: b.size, category: b.category });
     });
     return out;
   }, [bottles, priceFor, parFor, distributorFor]);
@@ -453,6 +454,7 @@ export default function PricingScreen() {
                     id: entry.productId,
                     name: entry.name,
                     brand: entry.brand,
+                    productType: entry.productType,
                     size: entry.size,
                     category: entry.category,
                   })
@@ -495,6 +497,7 @@ export default function PricingScreen() {
                       id: product.id,
                       name: product.name,
                       brand: product.brand,
+                      productType: product.product_type,
                       size: product.size,
                       category: product.category,
                     })
@@ -506,7 +509,7 @@ export default function PricingScreen() {
                       <Tag size={14} color={COLORS.textTertiary} />
                     </View>
                     <View style={styles.rowText}>
-                      <Text style={styles.rowName} numberOfLines={1}>{displayName(product)}</Text>
+                      <Text style={styles.rowName} numberOfLines={1}>{displayName({ ...product, productType: product.product_type })}</Text>
                       {product.size ? <Text style={styles.rowMeta}>{product.size}</Text> : null}
                     </View>
                   </View>
