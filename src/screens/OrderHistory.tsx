@@ -74,6 +74,11 @@ function getDateRange(filter: FilterKey): { start?: string; end?: string } {
   }
 }
 
+// "#1042", or null for an order sent before order numbers existed.
+function formatOrderNumber(n: number | null | undefined): string | null {
+  return n ? `#${n}` : null;
+}
+
 function formatCost(cost: number | null | undefined): string | null {
   if (cost === null || cost === undefined) return null;
   return `$${cost.toFixed(2)}`;
@@ -223,7 +228,8 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
       d.items.map(i => `  - ${i.name}${i.size ? ` ${i.size}` : ''} x${i.quantity}`).join('\n')
     ).join('\n\n');
     try {
-      await Share.share({ message: `Order — ${dateStr}\n\n${lines}` });
+      const ref = formatOrderNumber(orderDetail.order_number);
+      await Share.share({ message: `Order${ref ? ` ${ref}` : ''} — ${dateStr}\n\n${lines}` });
     } catch {
       // user cancelled or share failed silently — nothing actionable to show
     }
@@ -234,6 +240,7 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
     setIsPrintingDetail(true);
     try {
       const title = orderDetail.business_name || orderDetail.location.name || 'Order';
+      const ref = formatOrderNumber(orderDetail.order_number);
       const dateStr = new Date(orderDetail.created_at).toLocaleDateString('en-US', {
         month: 'long', day: 'numeric', year: 'numeric',
       });
@@ -250,7 +257,7 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
             <head><meta charset="utf-8" /></head>
             <body style="font-family: -apple-system, sans-serif; padding: 24px;">
               <h1>${escapeHtml(title)}</h1>
-              <p style="color: #666;">${dateStr}</p>
+              <p style="color: #666;">${ref ? `Order ${ref} · ` : ''}${dateStr}</p>
               ${sections}
             </body>
           </html>
@@ -338,7 +345,7 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
         <Search size={16} color={COLORS.textTertiary} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search distributor or item..."
+          placeholder="Search distributor, item or order #..."
           placeholderTextColor={COLORS.textTertiary}
           value={searchInput}
           onChangeText={setSearchInput}
@@ -458,12 +465,21 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
               <>
                 <View style={styles.modalHeader}>
                   <View style={{ flex: 1 }}>
+                    {/* The number leads when there is one: it's what a
+                        distributor quotes back on the phone or an invoice. */}
                     <Text style={styles.modalTitle}>
-                      {new Date(orderDetail.created_at).toLocaleDateString('en-US', {
-                        month: 'long', day: 'numeric', year: 'numeric',
-                      })}
+                      {formatOrderNumber(orderDetail.order_number)
+                        ? `Order ${formatOrderNumber(orderDetail.order_number)}`
+                        : new Date(orderDetail.created_at).toLocaleDateString('en-US', {
+                            month: 'long', day: 'numeric', year: 'numeric',
+                          })}
                     </Text>
                     <Text style={styles.modalSubtitle}>
+                      {formatOrderNumber(orderDetail.order_number)
+                        ? `${new Date(orderDetail.created_at).toLocaleDateString('en-US', {
+                            month: 'long', day: 'numeric', year: 'numeric',
+                          })} · `
+                        : ''}
                       {new Date(orderDetail.created_at).toLocaleTimeString('en-US', {
                         hour: 'numeric', minute: '2-digit',
                       })}
@@ -690,6 +706,7 @@ function OrderRow({ order, onPress }: { order: Order; onPress: () => void }) {
   const dateStr = new Date(order.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const timeStr = new Date(order.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   const costStr = formatCost(order.estimated_cost);
+  const ref = formatOrderNumber(order.order_number);
 
   return (
     <TouchableOpacity style={styles.orderRow} onPress={onPress} activeOpacity={0.7}>
@@ -700,6 +717,7 @@ function OrderRow({ order, onPress }: { order: Order; onPress: () => void }) {
       <View style={styles.orderRowInfo}>
         <Text style={styles.orderRowDistributors} numberOfLines={1}>{names || 'Distributor'}</Text>
         <Text style={styles.orderRowMeta}>
+          {ref ? `${ref} · ` : ''}
           {order.total_items} item{order.total_items === 1 ? '' : 's'} · {sentCount}/{order.distributors.length} sent
           {costStr ? ` · ${costStr}` : ''}
           {order.staff_name ? ` · ${order.staff_name}` : ''}
