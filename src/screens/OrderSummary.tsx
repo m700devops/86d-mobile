@@ -38,8 +38,13 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   // from `bottles` — already emptied by clearBottles() in the same handler, so
   // it rendered "Orders Sent!" above an empty list.
   const [sentGroups, setSentGroups] = useState<
-    { id: string; name: string; email?: string | null; initials: string }[]
+    { id: string; name: string; email?: string | null; initials: string; orderNumber?: number | null }[]
   >([]);
+  // Order number each distributor's email carried, by distributor id. Kept
+  // across sends: a distributor that failed and was re-sent went out as a new
+  // order with its own number, so one number for the whole screen would be
+  // wrong for someone.
+  const [sentNumbers, setSentNumbers] = useState<Record<string, number>>({});
   const [checkAnim] = useState(new Animated.Value(0));
   const [assigningItem, setAssigningItem] = useState<OrderItem | null>(null);
   const [showRestaurantSetup, setShowRestaurantSetup] = useState(false);
@@ -179,6 +184,11 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
 
       const allSentIds = Array.from(new Set([...sentDistributors, ...sentIds]));
       if (sentIds.length > 0) setSentDistributors(allSentIds);
+      const allNumbers = { ...sentNumbers };
+      if (response.order_number) {
+        sentIds.forEach(id => { allNumbers[id] = response.order_number as number; });
+        setSentNumbers(allNumbers);
+      }
 
       const everySent =
         groupedByDistributor.length > 0 &&
@@ -213,6 +223,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             name: g.distributor.name,
             email: g.distributor.email,
             initials: initialsFor(g.distributor.id),
+            orderNumber: allNumbers[g.distributor.id] ?? null,
           }))
         );
         Animated.spring(checkAnim, {
@@ -379,6 +390,9 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                   <Text style={styles.distributorEmail}>
                     {group.email || 'No email'}
                   </Text>
+                  {group.orderNumber ? (
+                    <Text style={styles.distributorEmail}>Order #{group.orderNumber}</Text>
+                  ) : null}
                 </View>
                 <View style={styles.sentBadge}>
                   <Text style={styles.sentBadgeText}>Sent</Text>

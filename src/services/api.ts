@@ -449,6 +449,8 @@ class ApiService {
     }[];
   }): Promise<{
     order_id: string;
+    // Null when no email actually went (e.g. no distributor had an address).
+    order_number?: number | null;
     results: {
       distributor_id: string;
       distributor_name: string | null;

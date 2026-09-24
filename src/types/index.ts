@@ -266,6 +266,9 @@ export interface OrderDistributorSummary {
 
 export interface Order {
   id: string;
+  // The number the distributor email carried (#1001, #1002, … per account).
+  // Null for orders sent before numbers existed — those never had one.
+  order_number?: number | null;
   session_id: string;
   location_id: string;
   location_name: string | null;
@@ -283,6 +286,7 @@ export interface Order {
 
 export interface OrderDetail {
   id: string;
+  order_number?: number | null;
   session_id: string;
   location: { id: string; name: string; address?: string | null; timezone?: string | null };
   business_name: string | null;

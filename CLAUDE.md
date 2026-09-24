@@ -82,7 +82,13 @@ Don't describe either in UI copy or docs.
   actual scan flow (AI bottle ID + manual count) — no pen/liquid-level claims
 - src/screens/OrderHistory.tsx — past orders, spend-by-distributor and most-ordered-item
   summary, reorder-from-history. Deliberately not variance/shrinkage detection — there's
-  no per-scan usage log, so the only trustworthy signal is what was actually ordered
+  no per-scan usage log, so the only trustworthy signal is what was actually ordered.
+  Shows each order's NUMBER (`order_number`, "#1042") — the one the distributor email
+  carried, drawn server-side per account in 86d-api — on the row, as the detail sheet's
+  title, and in share/print; the search box finds "1042" or "#1042" server-side. Orders
+  sent before numbers existed have none and render exactly as before. OrderSummary's
+  "Orders Sent!" screen shows the number under each distributor, tracked PER distributor
+  because one that failed and was re-sent went out as a new order with its own number
 - src/screens/PricingScreen.tsx — the Bottle Book (sidebar label; screen key is still
   `pricing`). The place to review and edit all three per-bottle settings — price, par,
   distributor — outside a count, one editor sheet per bottle. Sections: NEEDS SETUP
