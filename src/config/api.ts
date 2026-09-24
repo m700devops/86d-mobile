@@ -9,6 +9,10 @@ export const API_URL = `${API_BASE_URL}${API_VERSION}`;
 // DSN here to turn it on.
 export const SENTRY_DSN = 'https://f407c023f25cbe11a8c7ffacae8fc30a@o4511762988793856.ingest.us.sentry.io/4511763028639744';
 
+// Reported with funnel events so a drop-off can be pinned to a build.
+// Keep in sync with app.json's expo.version.
+export const APP_VERSION = '1.0.3';
+
 // Storage keys
 export const STORAGE_KEYS = {
   ACCESS_TOKEN: '@86d_access_token',

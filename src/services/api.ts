@@ -5,6 +5,7 @@ import {
   AuthResponse,
   LoginRequest,
   RegisterRequest,
+  AppleSignInRequest,
   User,
   Product,
   ProductListResponse,
@@ -128,6 +129,14 @@ class ApiService {
 
   async login(data: LoginRequest, signal?: AbortSignal): Promise<AuthResponse> {
     const response = await this.client.post<AuthResponse>('/auth/login', data, { signal });
+    const { access_token, refresh_token, user } = response.data;
+    await this.setTokens(access_token, refresh_token);
+    await this.setUserData(user);
+    return response.data;
+  }
+
+  async signInWithApple(data: AppleSignInRequest, signal?: AbortSignal): Promise<AuthResponse> {
+    const response = await this.client.post<AuthResponse>('/auth/apple', data, { signal });
     const { access_token, refresh_token, user } = response.data;
     await this.setTokens(access_token, refresh_token);
     await this.setUserData(user);

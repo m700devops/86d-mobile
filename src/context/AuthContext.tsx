@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { apiService } from '../services/api';
-import { User, LoginRequest, RegisterRequest } from '../types';
+import { User, LoginRequest, RegisterRequest, AppleSignInRequest } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -9,6 +9,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (data: LoginRequest, signal?: AbortSignal) => Promise<void>;
   register: (data: RegisterRequest, signal?: AbortSignal) => Promise<void>;
+  signInWithApple: (data: AppleSignInRequest, signal?: AbortSignal) => Promise<User>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   updateProfile: (updates: { business_name?: string; manager_name?: string }) => Promise<void>;
@@ -83,6 +84,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(response.user);
   };
 
+  // Returns the user rather than just setting it: the caller needs to know
+  // whether business_name came back empty, which is what decides if the
+  // "what's your bar called?" step is shown.
+  const signInWithApple = async (data: AppleSignInRequest, signal?: AbortSignal): Promise<User> => {
+    const response = await apiService.signInWithApple(data, signal);
+    setUser(response.user);
+    return response.user;
+  };
+
   const logout = async () => {
     setIsLoading(true);
     try {
@@ -127,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: !!user,
     login,
     register,
+    signInWithApple,
     logout,
     refreshUser,
     updateProfile,

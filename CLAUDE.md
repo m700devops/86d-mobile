@@ -21,7 +21,20 @@ Don't describe either in UI copy or docs.
 - app.json — EAS config, bundleIdentifier: com.my86d.app, icon: assets/icon.png
 - eas.json — build profiles (use "preview" for testing)
 - src/screens/CameraScan.tsx — the scanning screen: camera → AI bottle ID → manual count
-  entry via number pad (`padVisible`/`stockInput`)
+  entry via number pad (`padVisible`/`stockInput`). First run goes through the start
+  screen (`showStartScreen`), which is the real onboarding: three steps, shown only when
+  nothing has been counted yet, and a heads-up that camera access is about to be asked
+  for and why — a pre-prompt materially lifts opt-in, and iOS only offers the dialog once.
+  **That "once" is the thing to be careful with**: after a single "Don't Allow", every
+  later `requestPermission()` resolves denied WITHOUT showing anything, so a button wired
+  to it does nothing forever. The blocked screen therefore branches on
+  `permission.canAskAgain` and offers `Linking.openSettings()` when the system won't ask
+  again, carries a menu button (App.tsx hides the hamburger while the camera is up, so
+  without one a denied permission left no way out of the app at all), and re-reads the
+  permission on foreground. That re-read also has to call `initScanning()` itself —
+  clearing the block alone lands on the "Starting camera..." placeholder with nothing to
+  move it along. The foreground listener is only subscribed while permission is
+  ungranted, which is what keeps it clear of the normal startup path
 - src/screens/ReviewGrid.tsx — multi-bottle review grid. Par level and distributor
   are read from the product book by productId, not off the Bottle, so a bottle this
   bar has counted before arrives already parred and already grouped under its
@@ -35,7 +48,36 @@ Don't describe either in UI copy or docs.
   section (business name / bar manager name, editable anytime)
 - src/screens/LoginScreen.tsx — login. Email field intentionally has no `autoFocus` —
   auto-popping the keyboard on first open hid the "New to 86'd?" create-account link
-- src/screens/RegisterScreen.tsx — registration
+- src/screens/RegisterScreen.tsx — registration. Four fields, not five: Confirm
+  Password is gone (the eye toggle lets someone read back what they typed, which is
+  what the second field was standing in for, and it is the most expensive field on a
+  sign-up form). Confirm Email STAYS — that address is the only account-recovery path
+  there is and nothing in the app verifies it, so a typo means an account nobody can
+  get back into. Remove it only once email verification exists
+- src/screens/BarNameScreen.tsx — one field, shown once, right after a social sign-up
+  whose account has no `business_name`. That name heads every order email, and it used
+  to be demanded by a modal in OrderSummary at first send — with an order ready to go
+  out, the worst possible moment. It is also what keeps sales attribution honest: the
+  CRM matches a lead to a customer by email first and falls back to the business name,
+  which is the only handle left when someone signs in with Hide My Email
+- src/components/AppleSignInButton.tsx — Sign in with Apple, above the form on both
+  auth screens. Renders NOTHING on Android or an iOS too old for it, so the email form
+  is never sitting under a dead button. **Apple, not Google, and that is a constraint
+  rather than a preference**: guideline 4.8 says an app offering Google Sign-In must
+  also offer an equivalent login that limits collection to name and email and lets
+  people keep the address private — i.e. adding Google means adding Apple anyway. On an
+  iOS-only app Apple alone gets the same result with no OAuth client id, no Google
+  Cloud project and no secret. Apple's own sheet never shows our terms, so the line
+  under the button is the consent surface and pressing through it is the acceptance
+- src/services/analytics.ts — the five pre-signup funnel events (app_opened,
+  login_viewed, register_viewed, register_submitted, register_succeeded) posted to the
+  backend's `POST /v1/events`. Fire-and-forget by construction: batched briefly, given
+  up on silently rather than retried (bar wifi fails constantly and a retry ladder here
+  would compete with scans for bandwidth), and sent with `fetch` rather than the axios
+  client ON PURPOSE — that client carries the auth interceptor's refresh-and-retry
+  path, and a metric must never be able to trigger a token refresh. The anon id is a
+  random per-install string in AsyncStorage, NOT a device identifier: it exists only so
+  one install's open → view → submit can be joined into a funnel
 - src/screens/Onboarding.tsx — first-run onboarding flow. Feature copy must match the
   actual scan flow (AI bottle ID + manual count) — no pen/liquid-level claims
 - src/screens/OrderHistory.tsx — past orders, spend-by-distributor and most-ordered-item
@@ -167,6 +209,9 @@ globally installed — don't assume either is there. Options, in order of prefer
   `node_modules` is NOT pre-installed; run `npm install` before `tsc`/`expo export`)
 
 ## Config
+- `ios.usesAppleSignIn: true` + the `expo-apple-authentication` plugin in app.json are
+  what put the Sign In with Apple entitlement on the build. **It is a native module, so
+  it does not work in Expo Go** — the button needs a dev or preview build to test at all
 - EAS Project ID: 514e311c-b6a4-4702-9ed8-08324144be33
 - Bundle ID: com.my86d.app
 - Apple Team: 45A7XLA33X (Stephan Khouri, Individual)

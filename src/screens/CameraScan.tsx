@@ -9,10 +9,11 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
-  Platform,
   TextInput,
   FlatList,
   ScrollView,
+  Linking,
+  AppState,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -56,7 +57,7 @@ const CAPTURE_WATCHDOG_MS = 25000;       // fail a stuck scan after 25s (backend
 // may leave before the name lands — so the first time someone sits in that
 // state, say it outright.
 const SCAN_HINT_KEY = '@86d_seen_scan_hint';
-const IDLE_STATUS = 'Point at bottle';
+const IDLE_STATUS = 'Point at the label';
 const STOCK_MAX = 999.99;
 
 function clampStock(value: number): number {
@@ -89,7 +90,7 @@ function describeRemembered(
 }
 
 export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission, requestPermission, getCameraPermission] = useCameraPermissions();
   const [showScanHint, setShowScanHint] = useState(false);
   const scanHintPulse = useRef(new Animated.Value(0)).current;
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
@@ -213,6 +214,28 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       Animated.timing(flashAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start();
   }, [flashAnim]);
+
+  // iOS grants camera access in Settings, outside the app, and nothing tells
+  // us when it happens. Without this re-read, someone who follows the Open
+  // Settings button, flips the switch and comes back is still looking at the
+  // blocked screen — a second dead end right after the first one.
+  //
+  // Re-reading alone isn't enough: clearing the block drops them into the
+  // main render with isScanning still false, which is the "Starting camera..."
+  // placeholder, and nothing would ever call initScanning() to move it along.
+  // So resume explicitly, and only when they had already tapped Start and hit
+  // the block — the subscription exists only while permission is ungranted,
+  // so it can't interfere with the normal startup path.
+  useEffect(() => {
+    if (permission?.granted) return;
+    const sub = AppState.addEventListener('change', async state => {
+      if (state !== 'active') return;
+      const next = await getCameraPermission();
+      if (next.granted && !showStartScreen) initScanning();
+    });
+    return () => sub.remove();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permission?.granted, getCameraPermission, showStartScreen]);
 
   // --- Start scanning ---
 
@@ -902,6 +925,14 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                     <Text style={styles.startTipText}>Type your total stock count on the number pad</Text>
                   </View>
                 </View>
+
+                {/* Said BEFORE the system dialog, not after. iOS gives one
+                    shot at that prompt, and someone who knows why it is being
+                    asked is markedly more likely to allow it — this sentence
+                    is the cheapest protection the permission has. */}
+                <Text style={styles.startPermissionNote}>
+                  We'll ask for camera access next — it's only used to identify bottles you scan.
+                </Text>
               </>
             )}
 
@@ -939,15 +970,65 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   }
 
   if (!permission.granted) {
+    // iOS shows the permission dialog ONCE. After a "Don't Allow", every
+    // later requestPermission() resolves denied without ever putting
+    // anything on screen — so a button wired to it is a button that does
+    // nothing, forever, on the first screen after signing up. canAskAgain is
+    // what tells the two situations apart.
+    const canPrompt = permission.canAskAgain;
     return (
       <SafeAreaView style={styles.container}>
+        {/* This screen used to render no navigation at all, and App.tsx hides
+            the hamburger while the camera is up — so a denied permission left
+            someone with one dead button and no way out of the app short of
+            deleting it. */}
+        <View style={styles.startScreenHeader}>
+          {onBack ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={onBack}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <ChevronLeft size={24} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+          ) : onOpenMenu ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={onOpenMenu}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Menu size={22} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
         <View style={styles.centered}>
-          <Text style={styles.permissionTitle}>Camera Access Required</Text>
-          <Text style={styles.permissionText}>
-            Enable camera access to scan bottles for inventory.
+          <Text style={styles.permissionTitle}>
+            {canPrompt ? 'Camera Access Required' : 'Camera access is turned off'}
           </Text>
-          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission} activeOpacity={0.8}>
-            <Text style={styles.permissionButtonText}>Enable Camera</Text>
+          <Text style={styles.permissionText}>
+            {canPrompt
+              ? 'Enable camera access to scan bottles for inventory.'
+              : "iOS only asks once, so 86'd can't request it again from here. Turn Camera on for 86'd in Settings and come straight back — this screen updates itself."}
+          </Text>
+          <TouchableOpacity
+            style={styles.permissionButton}
+            onPress={canPrompt ? requestPermission : () => Linking.openSettings()}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.permissionButtonText}>
+              {canPrompt ? 'Enable Camera' : 'Open Settings'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.permissionSecondary}
+            onPress={() => setShowStartScreen(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.permissionSecondaryText}>Not now</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -963,14 +1044,30 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={onBack ?? handleDone}
-          activeOpacity={0.7}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <ChevronLeft size={24} color={COLORS.textPrimary} />
-        </TouchableOpacity>
+        {/* This was `onBack ?? handleDone` with no onBack ever passed, so a
+            back arrow silently ended the count and jumped to Review — the
+            same thing as the Done button a few inches below it. Finishing is
+            Done's job; this is just the way out to the rest of the app, and
+            it now matches the start screen's header. */}
+        {onBack ? (
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={onBack}
+            activeOpacity={0.7}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <ChevronLeft size={24} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+        ) : onOpenMenu ? (
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={onOpenMenu}
+            activeOpacity={0.7}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Menu size={22} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           style={styles.counterButton}
           onPress={() => bottleCount > 0 && setShowScannedList(true)}
@@ -982,7 +1079,10 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               : isCapturing ? 'Scanning'
               : bottleCount > 0
                 ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
-                : 'Scanning'}
+                // Nothing counted and nothing happening — "Scanning" was the
+                // first thing a new user read on this screen, and it wasn't
+                // true yet.
+                : 'Ready'}
           </Text>
           {bottleCount > 0 && <ChevronDown size={14} color={COLORS.textSecondary} />}
         </TouchableOpacity>
@@ -992,6 +1092,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
           activeOpacity={0.7}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
+          {/* Stays a quiet icon on purpose. A barcode read is a fine
+              fallback, but the label photo is the better path — it is what
+              the AI is good at, and it works on the bottles whose barcode is
+              turned to the wall or worn off. Labelling this control would
+              advertise the weaker option next to the shutter. */}
           <Barcode size={18} color={COLORS.textSecondary} />
         </TouchableOpacity>
         <TouchableOpacity
@@ -1029,11 +1134,12 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 <Text style={[styles.statusHintText, styles.statusHintTextActive]}>Scanning...</Text>
               </View>
             )}
-            {scanState === 'idle' && (
-              <View style={styles.statusHint}>
-                <Text style={styles.statusHintText}>Point at bottle · tap shutter</Text>
-              </View>
-            )}
+            {/* The idle hint here read "Point at bottle · tap shutter" — which
+                is exactly the bottom bar's two lines joined up, over a
+                viewfinder that already has corner guides and a labelled
+                shutter. The bottom block keeps it because that one carries
+                state through the whole flow ("Identifying bottle...", "Move
+                to next bottle"); this one only ever repeated it. */}
 
             {/* Catalog auto-create toast */}
             {catalogToast ? (
@@ -1057,10 +1163,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 onPress={triggerCapture}
                 disabled={isCapturing || isPaused}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Scan the bottle label"
+                accessibilityState={{ disabled: isCapturing || isPaused }}
               >
-                <View style={styles.shutterInner}>
-                  <Text style={styles.shutterText}>SCAN</Text>
-                </View>
+                <View style={styles.shutterInner} />
               </TouchableOpacity>
             )}
 
@@ -1415,6 +1522,15 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: LETTER_SPACING,
   },
+  permissionSecondary: {
+    marginTop: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+  },
+  permissionSecondaryText: {
+    fontSize: FONT_SIZES.base,
+    color: COLORS.textSecondary,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1605,13 +1721,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  shutterText: {
-    fontSize: 12,
-    fontFamily: Platform.select({ ios: 'AvenirNext-DemiBold', default: undefined }),
-    fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.primaryDark,
-    letterSpacing: 1.5,
   },
 
   // --- Stock number pad ---
@@ -2062,6 +2171,17 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     flex: 1,
     lineHeight: 20,
+  },
+  startPermissionNote: {
+    fontSize: 12,
+    color: COLORS.textTertiary,
+    lineHeight: 17,
+    // The tips block above already ends with a 32pt margin, which used to be
+    // the whole gap to the button. Taking a top margin here as well put all
+    // of that space above the note and none below it, leaving the second line
+    // flush against a button that casts a 20pt glow — measured at a 0pt gap,
+    // which reads as clipped text.
+    marginBottom: SPACING.xl,
   },
   startButton: {
     height: 56,

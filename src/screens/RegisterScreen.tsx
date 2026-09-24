@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,25 +17,30 @@ import { API_URL } from '../config/api';
 import { User, Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { BrandMark, GlowBackground } from '../components/Brand';
+import { AppleSignInButton } from '../components/AppleSignInButton';
+import { User as AppUser } from '../types';
+import { track } from '../services/analytics';
 
-// Render free tier cold-starts in ~30-60s. Each attempt gets 12s and timeouts
-// auto-retry, so a cold start rides through instead of failing at the first cap.
+// Retries are for a slow link, not a sleeping server: the API is on Render's
+// Starter plan and does not spin down. What does still stall a first request is
+// bar wifi, a captive portal, or a deploy restarting the instance mid-signup —
+// each attempt gets 12s and a timeout retries rather than failing outright.
 const REGISTER_TIMEOUT_MS = 12000;
 const REGISTER_MAX_ATTEMPTS = 4;
 
 interface RegisterScreenProps {
   onNavigateToLogin: () => void;
   onRegisterSuccess: () => void;
+  onAppleSignIn: (user: AppUser) => void;
 }
 
-type Field = 'name' | 'email' | 'confirmEmail' | 'password' | 'confirmPassword';
+type Field = 'name' | 'email' | 'confirmEmail' | 'password';
 
-export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: RegisterScreenProps) {
+export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess, onAppleSignIn }: RegisterScreenProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [confirmEmail, setConfirmEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -46,11 +51,14 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
     email?: string;
     confirmEmail?: string;
     password?: string;
-    confirmPassword?: string;
     terms?: string;
   }>({});
 
   const { register } = useAuth();
+
+  useEffect(() => {
+    track('register_viewed');
+  }, []);
 
   const validateForm = (): boolean => {
     const newErrors: {
@@ -58,7 +66,6 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
       email?: string;
       confirmEmail?: string;
       password?: string;
-      confirmPassword?: string;
       terms?: string;
     } = {};
 
@@ -85,10 +92,6 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
       newErrors.password = 'Password must be at least 8 characters';
     }
 
-    if (password !== confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-
     if (!termsAccepted) {
       newErrors.terms = 'You must accept the terms of service';
     }
@@ -99,6 +102,11 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
 
   const handleRegister = async () => {
     if (!validateForm()) return;
+
+    // Fired once the form is complete and about to go to the server, so
+    // "reached the form but never submitted" counts someone who gave up on
+    // the fields rather than someone who mistyped and corrected it.
+    track('register_submitted');
 
     setFormError(null);
     setIsLoading(true);
@@ -116,6 +124,7 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
             },
             controller.signal
           );
+          track('register_succeeded');
           onRegisterSuccess();
           return;
         } catch (error: any) {
@@ -131,10 +140,10 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
           }
           if (controller.signal.aborted) {
             if (attempt < REGISTER_MAX_ATTEMPTS) {
-              setFormError('Server is waking up — retrying...');
+              setFormError('Slow connection — retrying...');
               continue;
             }
-            setFormError('Server is still waking up. Give it a minute, then try again.');
+            setFormError("Couldn't reach the server. Check your connection and try again.");
             return;
           }
           if (error?.response) {
@@ -229,6 +238,12 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
               <Text style={styles.slogan}>Scan it. Count it. Order it.</Text>
             </View>
 
+            <AppleSignInButton
+              onSignedIn={onAppleSignIn}
+              onError={setFormError}
+              disabled={isLoading}
+            />
+
             {/* Sign-up card */}
             <View style={styles.card}>
               <Text style={styles.title}>Create your account</Text>
@@ -261,13 +276,6 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess }: Registe
                 placeholder: '••••••••',
                 secure: true,
                 showEye: true,
-              })}
-
-              {renderInput('confirmPassword', 'Confirm Password', <Lock size={18} color={iconColor('confirmPassword')} />, {
-                value: confirmPassword,
-                onChangeText: setConfirmPassword,
-                placeholder: '••••••••',
-                secure: true,
               })}
 
               {/* Terms */}

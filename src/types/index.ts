@@ -1,6 +1,16 @@
 // Type definitions for 86'd API and Mobile App
 
 // API Types
+export interface AppleSignInRequest {
+  identity_token: string;
+  // Apple hands over the name only on the FIRST authorization for an app and
+  // never again, so it is sent when present and the server keeps the first
+  // non-empty one it sees.
+  name?: string | null;
+  business_name?: string | null;
+  terms_accepted?: boolean;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -232,7 +242,6 @@ export interface OrderItem {
 export type LiquidLevel = 'full' | 'almost_full' | '3/4' | 'half' | '1/4' | 'empty';
 
 export type AppScreen =
-  | 'onboarding'
   | 'camera'
   | 'review'
   | 'order'
