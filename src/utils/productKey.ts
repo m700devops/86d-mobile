@@ -1,10 +1,32 @@
-// Mirror of the backend's normalize_match_text (86d-api helpers.py). The AI
-// re-reads the label on every scan, so the same bottle can come back phrased
-// differently — "Jack Daniel's" one time, "Jack Daniels" the next. Comparing
-// raw strings treats those as two bottles; comparing on these keys doesn't.
+// The AI re-reads the label on every scan, so the same bottle can come back
+// phrased differently — "Jack Daniel's" one time, "Jack Daniels" the next,
+// "Patrón" or "Patron". Comparing raw strings treats those as two bottles;
+// comparing on these keys doesn't.
+//
+// Accented letters FOLD to their base letter. This used to mirror the backend's
+// normalize_match_text, which deletes them ("Patrón" -> "patrn", never meeting
+// "patron"); the backend now matches products on a key that folds them
+// (product_match_key in 86d-api helpers.py), and this follows it. An explicit
+// map rather than String.prototype.normalize, so nothing depends on the JS
+// engine's Unicode tables.
+const FOLD: Record<string, string> = {
+  à: 'a', á: 'a', â: 'a', ã: 'a', ä: 'a', å: 'a', ā: 'a', ą: 'a',
+  ç: 'c', ć: 'c', č: 'c',
+  è: 'e', é: 'e', ê: 'e', ë: 'e', ē: 'e', ę: 'e',
+  ì: 'i', í: 'i', î: 'i', ï: 'i',
+  ł: 'l', ñ: 'n', ń: 'n',
+  ò: 'o', ó: 'o', ô: 'o', õ: 'o', ö: 'o', ø: 'o',
+  ś: 's', š: 's', ß: 'ss',
+  ù: 'u', ú: 'u', û: 'u', ü: 'u',
+  ý: 'y', ÿ: 'y', ż: 'z', ź: 'z', ž: 'z',
+  æ: 'ae', œ: 'oe',
+};
 
 export const normalizeMatchText = (value?: string | null): string =>
-  (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  (value ?? '')
+    .toLowerCase()
+    .replace(/[^\x00-\x7f]/g, ch => FOLD[ch] ?? '')
+    .replace(/[^a-z0-9]+/g, '');
 
 // Sorting the two tokens is what makes this swap-tolerant: "Gatorade"/"Blue
 // Bolt" and "Blue Bolt"/"Gatorade" collapse to the same key, so a scan whose

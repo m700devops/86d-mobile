@@ -162,7 +162,10 @@ Don't describe either in UI copy or docs.
   ended up as without another call. `match_method: 'unreadable'` means the server couldn't read
   the label and deliberately matched nothing — the pad says "move closer and retake"
 - src/utils/productKey.ts — `bottleMatchKey()`, swap/normalize-tolerant dedupe key used
-  client-side to catch the AI transcribing the same bottle's label differently between scans
+  client-side to catch the AI transcribing the same bottle's label differently between scans. Folds
+  accented letters ("Patrón" = "Patron") with an explicit map — it used to delete them, like the
+  backend's `normalize_match_text` still does; the backend's product matching now uses a key that
+  folds them (86d-api `product_match_key`)
 - src/utils/entitlements.ts — `isEntitled()`/`trialDaysLeft()`; mirrors the backend's
   `is_entitled()` in main.py, kept in sync manually — backend is the real source of truth
 - src/components/Brand.tsx — `BrandMark` (code-drawn login-screen logo) + `GlowBackground`.
