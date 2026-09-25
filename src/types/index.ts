@@ -242,9 +242,6 @@ export interface OrderItem {
   bottleId: string;
   bottleName: string;
   quantity: number;
-  // "750ml", "1.75L" — printed after the name on the order, so the distributor
-  // knows which bottle. Empty when nobody knows it.
-  size?: string;
   distributorId?: string;
   name?: string;
   price?: number;

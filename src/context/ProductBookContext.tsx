@@ -66,8 +66,6 @@ interface ProductBookContextType {
   // "Not set" badge and the generate-order guard key off.
   parFor: (productId?: string) => number | undefined;
   distributorFor: (productId?: string) => string | undefined;
-  // The product's recorded size ("750ml", "1L"), when the catalog has one.
-  sizeFor: (productId?: string) => string | undefined;
   setPrice: (product: PriceableProduct, price: number) => Promise<void>;
   clearPrice: (productId: string) => Promise<void>;
   // Par and distributor are set mid-count, one tap at a time, often on a bar's
@@ -329,12 +327,6 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
     [distByProductId, bookMatchesLocation]
   );
 
-  const sizeFor = useCallback(
-    (productId?: string) =>
-      productId && bookMatchesLocation ? infoByProductId[productId]?.size || undefined : undefined,
-    [infoByProductId, bookMatchesLocation]
-  );
-
   // Write through optimistically so the list reacts instantly, then roll the
   // row back if the save actually failed — a price that silently didn't stick
   // would quietly under-report every order total that follows.
@@ -505,7 +497,6 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
         priceFor,
         parFor,
         distributorFor,
-        sizeFor,
         setPrice,
         clearPrice,
         setPar,
@@ -548,7 +539,7 @@ export const bookProduct = (bottle: Bottle): PriceableProduct | undefined =>
     : undefined;
 
 export const useBottleDefaults = () => {
-  const { parFor, distributorFor, sizeFor } = useProductBook();
+  const { parFor, distributorFor } = useProductBook();
   return useMemo(
     () => ({
       parOf: (bottle: Bottle) => parFor(bottle.productId) ?? bottle.parLevel,
@@ -559,12 +550,7 @@ export const useBottleDefaults = () => {
         parFor(bottle.productId) !== undefined || bottle.parLevelSet === true,
       distributorOf: (bottle: Bottle) =>
         distributorFor(bottle.productId) ?? bottle.distributorId,
-      // The size for the order line. The row's own first: the scan filled it
-      // with the product's recorded size, or with the one printed on THIS
-      // bottle when the catalog has none. The book covers rows counted before
-      // scans carried a size.
-      sizeOf: (bottle: Bottle) => bottle.size || sizeFor(bottle.productId) || '',
     }),
-    [parFor, distributorFor, sizeFor]
+    [parFor, distributorFor]
   );
 };

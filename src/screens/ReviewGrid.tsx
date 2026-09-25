@@ -586,10 +586,8 @@ function BottleRow({
         >
           {bottle.brand || bottle.name}
         </Text>
-        {/* The size is part of which bottle this is: a 750ml and a 1L of the
-            same spirit are two rows and two order lines. */}
         <Text style={styles.bottleBrand} numberOfLines={1}>
-          {[bottleSubtitle(bottle), bottle.size].filter(Boolean).join(' · ').toUpperCase()}
+          {bottleSubtitle(bottle).toUpperCase()}
         </Text>
         {/* The two AIs read this bottle differently. It's counted as the
             better-supported reading; one tap confirms it. If it's the other

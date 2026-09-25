@@ -26,7 +26,7 @@ import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
 import { prepareScanImage } from '../utils/scanImage';
-import { bottleMatchKey, sizesConflict } from '../utils/productKey';
+import { bottleMatchKey } from '../utils/productKey';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { useInventory } from '../context/InventoryContext';
 import { useLocation } from '../context/LocationContext';
@@ -41,11 +41,6 @@ import BarcodeScannerModal from '../components/BarcodeScannerModal';
 type ScanState = 'idle' | 'capturing' | 'success';
 type IdentifyStatus = 'pending' | 'ok' | 'failed';
 type ScanApiResult = NonNullable<Awaited<ReturnType<typeof apiService.analyzeBottleImage>>>;
-
-// "Tito's — Handmade · 1L": the size read off the label (or the product's
-// recorded one) next to the name, so a 750ml vs 1L mix-up is visible at a glance.
-const withSize = (label: string, size?: string | null): string =>
-  size ? `${label} · ${size}` : label;
 
 // The server asks two AIs at once. When they read DIFFERENT bottles it answers
 // with the better-supported reading and flags it; the row carries what the
@@ -444,7 +439,6 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
             productType: result.product_type || undefined,
             scanId: result.scan_id ?? undefined,
             checkNote: checkNoteOf(result),
-            ...(result.size ? { size: result.size } : {}),
           });
         } else {
           markScanFailed(committedRowId);
@@ -475,13 +469,9 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       // strings — a re-read that phrases the label differently ("Blue Bolt"/
       // "Gatorade" vs "Gatorade"/"Blue Bolt") is the same bottle, and letting it
       // through as a second row splits the count and over-orders.
-      // A known size that differs is a different bottle even on the same
-      // product (one with no size on record): updating that row would put the
-      // 1L count over the 750ml one.
       const scanKey = bottleMatchKey(result.brand, result.name);
       const existing = bottles.find(b =>
         b.scanStatus === undefined &&
-        !sizesConflict(b.size, result.size) &&
         ((result.matched_product_id && b.productId === result.matched_product_id) ||
           (!!scanKey && bottleMatchKey(b.brand, b.name) === scanKey))
       );
@@ -490,14 +480,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       scanResultRef.current = result;
       identifyStatusRef.current = 'ok';
       setIdentifiedLabel(
-        withSize(
-          result.brand
-            ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
-                .filter(Boolean)
-                .join(' — ')
-            : result.name,
-          result.size
-        )
+        result.brand
+          ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
+              .filter(Boolean)
+              .join(' — ')
+          : result.name
       );
       setIdentifiedCheck(checkNoteOf(result) ?? null);
       setIdentifyStatus('ok');
@@ -621,14 +608,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       return;
     }
     const stock = clampStock(parseFloat(stockInput === '' || stockInput === '.' ? '0' : stockInput));
-    const label = withSize(
-      result.brand
-        ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
-            .filter(Boolean)
-            .join(', ')
-        : result.name,
-      result.size
-    );
+    const label = result.brand
+      ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
+          .filter(Boolean)
+          .join(', ')
+      : result.name;
 
     // Identified synchronously (before the user hit Add) — this row will
     // never need a retry, so there's nothing worth keeping the photo for.
@@ -639,11 +623,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       // A disputed re-read flags the row it lands on; an agreed one leaves any
       // earlier flag for Review to settle.
       const check = checkNoteOf(result);
-      updateBottle(existingBottle.id, {
-        currentStock: stock,
-        ...(check ? { checkNote: check } : {}),
-        ...(!existingBottle.size && result.size ? { size: result.size } : {}),
-      });
+      updateBottle(existingBottle.id, { currentStock: stock, ...(check ? { checkNote: check } : {}) });
       setLastBottleId(null);   // no undo for count updates
       setStatusText(`${label} — updated to ${formatStock(stock)}`);
     } else {
@@ -656,8 +636,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         brand: result.brand,
         category: result.category,
         productType: result.product_type || undefined,
-        // What goes on the distributor's order line next to the name.
-        size: result.size || '',
+        size: '',
         currentLevel: 1,
         parLevel: 1,
         currentStock: stock,       // typed on the pad — total back-up bottles
@@ -803,7 +782,6 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
             brand: product.brand ?? '',
             category: product.category,
             productType: product.product_type ?? undefined,
-            ...(product.size ? { size: product.size } : {}),
           });
         } else {
           markScanFailed(committedRowId, 'other');
@@ -824,7 +802,6 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         brand: product.brand ?? '',
         category: product.category,
         product_type: product.product_type ?? undefined,
-        size: product.size ?? undefined,
         liquidLevel: 1,
         confidence: 1,
         matched_product_id: product.id,
@@ -839,14 +816,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       scanResultRef.current = result;
       identifyStatusRef.current = 'ok';
       setIdentifiedLabel(
-        withSize(
-          result.brand
-            ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
-                .filter(Boolean)
-                .join(' — ')
-            : result.name,
-          result.size
-        )
+        result.brand
+          ? [result.brand, bottleSubtitle({ brand: result.brand, name: result.name, productType: result.product_type })]
+              .filter(Boolean)
+              .join(' — ')
+          : result.name
       );
       setIdentifyStatus('ok');
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

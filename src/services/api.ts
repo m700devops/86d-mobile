@@ -534,10 +534,6 @@ class ApiService {
     // answer is the better-supported one, `alternative` is what the other read.
     needs_confirmation?: boolean;
     alternative?: string | null;
-    // The bottle's size ("750ml", "1L", "1.75L", "12oz"): the matched product's
-    // recorded size, else the one printed on this label; "" when neither is
-    // known. Goes on the row and from there onto the distributor's order line.
-    size?: string;
   } | null> {
     // Per-request 90s: a photo upload on one bar of signal plus AI analysis
     // genuinely takes time, and this path is fire-and-forget on the scan

@@ -30,7 +30,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
   const { priceFor, setDistributor } = useProductBook();
-  const { parOf, distributorOf, sizeOf } = useBottleDefaults();
+  const { parOf, distributorOf } = useBottleDefaults();
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
   // Snapshot of what actually went out, captured before the draft is cleared.
@@ -63,7 +63,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           bottleName: item.name,
           name: item.name,
           quantity: item.quantity,
-          size: item.size || undefined,
           price: item.price || 0,
           category: 'Other',
           urgency: 'normal' as OrderItem['urgency'],
@@ -95,9 +94,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             bottleName: label,
             name: label,
             quantity: totalQuantity,
-            // "Tito's Handmade" alone doesn't tell a distributor whether it's the
-            // 750ml, the 1L or the 1.75L.
-            size: sizeOf(b) || undefined,
             // Looked up from the price book by product rather than read off the
             // bottle, so a bottle the AI just identified is already priced and a
             // price edited in Pricing shows up here without re-counting anything.
@@ -176,7 +172,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           items: g.items.map(i => ({
             name: i.name || i.bottleName,
             quantity: i.quantity,
-            size: i.size || undefined,
             price: i.price || undefined,
           })),
         })),
@@ -287,18 +282,13 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     }
   };
 
-  // The name as the order prints it, size included, the same way the server
-  // writes the emailed order ("Tito's Handmade 1L").
-  const itemLabel = (item: OrderItem) =>
-    [item.name || item.bottleName, item.size].filter(Boolean).join(' ');
-
   // Plain-text mirror of buildOrderHtml — the universal fallback that works
   // regardless of what printer (or lack of one) a distributor/client has.
   const buildOrderText = () => {
     const title = user?.business_name || currentLocation?.name || 'Order Summary';
     const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const sections = groupedByDistributor.map(group => {
-      const lines = group.items.map(item => `  - ${itemLabel(item)} x${item.quantity}`).join('\n');
+      const lines = group.items.map(item => `  - ${item.name || item.bottleName} x${item.quantity}`).join('\n');
       return `${group.distributor.name}\n${lines}`;
     }).join('\n\n');
 
@@ -312,7 +302,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       <h2>${escapeHtml(group.distributor.name)}</h2>
       <table>
         <tr><th>Item</th><th>Qty</th></tr>
-        ${group.items.map(item => `<tr><td>${escapeHtml(itemLabel(item))}</td><td>${item.quantity}</td></tr>`).join('')}
+        ${group.items.map(item => `<tr><td>${escapeHtml(item.name || item.bottleName)}</td><td>${item.quantity}</td></tr>`).join('')}
       </table>
     `).join('');
 

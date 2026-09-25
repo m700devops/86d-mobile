@@ -7,7 +7,7 @@ import { useLocation } from './LocationContext';
 import { apiService } from '../services/api';
 import { deleteScanPhoto } from '../utils/scanPhotos';
 import { prepareScanImage } from '../utils/scanImage';
-import { bottleMatchKey, sizesConflict } from '../utils/productKey';
+import { bottleMatchKey } from '../utils/productKey';
 import {
   isAutoRetryable,
   isOrphanedRetry,
@@ -24,8 +24,6 @@ interface ResolvedScanInfo {
   scanId?: string;
   // What the other AI read when the two disagreed (see Bottle.checkNote).
   checkNote?: string;
-  // "750ml", "1L" — see analyzeBottleImage's `size`.
-  size?: string;
 }
 
 interface InventoryContextType {
@@ -197,13 +195,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // typed count becomes the total, and the placeholder row disappears.
       // Keys are normalized and swap-tolerant so a differently-phrased re-read
       // of the same label still merges (see utils/productKey).
-      // A known size that differs is a different bottle, even on the same
-      // product: merging would put the 1L count over the 750ml one.
       const infoKey = bottleMatchKey(info.brand, info.name);
       const dup = prev.find(b =>
         b.id !== id &&
         b.scanStatus === undefined &&
-        !sizesConflict(b.size, info.size) &&
         ((info.productId && b.productId === info.productId) ||
           (!!infoKey && bottleMatchKey(b.brand, b.name) === infoKey))
       );
@@ -211,14 +206,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return prev
           .filter(b => b.id !== id)
           // A disputed reading flags the row it merges into, so the check isn't lost
-          // with the placeholder row; a size read fills one the row didn't have.
+          // with the placeholder row.
           .map(b => (b.id === dup.id
-            ? {
-                ...b,
-                currentStock: row.currentStock,
-                ...(info.checkNote ? { checkNote: info.checkNote } : {}),
-                ...(!b.size && info.size ? { size: info.size } : {}),
-              }
+            ? { ...b, currentStock: row.currentStock, ...(info.checkNote ? { checkNote: info.checkNote } : {}) }
             : b));
       }
 
@@ -342,7 +332,6 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           productType: result.product_type || undefined,
           scanId: result.scan_id ?? undefined,
           checkNote: result.needs_confirmation ? (result.alternative || 'a different bottle') : undefined,
-          ...(result.size ? { size: result.size } : {}),
         });
         if (auto) setAutoResolvedCount(n => n + 1);
         return;
