@@ -161,6 +161,13 @@ Don't describe either in UI copy or docs.
   The draft sync already uploads whole rows, so 86d-api learns which product each scanned row
   ended up as without another call. `match_method: 'unreadable'` means the server couldn't read
   the label and deliberately matched nothing — the pad says "move closer and retake"
+- **Two AIs read every scan** (86d-api asks OpenAI and Gemini at once). When they read DIFFERENT
+  bottles, the server answers with the better-supported reading and `needs_confirmation: true` +
+  `alternative` (what the other read). The pad shows the name in amber with "The second AI read X —
+  check the label"; the row carries it as `Bottle.checkNote` (live scan, fire-and-forget resolve,
+  retry, and a re-read merging into an existing row), and Review shows an amber "Check — the second
+  AI read X. Tap if this row is right" chip — one tap clears it. If it's the other bottle, remove
+  the row and add the right one. An agreed scan never sets `checkNote`
 - src/utils/productKey.ts — `bottleMatchKey()`, swap/normalize-tolerant dedupe key used
   client-side to catch the AI transcribing the same bottle's label differently between scans. Folds
   accented letters ("Patrón" = "Patron") with an explicit map — it used to delete them, like the

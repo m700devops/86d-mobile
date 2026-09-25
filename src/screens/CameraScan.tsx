@@ -42,6 +42,12 @@ type ScanState = 'idle' | 'capturing' | 'success';
 type IdentifyStatus = 'pending' | 'ok' | 'failed';
 type ScanApiResult = NonNullable<Awaited<ReturnType<typeof apiService.analyzeBottleImage>>>;
 
+// The server asks two AIs at once. When they read DIFFERENT bottles it answers
+// with the better-supported reading and flags it; the row carries what the
+// other AI read (Bottle.checkNote) so Review can ask for a check.
+const checkNoteOf = (r: ScanApiResult): string | undefined =>
+  r.needs_confirmation ? (r.alternative || 'a different bottle') : undefined;
+
 interface Props {
   onReview: () => void;
   onBack?: () => void;
@@ -118,6 +124,9 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [stockInput, setStockInput] = useState('');
   const [identifyStatus, setIdentifyStatus] = useState<IdentifyStatus>('pending');
   const [identifiedLabel, setIdentifiedLabel] = useState<string | null>(null);
+  // What the OTHER AI read, when the two disagreed about this bottle — shown on
+  // the pad so the bartender can check the label before saving.
+  const [identifiedCheck, setIdentifiedCheck] = useState<string | null>(null);
   const [failMessage, setFailMessage] = useState<string | null>(null);
   // Set when the scanned product is already in this session — commit updates
   // that row's count instead of adding a duplicate
@@ -357,6 +366,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       setStockInput('');
       setIdentifyStatus('pending');
       setIdentifiedLabel(null);
+      setIdentifiedCheck(null);
       setFailMessage(null);
       setFailTransient(false);
       setExistingBottle(null);
@@ -428,6 +438,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
             category: result.category,
             productType: result.product_type || undefined,
             scanId: result.scan_id ?? undefined,
+            checkNote: checkNoteOf(result),
           });
         } else {
           markScanFailed(committedRowId);
@@ -475,6 +486,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               .join(' — ')
           : result.name
       );
+      setIdentifiedCheck(checkNoteOf(result) ?? null);
       setIdentifyStatus('ok');
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
@@ -608,7 +620,10 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
     if (existingBottle) {
       // Re-scan of a product already in the session — replace its count
-      updateBottle(existingBottle.id, { currentStock: stock });
+      // A disputed re-read flags the row it lands on; an agreed one leaves any
+      // earlier flag for Review to settle.
+      const check = checkNoteOf(result);
+      updateBottle(existingBottle.id, { currentStock: stock, ...(check ? { checkNote: check } : {}) });
       setLastBottleId(null);   // no undo for count updates
       setStatusText(`${label} — updated to ${formatStock(stock)}`);
     } else {
@@ -616,6 +631,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         id: `bottle_${Date.now()}`,   // always unique — productId tracks the catalog match
         productId: result.matched_product_id ?? undefined,
         scanId: result.scan_id ?? undefined,
+        checkNote: checkNoteOf(result),
         name: result.name,
         brand: result.brand,
         category: result.category,
@@ -744,6 +760,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     setStockInput('');
     setIdentifyStatus('pending');
     setIdentifiedLabel(null);
+    setIdentifiedCheck(null);
     setFailMessage(null);
     setFailTransient(false);
     setExistingBottle(null);
@@ -1276,14 +1293,24 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 )}
                 {identifyStatus === 'ok' && (
                   <>
-                    <Check size={16} color={COLORS.success} />
-                    <Text style={styles.padStatusOk} numberOfLines={1}>{identifiedLabel}</Text>
+                    <Check size={16} color={identifiedCheck ? COLORS.warning : COLORS.success} />
+                    <Text style={[styles.padStatusOk, !!identifiedCheck && styles.padStatusCheck]} numberOfLines={1}>
+                      {identifiedLabel}
+                    </Text>
                   </>
                 )}
                 {identifyStatus === 'failed' && (
                   <Text style={styles.padStatusFailed}>{failMessage}</Text>
                 )}
               </View>
+
+              {/* The two AIs read different bottles: say what the other one read,
+                  so a glance at the label settles it before it's saved. */}
+              {identifyStatus === 'ok' && identifiedCheck && (
+                <Text style={styles.padCheckNote} numberOfLines={2}>
+                  The second AI read {identifiedCheck} — check the label
+                </Text>
+              )}
 
               {/* Synchronous "ok" result can still be the wrong bottle (glare,
                   similar label) — offer a one-tap way out before it's committed. */}
@@ -1937,6 +1964,19 @@ const styles = StyleSheet.create({
   padRetakeRow: {
     alignItems: 'center',
     marginBottom: 4,
+  },
+  // Amber, not green: identified, but the two AIs disagreed — see identifiedCheck.
+  padStatusCheck: {
+    color: COLORS.warning,
+  },
+  padCheckNote: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.warning,
+    letterSpacing: LETTER_SPACING,
+    textAlign: 'center',
+    marginBottom: 4,
+    paddingHorizontal: SPACING.md,
   },
   padRetakeLink: {
     fontSize: FONT_SIZES.xs,

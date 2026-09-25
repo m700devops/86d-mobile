@@ -22,6 +22,8 @@ interface ResolvedScanInfo {
   category: string;
   productType?: string;
   scanId?: string;
+  // What the other AI read when the two disagreed (see Bottle.checkNote).
+  checkNote?: string;
 }
 
 interface InventoryContextType {
@@ -203,7 +205,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (dup) {
         return prev
           .filter(b => b.id !== id)
-          .map(b => (b.id === dup.id ? { ...b, currentStock: row.currentStock } : b));
+          // A disputed reading flags the row it merges into, so the check isn't lost
+          // with the placeholder row.
+          .map(b => (b.id === dup.id
+            ? { ...b, currentStock: row.currentStock, ...(info.checkNote ? { checkNote: info.checkNote } : {}) }
+            : b));
       }
 
       return prev.map(b =>
@@ -325,6 +331,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           category: result.category,
           productType: result.product_type || undefined,
           scanId: result.scan_id ?? undefined,
+          checkNote: result.needs_confirmation ? (result.alternative || 'a different bottle') : undefined,
         });
         if (auto) setAutoResolvedCount(n => n + 1);
         return;

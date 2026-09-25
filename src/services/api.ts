@@ -530,6 +530,10 @@ class ApiService {
     // The server's log id for this scan. Kept on the bottle row (Bottle.scanId)
     // so the draft sync tells the server which product the row ended up as.
     scan_id?: string | null;
+    // The server asks two AIs at once. true = they read different bottles: this
+    // answer is the better-supported one, `alternative` is what the other read.
+    needs_confirmation?: boolean;
+    alternative?: string | null;
   } | null> {
     // Per-request 90s: a photo upload on one bar of signal plus AI analysis
     // genuinely takes time, and this path is fire-and-forget on the scan

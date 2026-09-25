@@ -184,6 +184,11 @@ export interface Bottle {
   // whether the AI's pick was kept or changed — the scanner's accuracy number.
   // Absent on rows added by hand, by barcode, or before this existed.
   scanId?: string;
+  // Set when the two AIs read this bottle DIFFERENTLY (86d-api's second
+  // opinion): what the other one read, e.g. "Johnnie Walker Black Label". The
+  // row is counted as the better-supported reading but shown for a check in
+  // Review; confirming it there clears this. Never set on an agreed scan.
+  checkNote?: string;
   // Fire-and-forget scans: 'pending' while the AI identifies in the background,
   // 'failed' when identification didn't land (row shows a retry action)
   scanStatus?: 'pending' | 'failed';
