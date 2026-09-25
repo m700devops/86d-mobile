@@ -11,7 +11,7 @@ export const SENTRY_DSN = 'https://f407c023f25cbe11a8c7ffacae8fc30a@o45117629887
 
 // Reported with funnel events so a drop-off can be pinned to a build.
 // Keep in sync with app.json's expo.version.
-export const APP_VERSION = '1.0.3';
+export const APP_VERSION = '1.0.4';
 
 // Storage keys
 export const STORAGE_KEYS = {
