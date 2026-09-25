@@ -172,6 +172,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const removeBottle = (id: string) => {
+    // Deleting a scanned row is how a wrong bottle gets fixed (a row's product
+    // can't be changed), so the server's scanner report hears about it —
+    // otherwise every wrong scan would count as right.
+    const removed = bottlesRef.current.find(b => b.id === id);
+    if (removed?.scanId) apiService.reportScanOutcome(removed.scanId, 'removed');
     setBottles(prev => {
       const row = prev.find(b => b.id === id);
       if (row?.imageUrl) deleteScanPhoto(row.imageUrl);

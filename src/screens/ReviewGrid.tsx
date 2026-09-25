@@ -596,7 +596,12 @@ function BottleRow({
         {bottle.checkNote && bottle.scanStatus === undefined && (
           <TouchableOpacity
             style={[styles.retryChip, styles.retryChipWaiting]}
-            onPress={() => onUpdate({ checkNote: undefined })}
+            onPress={() => {
+              onUpdate({ checkNote: undefined });
+              // The bartender settled a disagreement between the two AIs — the
+              // one piece of evidence the scanner report has about which was right.
+              if (bottle.scanId) apiService.reportScanOutcome(bottle.scanId, 'confirmed');
+            }}
             activeOpacity={0.7}
           >
             <Text style={[styles.retryChipText, styles.retryChipWaitingText]} numberOfLines={2}>

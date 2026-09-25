@@ -158,9 +158,13 @@ Don't describe either in UI copy or docs.
   JPEG's compression, and the crop is barely downscaled, so capture artifacts reach the AI)
 - Scan ↔ server accuracy loop: `/scans/analyze` gets the bar's `location_id` and returns a
   `scan_id`, kept on the row as `Bottle.scanId` (live scan, fire-and-forget resolve, and retry).
-  The draft sync already uploads whole rows, so 86d-api learns which product each scanned row
-  ended up as without another call. `match_method: 'unreadable'` means the server couldn't read
-  the label and deliberately matched nothing — the pad says "move closer and retake"
+  The draft sync uploads whole rows, but that alone can't tell 86d-api a scan was WRONG: a row's
+  product can't be changed in Review, so a wrong bottle is fixed by removing the row. So the app
+  reports it — `apiService.reportScanOutcome(scanId, 'removed')` from `removeBottle` (Review's
+  delete and the scan screen's undo), and `'confirmed'` when the amber "the second AI read X — tap
+  if this row is right" chip is tapped. Fire-and-forget. These feed the Scanner page in the CRM
+  (86d-api scanstats.py). `match_method: 'unreadable'` means the server couldn't read the label
+  and deliberately matched nothing — the pad says "move closer and retake"
 - **Two AIs read every scan** (86d-api asks OpenAI and Gemini at once). When they read DIFFERENT
   bottles, the server answers with the better-supported reading and `needs_confirmation: true` +
   `alternative` (what the other read). The pad shows the name in amber with "The second AI read X —

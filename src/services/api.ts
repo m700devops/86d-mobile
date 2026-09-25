@@ -510,8 +510,16 @@ class ApiService {
     this.client.post('/scans/warm', {}).catch(() => {});
   }
 
-  // Bottle identification via the backend (OpenAI first, Gemini fallback —
-  // chosen server-side). `locationId` is the bar being counted; the server logs
+  // What the bartender did with a scanned row, for the server's scanner report
+  // (86d-api scanstats.py): 'removed' — deleted it, which is the only way to fix
+  // a wrong bottle — or 'confirmed' — tapped "this row is right" on a row the two
+  // AIs read differently. Fire-and-forget: a lost report only costs a data point.
+  reportScanOutcome(scanId: string, outcome: 'removed' | 'confirmed'): void {
+    this.client.post(`/scans/${encodeURIComponent(scanId)}/outcome`, { outcome }).catch(() => {});
+  }
+
+  // Bottle identification via the backend (OpenAI and Gemini asked side by
+  // side, the answer decided server-side). `locationId` is the bar being counted; the server logs
   // it with the scan so accuracy can be read per bar.
   async analyzeBottleImage(imageBase64: string, locationId?: string): Promise<{
     name: string;
