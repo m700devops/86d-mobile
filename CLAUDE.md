@@ -3,7 +3,7 @@
 ## Project
 React Native iOS bar inventory app. AI-powered bottle scanning for bartenders.
 Scan flow: point the camera at a bottle, AI vision identifies it (name/brand/category —
-OpenAI GPT-4o primary, Gemini 2.0 Flash fallback, both server-side in 86d-api),
+OpenAI GPT-4o primary, Gemini fallback, both server-side in 86d-api),
 then the user taps in the current stock count on a number pad. There is no pen-based
 detection and no automatic liquid-level reading in the current app — that was removed.
 Don't describe either in UI copy or docs.
@@ -145,6 +145,22 @@ Don't describe either in UI copy or docs.
   `par_levels` (price + par) and `location_product_distributors` in 86d-api
 - src/context/StaffContext.tsx — per-bar list of staff names for "who counted this" —
   no logins, no passwords, no roles
+- src/utils/scanImage.ts — `prepareScanImage()`, the ONE place a scan photo becomes an upload,
+  shared by the live scan and the background re-identification sweep so both send the same
+  thing. Crops to `SCAN_CROP` (the viewfinder's corner guides plus a wide margin — the whole
+  frame used to go up, so on a shelf the bottle being counted sat among its neighbours), then
+  800px wide at JPEG 0.8. The crop is the only way to add detail: gpt-4o scales every image to
+  768px on its short side whatever is sent, so sending less of the shelf puts ~1.3× more of its
+  pixels on the label. Fractions of the preview ARE fractions of the photo: expo-camera crops each
+  iOS photo to the preview, and the manipulator applies orientation before cropping. Any crop
+  failure falls back to the whole frame — a scan never fails because of it. Capture quality is
+  0.85 for the same reason (`skipProcessing` is Android-only; on iOS `quality` is only the saved
+  JPEG's compression, and the crop is barely downscaled, so capture artifacts reach the AI)
+- Scan ↔ server accuracy loop: `/scans/analyze` gets the bar's `location_id` and returns a
+  `scan_id`, kept on the row as `Bottle.scanId` (live scan, fire-and-forget resolve, and retry).
+  The draft sync already uploads whole rows, so 86d-api learns which product each scanned row
+  ended up as without another call. `match_method: 'unreadable'` means the server couldn't read
+  the label and deliberately matched nothing — the pad says "move closer and retake"
 - src/utils/productKey.ts — `bottleMatchKey()`, swap/normalize-tolerant dedupe key used
   client-side to catch the AI transcribing the same bottle's label differently between scans
 - src/utils/entitlements.ts — `isEntitled()`/`trialDaysLeft()`; mirrors the backend's

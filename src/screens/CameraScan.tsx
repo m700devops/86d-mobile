@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
@@ -26,9 +25,11 @@ import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
+import { prepareScanImage } from '../utils/scanImage';
 import { bottleMatchKey } from '../utils/productKey';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { useInventory } from '../context/InventoryContext';
+import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { useProductBook } from '../context/ProductBookContext';
 import { useDistributors } from '../context/DistributorContext';
@@ -94,6 +95,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [showScanHint, setShowScanHint] = useState(false);
   const scanHintPulse = useRef(new Animated.Value(0)).current;
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
+  const { currentLocation } = useLocation();
   const { logout, refreshUser } = useAuth();
   const { parFor, distributorFor } = useProductBook();
   const { distributors } = useDistributors();
@@ -325,9 +327,13 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     }, CAPTURE_WATCHDOG_MS);
 
     try {
-      // skipProcessing + low quality = fast shutter; we resize/compress below anyway
+      // skipProcessing is Android-only (iOS ignores it). On iOS `quality` is
+      // just the JPEG compression of the saved photo, and it matters now: the
+      // upload is a crop of this photo (utils/scanImage) and barely downscaled,
+      // so artifacts baked in here reach the AI. 0.5 blurred the thin label
+      // text the model has to read.
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.5,
+        quality: 0.85,
         base64: false,
         skipProcessing: true,
       });
@@ -357,18 +363,15 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       setFailedViaBarcode(false);
       setPadVisible(true);
 
-      // Downscale before upload — full-res photos are several MB of base64,
-      // which blows past the backend's scan timeout on slow connections.
-      const resized = await ImageManipulator.manipulateAsync(
-        photo.uri,
-        [{ resize: { width: 800 } }],
-        { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-      );
+      // Crop to the aimed-at area and downscale before upload — see
+      // utils/scanImage. Full-res photos are several MB of base64, which blows
+      // past the backend's scan timeout on slow connections.
+      const imageBase64 = await prepareScanImage(photo.uri);
 
       // From here on the user may have saved the row and moved to the next
       // bottle (fire-and-forget) — check the committed map before the pad UI.
       if (token !== scanSeq.current && !pendingCommits.current.has(token)) return;
-      if (!resized.base64) {
+      if (!imageBase64) {
         const committedRowId = pendingCommits.current.get(token);
         if (committedRowId !== undefined) {
           pendingCommits.current.delete(token);
@@ -379,9 +382,9 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         return;
       }
 
-      imageSizeKb = Math.round((resized.base64.length * 0.75) / 1024);
+      imageSizeKb = Math.round((imageBase64.length * 0.75) / 1024);
 
-      const result = await apiService.analyzeBottleImage(resized.base64);
+      const result = await apiService.analyzeBottleImage(imageBase64, currentLocation?.id);
 
       const scanOk = result != null && !!result.matched_product_id;
       await scanDiagnostics.logScan({
@@ -390,6 +393,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         errorType: scanOk ? null : 'parse_error',
         errorMessage: scanOk ? null
           : result == null ? 'API returned null — no bottle detected'
+          : result.match_method === 'unreadable' ? 'Label unreadable — not matched'
           : 'No product match — confidence too low',
         httpStatus: 200,
         responseTimeMs: Date.now() - startTime,
@@ -423,6 +427,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
             brand: result.brand,
             category: result.category,
             productType: result.product_type || undefined,
+            scanId: result.scan_id ?? undefined,
           });
         } else {
           markScanFailed(committedRowId);
@@ -434,6 +439,12 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
       if (result == null) {
         failScan(token, 'No bottle detected — try again');
+        return;
+      }
+      // The server read the label as illegible and deliberately matched
+      // nothing rather than guess — a closer, steadier photo is the fix.
+      if (!result.matched_product_id && result.match_method === 'unreadable') {
+        failScan(token, "Couldn't read the label — move closer and retake");
         return;
       }
       // Low-confidence: no exact match, confidence too low for auto-create
@@ -604,6 +615,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       const newBottle: Bottle = {
         id: `bottle_${Date.now()}`,   // always unique — productId tracks the catalog match
         productId: result.matched_product_id ?? undefined,
+        scanId: result.scan_id ?? undefined,
         name: result.name,
         brand: result.brand,
         category: result.category,

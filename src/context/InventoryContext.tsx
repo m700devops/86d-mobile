@@ -2,11 +2,11 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { Bottle } from '../types';
 import { useLocation } from './LocationContext';
 import { apiService } from '../services/api';
 import { deleteScanPhoto } from '../utils/scanPhotos';
+import { prepareScanImage } from '../utils/scanImage';
 import { bottleMatchKey } from '../utils/productKey';
 import {
   isAutoRetryable,
@@ -21,6 +21,7 @@ interface ResolvedScanInfo {
   brand: string;
   category: string;
   productType?: string;
+  scanId?: string;
 }
 
 interface InventoryContextType {
@@ -310,12 +311,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
 
     try {
-      const resized = await ImageManipulator.manipulateAsync(
-        bottle.imageUrl,
-        [{ resize: { width: 800 } }],
-        { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-      );
-      const result = resized.base64 ? await apiService.analyzeBottleImage(resized.base64) : null;
+      // Same preparation as the live scan (crop to the aimed-at area, shrink),
+      // so a retry is judged on exactly what a first attempt would have sent.
+      const imageBase64 = await prepareScanImage(bottle.imageUrl);
+      const result = imageBase64
+        ? await apiService.analyzeBottleImage(imageBase64, currentLocation?.id)
+        : null;
       if (result && result.matched_product_id) {
         resolveScan(bottle.id, {
           productId: result.matched_product_id,
@@ -323,6 +324,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           brand: result.brand,
           category: result.category,
           productType: result.product_type || undefined,
+          scanId: result.scan_id ?? undefined,
         });
         if (auto) setAutoResolvedCount(n => n + 1);
         return;

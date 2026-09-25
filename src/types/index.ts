@@ -179,6 +179,11 @@ export interface Bottle {
   // book by productId (see PricingContext), never copied onto the row, so it
   // can't go stale against a price edited in the Pricing screen.
   productId?: string;
+  // The server's log id for the scan that identified this row (scan_events in
+  // 86d-api). It rides along in the draft sync, which is how the server learns
+  // whether the AI's pick was kept or changed — the scanner's accuracy number.
+  // Absent on rows added by hand, by barcode, or before this existed.
+  scanId?: string;
   // Fire-and-forget scans: 'pending' while the AI identifies in the background,
   // 'failed' when identification didn't land (row shows a retry action)
   scanStatus?: 'pending' | 'failed';
