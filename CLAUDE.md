@@ -168,11 +168,24 @@ Don't describe either in UI copy or docs.
   retry, and a re-read merging into an existing row), and Review shows an amber "Check — the second
   AI read X. Tap if this row is right" chip — one tap clears it. If it's the other bottle, remove
   the row and add the right one. An agreed scan never sets `checkNote`
+- **Bottle size rides on the row** (`Bottle.size`, from the scan's `size`: the matched product's
+  recorded size, else the net contents printed on THIS label — 86d-api only counts a size the AI
+  also wrote down in its label transcription). Set on the live scan, the fire-and-forget resolve,
+  the retry and the barcode path; a re-scan fills a row's missing size. Shown on the pad ("Tito's —
+  Handmade · 1L") and under the name in Review. Orders use `sizeOf(bottle)` (useBottleDefaults: the
+  row's size, else the product book's `sizeFor`), and it goes on the emailed order line, the
+  copied text and the printout — "Tito's Handmade" alone never told a distributor 750ml, 1L or
+  1.75L. **Two rows whose sizes are both known and differ are never merged**
+  (`sizesConflict()` in productKey.ts, in both the live-scan "already counted?" lookup and
+  `resolveScan`'s duplicate merge): a product created before sizes were read has none on record, so
+  a 750ml and a 1L of it can arrive under one product id, and merging them replaced one count with
+  the other
 - src/utils/productKey.ts — `bottleMatchKey()`, swap/normalize-tolerant dedupe key used
   client-side to catch the AI transcribing the same bottle's label differently between scans. Folds
   accented letters ("Patrón" = "Patron") with an explicit map — it used to delete them, like the
   backend's `normalize_match_text` still does; the backend's product matching now uses a key that
-  folds them (86d-api `product_match_key`)
+  folds them (86d-api `product_match_key`). Also `sizeMl()`/`sizesConflict()`: sizes compared in
+  millilitres with the server's 2% slack ("12oz" and "355ml" are one can; 720ml and 750ml aren't)
 - src/utils/entitlements.ts — `isEntitled()`/`trialDaysLeft()`; mirrors the backend's
   `is_entitled()` in main.py, kept in sync manually — backend is the real source of truth
 - src/components/Brand.tsx — `BrandMark` (code-drawn login-screen logo) + `GlowBackground`.

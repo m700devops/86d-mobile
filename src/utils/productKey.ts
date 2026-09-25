@@ -41,3 +41,30 @@ export const bottleMatchKey = (brand?: string | null, name?: string | null): str
   const parts = [normalizeMatchText(brand), normalizeMatchText(name)].filter(Boolean).sort();
   return parts.join('|');
 };
+
+// A bottle's size in millilitres, from the way the server writes sizes
+// ("750ml", "1L", "1.75L", "12oz") or a catalog entry someone typed ("750 mL",
+// "1 Liter"). null when there isn't one.
+const SIZE_RE = /(\d+(?:\.\d+)?)\s*(ml|cl|l|lt|ltr|liters?|litres?|fl\.?\s*oz|oz)\b/i;
+
+export const sizeMl = (text?: string | null): number | null => {
+  const m = SIZE_RE.exec(text ?? '');
+  if (!m) return null;
+  const value = parseFloat(m[1]);
+  const unit = m[2].toLowerCase();
+  if (unit === 'ml') return value;
+  if (unit === 'cl') return value * 10;
+  if (unit.startsWith('l')) return value * 1000;
+  return value * 29.5735; // oz / fl oz
+};
+
+// Two rows are different bottles when BOTH sizes are known and differ — a 1L
+// and a 750ml of the same product must not merge, or one count replaces the
+// other. A row with no size never conflicts. Same 2% slack as the server
+// (sizes_compatible in 86d-api helpers.py): "12oz" and "355ml" are one can.
+export const sizesConflict = (a?: string | null, b?: string | null): boolean => {
+  const x = sizeMl(a);
+  const y = sizeMl(b);
+  if (x == null || y == null) return false;
+  return Math.abs(x - y) > 0.02 * Math.max(x, y);
+};
