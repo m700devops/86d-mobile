@@ -1154,7 +1154,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
             {/* What the AI is sent: everything outside utils/scanImage's
                 SCAN_CROP is dimmed, so the bright window is exactly the photo
                 it reads. A label drifting toward the edge visibly goes dark —
-                the crop used to cut 44% of this picture with no sign. Under
+                the first crop cut 44% of this picture with no sign. Under
                 every other overlay (lowest zIndex), and never takes a touch. */}
             {SCAN_MASK_BANDS.map((band, i) => (
               <View key={`mask${i}`} pointerEvents="none" style={[styles.scanMask, band]} />

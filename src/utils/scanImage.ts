@@ -24,11 +24,17 @@ import { ImageManipulator, SaveFormat, manipulateAsync, type ImageRef } from 'ex
 // (app.json). A landscape screen would need this re-checked.
 //
 // CameraScan dims everything outside this on the viewfinder (SCAN_MASK_BANDS),
-// so the bright window is exactly what the AI gets. Without it 44% of the
-// picture on screen was cut with no sign: a label low on a bottle, shot from
-// close up, could lose just the strip naming its variant ("Reposado") and be
-// counted as the plain bottle. Change the crop here and the dimming follows.
-export const SCAN_CROP = { left: 0.12, right: 0.88, top: 0.1, bottom: 0.84 };
+// so the bright window is exactly what the AI gets. Without it, the first
+// version of this crop cut 44% of the picture on screen with no sign: a label
+// low on a bottle, shot from close up, could lose just the strip naming its
+// variant ("Reposado") and be counted as the plain bottle. Change the crop here
+// and the dimming follows.
+//
+// 5% off the top, 8% off the bottom and each side: the owner halved the first
+// cut (10% / 16% / 12% each side) once it was visible on screen. It keeps 73% of
+// the picture, and the label reaches the AI about 1.2x sharper than the whole
+// frame (the width is what counts: 1 / 0.84).
+export const SCAN_CROP = { left: 0.08, right: 0.92, top: 0.05, bottom: 0.92 };
 
 type Pct = `${number}%`;
 const pct = (fraction: number): Pct => `${+(fraction * 100).toFixed(3)}%`;

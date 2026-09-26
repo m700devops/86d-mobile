@@ -169,16 +169,18 @@ Don't describe either in UI copy or docs.
   thing. Crops to `SCAN_CROP` (the viewfinder's corner guides plus a wide margin — the whole
   frame used to go up, so on a shelf the bottle being counted sat among its neighbours), then
   800px wide at JPEG 0.8. The crop is the only way to add detail: gpt-4o scales every image to
-  768px on its short side whatever is sent, so sending less of the shelf puts ~1.3× more of its
-  pixels on the label. Fractions of the preview ARE fractions of the photo: expo-camera crops each
+  768px on its short side whatever is sent, so sending less of the shelf puts more of its pixels on
+  the label (~1.2× sharper; what the bartender would get holding the phone about a sixth closer). A
+  small gain on purpose: it only matters when the deciding text is small in the photo. Fractions of the preview ARE fractions of the photo: expo-camera crops each
   iOS photo to the preview, and the manipulator applies orientation before cropping. Any crop
   failure falls back to the whole frame — a scan never fails because of it. **The viewfinder shows
   the crop**: CameraScan dims everything outside `SCAN_CROP` (`SCAN_MASK_BANDS`, built from it in the
-  same file, so the two can't drift), and the bright window is exactly what the AI gets. Without it 44%
-  of the picture on screen was cut with no sign, and a low label shot from close up could lose just its
-  bottom line — often the variant ("Reposado") — so both AIs read only the brand, answered "Original",
-  agreed, and the plain bottle was counted with no flag. The bottom dimmed band sits level with the top
-  of the shutter button. The match between screen and photo was checked in expo-camera's own iOS code:
+  same file, so the two can't drift), and the bright window is exactly what the AI gets. Without it the
+  first crop cut 44% of the picture on screen with no sign, and a low label shot from close up could lose
+  just its bottom line — often the variant ("Reposado") — so both AIs read only the brand, answered
+  "Original", agreed, and the plain bottle was counted with no flag. **The cut is 5% top, 8% bottom, 8%
+  each side** (73% of the picture kept) — the owner halved the first cut (10% / 16% / 12%) once it was
+  visible; the bottom band runs through the lower half of the shutter button. The match between screen and photo was checked in expo-camera's own iOS code:
   the preview fills the view (resizeAspectFill) and each photo is cut to the view's shape using the
   SCREEN's orientation — true however the phone is tilted, and only while the app is portrait-locked.
   Capture quality is
