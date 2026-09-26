@@ -42,11 +42,16 @@ interface InventoryContextType {
   autoResolvedCount: number;
   acknowledgeAutoResolved: () => void;
   clearBottles: () => void;
+  // This count's order id, for /orders/email's client_ref (see getOrderRef).
+  getOrderRef: () => Promise<string>;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
 
 const draftKey = (locationId: string) => `@86d_inventory_draft_${locationId}`;
+const orderRefKey = (locationId: string) => `@86d_order_ref_${locationId}`;
+export const newOrderRef = () =>
+  Date.now().toString(36) + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
 const SAVE_DEBOUNCE_MS = 400;
 
 // While the app is open, re-check on this cadence. NetInfo only reports hard
@@ -125,6 +130,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     if (!currentLocation || !isHydrated || hydratedLocationId.current !== currentLocation.id) return;
     AsyncStorage.setItem(draftKey(currentLocation.id), JSON.stringify(bottles)).catch(() => {});
+    // An empty draft has no order in progress: the next count is a new order.
+    if (bottles.length === 0) AsyncStorage.removeItem(orderRefKey(currentLocation.id)).catch(() => {});
   }, [bottles, currentLocation, isHydrated]);
 
   // Backend sync, debounced — this is belt-and-suspenders for device loss,
@@ -440,6 +447,24 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const acknowledgeAutoResolved = () => setAutoResolvedCount(0);
 
+  // One id per count's order, sent as /orders/email's client_ref. A send
+  // retried after a lost response (bar wifi, the 20s timeout) or after
+  // leaving the screen and coming back carries the same id, so the server
+  // skips every distributor already emailed this exact order — the app
+  // couldn't know who got it, and "try again" used to re-email everyone.
+  // Kept beside the draft and cleared with it: a new count is a new order.
+  const getOrderRef = async (): Promise<string> => {
+    const loc = currentLocation?.id;
+    if (!loc) return newOrderRef();
+    try {
+      const existing = await AsyncStorage.getItem(orderRefKey(loc));
+      if (existing) return existing;
+    } catch { /* fall through to a fresh one */ }
+    const ref = newOrderRef();
+    AsyncStorage.setItem(orderRefKey(loc), ref).catch(() => {});
+    return ref;
+  };
+
   // Called once an order's been successfully sent — that draft is done,
   // don't let it resurface (and get accidentally re-sent) on the next scan.
   const clearBottles = () => {
@@ -450,13 +475,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setAutoResolvedCount(0);
     if (currentLocation) {
       AsyncStorage.removeItem(draftKey(currentLocation.id)).catch(() => {});
+      AsyncStorage.removeItem(orderRefKey(currentLocation.id)).catch(() => {});
       apiService.deleteInventoryDraft(currentLocation.id).catch(() => {});
     }
   };
 
   return (
     <InventoryContext.Provider
-      value={{ bottles, isHydrated, addBottle, updateBottle, removeBottle, resolveScan, repointProduct, markScanFailed, retryScan, autoResolvedCount, acknowledgeAutoResolved, clearBottles }}
+      value={{ bottles, isHydrated, addBottle, updateBottle, removeBottle, resolveScan, repointProduct, markScanFailed, retryScan, autoResolvedCount, acknowledgeAutoResolved, clearBottles, getOrderRef }}
     >
       {children}
     </InventoryContext.Provider>

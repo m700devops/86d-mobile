@@ -24,9 +24,28 @@ import {
   OrderDetail
 } from '../types';
 
+const NO_REFRESH_TOKEN = 'No refresh token available';
+
+// Only the server saying no ends a session: the refresh token was refused
+// (401/403), or there isn't one. A timeout or dropped connection on bar wifi,
+// or a 5xx while the server restarts, is NOT that.
+function isDefinitiveAuthFailure(err: any): boolean {
+  if (err?.message === NO_REFRESH_TOKEN) return true;
+  const status = err?.response?.status;
+  return status === 401 || status === 403;
+}
+
 class ApiService {
   private client: AxiosInstance;
   private refreshPromise: Promise<string> | null = null;
+  private sessionExpiredListeners = new Set<() => void>();
+
+  /** Told when the server has definitively ended this session, so the UI can
+   * show the login screen. Returns an unsubscribe function. */
+  onSessionExpired(cb: () => void): () => void {
+    this.sessionExpiredListeners.add(cb);
+    return () => { this.sessionExpiredListeners.delete(cb); };
+  }
 
   constructor() {
     // 20s default: long enough to ride out most Render cold starts (the
@@ -77,8 +96,17 @@ class ApiService {
             }
             return this.client(originalRequest);
           } catch (refreshError) {
-            // Refresh failed, logout user
-            await this.logout();
+            // Sign out only when the server refused the session. Any failed
+            // refresh used to do it — a timeout on bar wifi, or a deploy's
+            // restart, cleared the tokens while the screen still showed the
+            // user signed in, so every request after that failed until the
+            // app was restarted onto the login screen.
+            if (isDefinitiveAuthFailure(refreshError)) {
+              await this.logout();
+              this.sessionExpiredListeners.forEach(cb => {
+                try { cb(); } catch { /* a listener's failure isn't ours */ }
+              });
+            }
             return Promise.reject(refreshError);
           }
         }
@@ -112,7 +140,12 @@ class ApiService {
 
   async getUserData(): Promise<User | null> {
     const data = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
-    return data ? JSON.parse(data) : null;
+    if (!data) return null;
+    try {
+      return JSON.parse(data);
+    } catch {
+      return null;   // a corrupted cache is a cache miss, not a crash at launch
+    }
   }
 
   async setUserData(user: User): Promise<void> {
@@ -162,7 +195,7 @@ class ApiService {
       try {
         const refreshToken = await this.getRefreshToken();
         if (!refreshToken) {
-          throw new Error('No refresh token available');
+          throw new Error(NO_REFRESH_TOKEN);
         }
 
         // Bare axios (not this.client) to stay outside the interceptors, but
@@ -458,8 +491,12 @@ class ApiService {
       distributor_id: string;
       items: { name: string; quantity: number; size?: string; price?: number }[];
     }[];
+    // The same id on a retry of the same order (after a timeout or dropped
+    // connection) lets the server skip every distributor already emailed it.
+    client_ref?: string;
   }): Promise<{
-    order_id: string;
+    // Null on a pure retry (nothing new was sent) or if saving history failed.
+    order_id: string | null;
     // Null when no email actually went (e.g. no distributor had an address).
     order_number?: number | null;
     results: {
@@ -468,6 +505,10 @@ class ApiService {
       email: string | null;
       status: 'sent' | 'failed' | 'no_email';
       error: string | null;
+      // Each distributor's own number: one already emailed on an earlier try
+      // keeps the number that email carried.
+      order_number?: number | null;
+      already_sent?: boolean;
     }[];
     sent: number;
     failed: number;

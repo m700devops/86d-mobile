@@ -35,7 +35,14 @@ export default function PaywallScreen() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await refreshUser();
+      // A failed check keeps them signed in; say so rather than silently
+      // leaving them on the paywall wondering whether the payment took.
+      if (!(await refreshUser())) {
+        Alert.alert(
+          "Couldn't check just now",
+          "We couldn't reach the server. Check your connection and tap refresh again — if you've paid, you're all set once it connects."
+        );
+      }
     } finally {
       setIsRefreshing(false);
     }

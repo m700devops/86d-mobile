@@ -43,7 +43,12 @@ Don't describe either in UI copy or docs.
   corrected. Par's minimum is 1: 0 is the backend's "never set"
 
 - src/screens/OrderSummary.tsx — order summary: distributor breakdown, Email/Call/Print
-  actions, first-send restaurant-name setup modal
+  actions, first-send restaurant-name setup modal. **Every send carries a `client_ref`**
+  (the count's `getOrderRef()` from InventoryContext; a reorder gets one per screen), so a
+  retry after a lost response — the 20s timeout, bar wifi, or leaving the screen and coming
+  back — emails nobody twice: 86d-api skips every distributor already sent that exact order
+  and reports it sent with its original number (`results[].order_number`, used per
+  distributor). The network-error alert says resending is safe
 - src/screens/SettingsScreen.tsx — manage distributors (add/edit/remove) + Restaurant
   section (business name / bar manager name, editable anytime)
 - src/screens/LoginScreen.tsx — login. Email field intentionally has no `autoFocus` —
@@ -101,12 +106,23 @@ Don't describe either in UI copy or docs.
 - src/screens/PaywallScreen.tsx — shown when trial/subscription has lapsed; blocks the
   rest of the app except sign-out. Checkout opens Stripe's hosted page in the system
   browser — no Stripe code or IAP runs inside the app itself
-- src/services/api.ts — all backend API calls (axios, auto token refresh)
+- src/services/api.ts — all backend API calls (axios, auto token refresh). **A failed token
+  refresh signs the user out ONLY when the server refused it** (401/403 on `/auth/refresh`,
+  or no refresh token stored — `isDefinitiveAuthFailure`). A timeout on bar wifi or a 5xx
+  during a deploy used to clear the tokens while the screen still showed the user signed in,
+  so every request failed until a restart. A real expiry fires `onSessionExpired`, which
+  AuthContext turns into the login screen. `getUserData()` treats a corrupt cache as a miss
 - src/services/geminiVision.ts — thin wrapper around `apiService.analyzeBottleImage`.
   Name is legacy from when Gemini was the only provider — the actual model choice
   (OpenAI vs. Gemini) happens server-side in 86d-api, not here
-- src/context/AuthContext.tsx — auth state; `user` includes `business_name`/`manager_name`
-- src/context/InventoryContext.tsx — active inventory session state, plus the
+- src/context/AuthContext.tsx — auth state; `user` includes `business_name`/`manager_name`.
+  `refreshUser()` returns true/false and never signs anyone out on a network error (it used
+  to — the paywall's "I've subscribed" check on bad wifi dropped a customer who had just paid
+  onto the login screen; PaywallScreen now says it couldn't check)
+- src/context/InventoryContext.tsx — `getOrderRef()`: one id per count's order, stored beside
+  the draft (`@86d_order_ref_<location>`) and cleared with it (clearBottles, or the draft
+  going empty) — a new count must be a new order, or the server would take it for a retry
+  (it also only honours a "sent" for 12 hours). Active inventory session state, plus the
   automatic re-identification sweep for scans that failed on a bad connection.
   Sweeps fire on hydration, any NetInfo online event, app foreground, and a 30s
   poll — deliberately NOT only on an offline→online edge, because weak-but-

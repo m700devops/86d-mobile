@@ -11,7 +11,9 @@ interface AuthContextType {
   register: (data: RegisterRequest, signal?: AbortSignal) => Promise<void>;
   signInWithApple: (data: AppleSignInRequest, signal?: AbortSignal) => Promise<User>;
   logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  // True when the account was re-read; false when the server couldn't be
+  // reached (the user stays signed in either way).
+  refreshUser: () => Promise<boolean>;
   updateProfile: (updates: { business_name?: string; manager_name?: string }) => Promise<void>;
 }
 
@@ -21,6 +23,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const validateController = useRef<AbortController | null>(null);
+
+  // The API client decides when a session is really over (the server refused
+  // the refresh token) and clears the tokens; this is where the screen hears
+  // about it. Before, the tokens could vanish while the UI still showed the
+  // user signed in, and every request failed until the app was restarted.
+  useEffect(() => apiService.onSessionExpired(() => setUser(null)), []);
 
   // Check for existing session on mount
   useEffect(() => {
@@ -103,12 +111,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const refreshUser = async () => {
+  // A failed re-read keeps the user signed in. It used to sign them out on
+  // ANY error — so the paywall's "I've subscribed" check on bad wifi dropped
+  // a customer who had just paid onto the login screen. A refused session is
+  // handled by onSessionExpired above; if the tokens are gone, so is the user.
+  const refreshUser = async (): Promise<boolean> => {
     try {
       const userData = await apiService.getCurrentUser();
       setUser(userData);
+      return true;
     } catch {
-      setUser(null);
+      if (!(await apiService.getAccessToken())) setUser(null);
+      return false;
     }
   };
 

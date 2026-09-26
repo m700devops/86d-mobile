@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import * as Print from 'expo-print';
 import * as Clipboard from 'expo-clipboard';
@@ -6,7 +6,7 @@ import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X } from 'lucide-react-native';
-import { useInventory } from '../context/InventoryContext';
+import { useInventory, newOrderRef } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
@@ -25,7 +25,9 @@ interface Props {
 }
 
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
-  const { bottles, isHydrated, updateBottle, clearBottles } = useInventory();
+  const { bottles, isHydrated, updateBottle, clearBottles, getOrderRef } = useInventory();
+  // A reorder from history isn't a count's draft: one id for this screen.
+  const reorderRef = useRef(newOrderRef());
   const { distributors, initialsFor } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
@@ -164,7 +166,9 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
 
     setIsSending(true);
     try {
+      const clientRef = presetOrder ? reorderRef.current : await getOrderRef();
       const response = await apiService.sendOrderEmails({
+        client_ref: clientRef,
         location_id: currentLocation.id,
         location_name: currentLocation.name ?? 'My Bar',
         orders: pending.map(g => ({
@@ -184,11 +188,14 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
 
       const allSentIds = Array.from(new Set([...sentDistributors, ...sentIds]));
       if (sentIds.length > 0) setSentDistributors(allSentIds);
+      // Each distributor's own number: one already emailed on an earlier try
+      // (a retry after a lost response) keeps the number that email carried.
       const allNumbers = { ...sentNumbers };
-      if (response.order_number) {
-        sentIds.forEach(id => { allNumbers[id] = response.order_number as number; });
-        setSentNumbers(allNumbers);
-      }
+      response.results.forEach(r => {
+        const num = r.order_number ?? response.order_number;
+        if (r.status === 'sent' && num) allNumbers[r.distributor_id] = num;
+      });
+      setSentNumbers(allNumbers);
 
       const everySent =
         groupedByDistributor.length > 0 &&
@@ -242,7 +249,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       const detail = error?.response?.data?.detail;
       const message = detail?.error === 'email_not_configured'
         ? "Email sending isn't set up on the server yet (RESEND_API_KEY missing)."
-        : detail?.message ?? "Couldn't reach the server. Check your connection and try again.";
+        : detail?.message ?? "Couldn't reach the server. Check your connection and try again — it's safe to resend: nobody who already got this order is emailed twice.";
       Alert.alert('Send failed', message);
     } finally {
       setIsSending(false);
