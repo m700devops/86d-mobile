@@ -195,9 +195,11 @@ export interface Bottle {
   // can't go stale against a price edited in the Pricing screen.
   productId?: string;
   // The server's log id for the scan that identified this row (scan_events in
-  // 86d-api). It rides along in the draft sync, which is how the server learns
-  // whether the AI's pick was kept or changed — the scanner's accuracy number.
-  // Absent on rows added by hand, by barcode, or before this existed.
+  // 86d-api). Removing the row or confirming a flagged one reports it
+  // (apiService.reportScanOutcome) — the scanner report's only evidence of
+  // right and wrong. It also rides along in the draft sync, which records the
+  // product the row holds (not an accuracy measure: a row's product can't be
+  // changed). Absent on rows added by hand, by barcode, or before this existed.
   scanId?: string;
   // Set when the two AIs read this bottle DIFFERENTLY (86d-api's second
   // opinion): what the other one read, e.g. "Johnnie Walker Black Label". The

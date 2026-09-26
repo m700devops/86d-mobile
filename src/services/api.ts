@@ -547,7 +547,7 @@ class ApiService {
     match_method?: string;
     needs_rescan?: boolean;
     // The server's log id for this scan. Kept on the bottle row (Bottle.scanId)
-    // so the draft sync tells the server which product the row ended up as.
+    // so removing or confirming the row can be reported against it.
     scan_id?: string | null;
     // The server asks two AIs at once. true = they read different bottles: this
     // answer is the better-supported one, `alternative` is what the other read.

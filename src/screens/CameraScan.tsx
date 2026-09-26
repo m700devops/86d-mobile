@@ -571,7 +571,10 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         : 'Scan failed — try again',
         { transient: isTransient });
     }
-  }, [failScan, logout, setBorderValue, bottles, resolveScan, markScanFailed]);
+    // currentLocation: the bar this scan is for (its own bottles are matched
+    // first) — without it here, the first scan after switching bars went out
+    // under the previous bar.
+  }, [failScan, logout, setBorderValue, bottles, resolveScan, markScanFailed, currentLocation?.id]);
 
   // --- Number pad: commit / fail / cancel ---
 
