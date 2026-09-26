@@ -107,6 +107,21 @@ export interface ParLevel {
   updated_at: string;
 }
 
+// One bottle that is in a bar's book twice (GET /locations/{id}/duplicates):
+// fold each copy into keep through POST /products/{id}/merge.
+export interface DuplicateProduct {
+  product_id: string;
+  name: string;
+  brand?: string | null;
+  size?: string | null;
+  verified: boolean;
+}
+
+export interface DuplicateGroup {
+  keep: DuplicateProduct;
+  fold: DuplicateProduct[];
+}
+
 export interface InventorySession {
   id: string;
   location_id: string;

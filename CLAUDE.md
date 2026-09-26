@@ -143,6 +143,13 @@ Don't describe either in UI copy or docs.
   on bad bar wifi, and reverting the number under someone's thumb is worse than a write
   that lands a minute late. Reconnect-triggered refresh via NetInfo. Backed by
   `par_levels` (price + par) and `location_product_distributors` in 86d-api
+- **"Same bottle twice?" in the Bottle Book (PricingScreen).** 86d-api's
+  `GET /locations/{id}/duplicates` finds bottles in this bar's book under two names (usually one
+  label the scanner read two ways — "Red" and "Red Label"; never two sizes) and says which copy to
+  keep. Each shows with Merge (the same `mergeInto` + `repointProduct` as the merge icon, confirmed
+  with an alert) and Keep both, remembered per bar in AsyncStorage (`dupKeepBoth:<locationId>`,
+  as "keepId|foldId") so a wrong suggestion stops asking. Refetched whenever the book changes. A
+  suggestion only: offline or a failed fetch shows none
 - **Barcodes: the bar's own book first, then the server.** `productForBarcode(code)` (in
   ProductBookContext, from `par_levels`' product `upc`) answers a barcode the bar already stocks
   instantly and offline; only a miss goes to `GET /products/barcode/{upc}`. Both CameraScan and

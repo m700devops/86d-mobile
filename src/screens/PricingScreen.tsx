@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Search, X, DollarSign, Tag, Merge, BookOpen } from 'lucide-react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
@@ -22,11 +23,14 @@ import { useInventory } from '../context/InventoryContext';
 import { useLocation } from '../context/LocationContext';
 import { useDistributors } from '../context/DistributorContext';
 import { apiService } from '../services/api';
-import { Product } from '../types';
+import { DuplicateGroup, DuplicateProduct, Product } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 
 const SEARCH_DEBOUNCE_MS = 300;
+
+// Duplicate suggestions this bar answered "Keep both" to, as "keepId|foldId".
+const keepBothKey = (locationId: string) => `dupKeepBoth:${locationId}`;
 
 const displayName = (p: { brand?: string | null; name: string; productType?: string | null }) =>
   [p.brand, bottleSubtitle(p)].filter(Boolean).join(' ').trim() || p.name;
@@ -76,6 +80,104 @@ export default function PricingScreen() {
   // client spots that the AI read the same label two different ways.
   const [merging, setMerging] = useState<PriceableProduct | null>(null);
   const [mergeBusyId, setMergeBusyId] = useState<string | null>(null);
+
+  // Bottles in the book twice under two names (the server finds them: same
+  // match key, or two readings of one label, never two sizes). Merging is the
+  // same fold as the merge icon, one tap instead of knowing to look.
+  const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
+  const [keptBoth, setKeptBoth] = useState<Set<string>>(new Set());
+  const [dupBusyKey, setDupBusyKey] = useState<string | null>(null);
+  const dupSeq = useRef(0);
+
+  const locationId = currentLocation?.id;
+
+  const refreshDuplicates = useCallback(async () => {
+    const seq = ++dupSeq.current;
+    if (!locationId) {
+      setDuplicates([]);
+      return;
+    }
+    try {
+      const groups = await apiService.getDuplicates(locationId);
+      if (seq === dupSeq.current) setDuplicates(groups);
+    } catch {
+      // Only a suggestion — offline or failed simply shows none.
+    }
+  }, [locationId]);
+
+  // Again whenever the book changes: a merge, or a new bottle counted.
+  useEffect(() => {
+    refreshDuplicates();
+  }, [refreshDuplicates, entries.length]);
+
+  useEffect(() => {
+    let live = true;
+    setKeptBoth(new Set());
+    if (!locationId) return;
+    AsyncStorage.getItem(keepBothKey(locationId))
+      .then(saved => {
+        if (live && saved) setKeptBoth(new Set(JSON.parse(saved)));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [locationId]);
+
+  const shownDuplicates = useMemo(
+    () =>
+      duplicates
+        .map(g => ({
+          ...g,
+          fold: g.fold.filter(f => !keptBoth.has(`${g.keep.product_id}|${f.product_id}`)),
+        }))
+        .filter(g => g.fold.length > 0),
+    [duplicates, keptBoth]
+  );
+
+  const keepBoth = (group: DuplicateGroup) => {
+    if (!locationId) return;
+    const next = new Set(keptBoth);
+    group.fold.forEach(f => next.add(`${group.keep.product_id}|${f.product_id}`));
+    setKeptBoth(next);
+    AsyncStorage.setItem(keepBothKey(locationId), JSON.stringify(Array.from(next))).catch(() => {});
+  };
+
+  const mergeDuplicate = (group: DuplicateGroup) => {
+    const keepName = displayName(group.keep);
+    const copies = group.fold.map(f => `"${displayName(f)}"`).join(', ');
+    Alert.alert(
+      'Same bottle?',
+      `${copies} will be folded into "${keepName}" and use its price, par and distributor. ` +
+        'Future scans of either name will land on the same bottle.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Merge',
+          onPress: async () => {
+            const busyKey = group.keep.product_id;
+            setDupBusyKey(busyKey);
+            try {
+              for (const copy of group.fold) {
+                await mergeInto(copy.product_id, group.keep.product_id);
+                // Rows already counted in this draft still point at the copy.
+                repointProduct(copy.product_id, {
+                  productId: group.keep.product_id,
+                  name: group.keep.name,
+                  brand: group.keep.brand ?? '',
+                });
+              }
+            } catch {
+              Alert.alert('Could not merge', 'That merge did not save. Check your connection and try again.');
+            } finally {
+              setDupBusyKey(null);
+              refreshDuplicates();
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const distributorName = useCallback(
     (id?: string) => distributors.find(d => d.id === id)?.name,
@@ -405,6 +507,45 @@ export default function PricingScreen() {
                 Already in the book under another name? Tap the merge icon to combine them.
               </Text>
             )}
+          </View>
+        )}
+
+        {shownDuplicates.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>SAME BOTTLE TWICE?</Text>
+            <Text style={styles.sectionHint}>
+              In your book under two names. Merge to keep one price, par and distributor.
+            </Text>
+            {shownDuplicates.map(group => (
+              <View key={group.keep.product_id} style={[styles.row, styles.rowUnpriced]}>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowName} numberOfLines={1}>{displayName(group.keep)}</Text>
+                  <Text style={styles.rowMeta} numberOfLines={2}>
+                    also as {group.fold.map((f: DuplicateProduct) => `"${displayName(f)}"`).join(', ')}
+                  </Text>
+                </View>
+                <View style={styles.rowRight}>
+                  <TouchableOpacity
+                    onPress={() => keepBoth(group)}
+                    disabled={dupBusyKey !== null}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.keepBothText}>Keep both</Text>
+                  </TouchableOpacity>
+                  {dupBusyKey === group.keep.product_id ? (
+                    <ActivityIndicator size="small" color={COLORS.accentPrimary} />
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => mergeDuplicate(group)}
+                      disabled={dupBusyKey !== null}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.addPriceText}>Merge</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            ))}
           </View>
         )}
 
@@ -938,6 +1079,11 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textSecondary,
+  },
+  keepBothText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.textTertiary,
   },
   addPriceText: {
     fontSize: FONT_SIZES.sm,

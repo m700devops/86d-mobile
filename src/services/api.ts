@@ -12,6 +12,7 @@ import {
   ProductSearchResponse,
   Location,
   ParLevel,
+  DuplicateGroup,
   InventorySession,
   InventorySessionDetail,
   Scan,
@@ -304,6 +305,7 @@ class ApiService {
     target_product_id: string;
     par_levels_moved: number;
     assignments_moved: number;
+    barcode_moved?: boolean;
   }> {
     const response = await this.client.post(`/products/${sourceProductId}/merge`, {
       target_product_id: targetProductId,
@@ -321,6 +323,15 @@ class ApiService {
       updates
     );
     return response.data;
+  }
+
+  // Bottles in this bar's book twice under two names — usually one label the
+  // scanner read two ways. Suggestions only: each merge is confirmed.
+  async getDuplicates(locationId: string): Promise<DuplicateGroup[]> {
+    const response = await this.client.get<{ groups: DuplicateGroup[] }>(
+      `/locations/${locationId}/duplicates`
+    );
+    return response.data.groups;
   }
 
   async getParLevels(locationId: string): Promise<ParLevel[]> {
