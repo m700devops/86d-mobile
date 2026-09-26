@@ -34,13 +34,41 @@ jobs:
         
     - name: Install dependencies
       run: npm ci
-        
+
+    # A preview build is ad hoc: signed with a provisioning profile that must
+    # carry every capability the app uses. EAS only re-makes that profile when
+    # it is logged in to Apple, which a non-interactive build isn't — so the
+    # profile made before Sign in with Apple was added failed every preview
+    # build ("Provisioning profile ... doesn't include the Sign In with Apple
+    # capability"). Logged in with the App Store Connect key,
+    # --refresh-ad-hoc-provisioning-profile checks the profile with Apple on
+    # each preview build: still valid → reused as is; invalidated (a capability
+    # added, a device registered with `eas device:create`) → made again, for
+    # every registered device. The key is written OUTSIDE the project folder,
+    # because eas build uploads the project folder to Expo.
+    - name: Log in to Apple for the ad hoc profile (preview)
+      if: (github.event.inputs.profile || 'preview') == 'preview'
+      run: |
+        printf '%s\n' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/asc-api-key.p8"
+        {
+          echo "EXPO_ASC_API_KEY_PATH=$RUNNER_TEMP/asc-api-key.p8"
+          echo "EXPO_ASC_KEY_ID=$ASC_API_KEY_ID"
+          echo "EXPO_ASC_ISSUER_ID=$ASC_API_KEY_ISSUER_ID"
+          echo "EXPO_APPLE_TEAM_ID=45A7XLA33X"
+          echo "EXPO_APPLE_TEAM_TYPE=INDIVIDUAL"
+          echo "EAS_PROFILE_FLAGS=--refresh-ad-hoc-provisioning-profile"
+        } >> "$GITHUB_ENV"
+      env:
+        ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+        ASC_API_KEY_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+
     - name: Build iOS app
       run: |
         eas build \
           --platform ios \
           --profile ${{ github.event.inputs.profile || 'preview' }} \
-          --non-interactive
+          --non-interactive $EAS_PROFILE_FLAGS
 
     # Everything below only runs for a production build — one click builds AND
     # submits to App Store Connect. It's the exact credential handling
@@ -124,6 +152,10 @@ jobs:
     - name: Submit to App Store Connect
       if: github.event.inputs.profile == 'production'
       run: eas submit --platform ios --profile production --latest --non-interactive
+
+    - name: Remove the App Store Connect key (preview)
+      if: always() && (github.event.inputs.profile || 'preview') == 'preview'
+      run: rm -f "$RUNNER_TEMP/asc-api-key.p8"
 
     - name: Clean up credentials
       if: always() && github.event.inputs.profile == 'production'
