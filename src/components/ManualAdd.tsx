@@ -10,6 +10,7 @@ import { apiService } from '../services/api';
 import { Bottle, Product } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import BarcodeScannerModal from './BarcodeScannerModal';
+import { useProductBook } from '../context/ProductBookContext';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from './NumericDoneAccessory';
 
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
 const SEARCH_DEBOUNCE_MS = 300;
 
 export default function ManualAdd({ onClose, onAdd }: Props) {
+  const { productForBarcode } = useProductBook();
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
   const [category, setCategory] = useState('spirits');
@@ -108,7 +110,12 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
     setIsLookingUpBarcode(true);
     setMatchedProductId(undefined);
     try {
-      const product = await apiService.getProductByBarcode(code);
+      // This bar's own bottles first: instant, and works with no signal.
+      const known = productForBarcode(code);
+      const product = known
+        ? { id: known.productId, name: known.name, brand: known.brand ?? null,
+            category: known.category ?? null, image_url: null }
+        : await apiService.getProductByBarcode(code);
       if (product) {
         setName(product.name);
         setBrand(product.brand ?? '');
@@ -152,6 +159,9 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
           category,
           upc: scannedUpc,
         });
+        // A code that's already registered comes back as the product that owns
+        // it (createProduct turns the 409 into that product) — the server now
+        // names the LIVE product, not a merged-away copy.
         productId = created.id;
       } catch {
         // Registration failed (offline, etc.) — don't lose the count the

@@ -33,7 +33,7 @@ import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { useProductBook } from '../context/ProductBookContext';
 import { useDistributors } from '../context/DistributorContext';
-import { Bottle } from '../types';
+import { Bottle, Product } from '../types';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 // --- Types ---
@@ -103,7 +103,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
   const { currentLocation } = useLocation();
   const { logout, refreshUser } = useAuth();
-  const { parFor, distributorFor } = useProductBook();
+  const { parFor, distributorFor, productForBarcode } = useProductBook();
   const { distributors } = useDistributors();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
@@ -749,9 +749,10 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   }, [triggerCapture]);
 
   // Barcode path: skip the AI vision call entirely and look the UPC straight
-  // up in the catalog. No photo is involved, so there's nothing to retry —
-  // a miss just tells the user to add it via Manual Add (which registers
-  // the barcode for next time).
+  // up. This bar's own book first — a bottle it already counts resolves on the
+  // phone, instantly and with no signal (a walk-in cooler) — then the catalog.
+  // Both match the code in every form it can be read as (utils/barcode). No
+  // photo is involved, so a miss offers the camera scan instead.
   const handleBarcodeScanned = useCallback(async (code: string) => {
     setShowBarcodeScanner(false);
     const token = ++scanSeq.current;
@@ -768,7 +769,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     setPadVisible(true);
 
     try {
-      const product = await apiService.getProductByBarcode(code);
+      const known = productForBarcode(code);
+      const product: Pick<Product, 'id' | 'name' | 'brand' | 'category' | 'product_type'> | null = known
+        ? { id: known.productId, name: known.name, brand: known.brand ?? null,
+            category: known.category ?? 'other', product_type: known.productType ?? null }
+        : await apiService.getProductByBarcode(code);
 
       // The user may have already hit "Add Bottle" while this was in flight
       // (fire-and-forget) — fill in that saved row instead of the pad UI.
@@ -793,7 +798,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
       if (!product) {
         setFailedViaBarcode(true);
-        failScan(token, "Not in catalog — add it via Add Manual in Review");
+        failScan(token, "This barcode isn't in the catalog yet — scan the label with the camera instead");
         return;
       }
 
@@ -835,7 +840,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       setFailedViaBarcode(true);
       failScan(token, 'Barcode lookup failed — check your connection');
     }
-  }, [bottles, failScan, resolveScan, markScanFailed]);
+  }, [bottles, failScan, resolveScan, markScanFailed, productForBarcode]);
 
   const handleKeyPress = useCallback((key: string) => {
     Haptics.selectionAsync();

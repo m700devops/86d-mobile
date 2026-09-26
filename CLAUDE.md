@@ -143,6 +143,16 @@ Don't describe either in UI copy or docs.
   on bad bar wifi, and reverting the number under someone's thumb is worse than a write
   that lands a minute late. Reconnect-triggered refresh via NetInfo. Backed by
   `par_levels` (price + par) and `location_product_distributors` in 86d-api
+- **Barcodes: the bar's own book first, then the server.** `productForBarcode(code)` (in
+  ProductBookContext, from `par_levels`' product `upc`) answers a barcode the bar already stocks
+  instantly and offline; only a miss goes to `GET /products/barcode/{upc}`. Both CameraScan and
+  ManualAdd do this. Codes are compared with `sameBarcode()` (src/utils/barcode.ts, a mirror of
+  86d-api's `helpers.barcode_variants` — checked equal on 614 codes): iOS reads a 12-digit UPC-A
+  as a 13-digit EAN-13 with a leading 0, GTINs pad to 14, and a can's 8-digit UPC-E stands for a
+  12-digit UPC-A, so an exact string compare missed the same bottle read on another phone. A
+  barcode nobody has registered says "scan the label with the camera instead". Registering a code
+  someone already registered comes back as a 409 whose `detail.existing_product` is the live
+  product; `apiService.createProduct` returns it, so the bottle is counted against it
 - src/context/StaffContext.tsx — per-bar list of staff names for "who counted this" —
   no logins, no passwords, no roles
 - src/utils/scanImage.ts — `prepareScanImage()`, the ONE place a scan photo becomes an upload,
