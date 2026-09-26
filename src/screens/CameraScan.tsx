@@ -25,7 +25,7 @@ import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
-import { prepareScanImage } from '../utils/scanImage';
+import { prepareScanImage, SCAN_MASK_BANDS } from '../utils/scanImage';
 import { bottleMatchKey } from '../utils/productKey';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { useInventory } from '../context/InventoryContext';
@@ -1151,6 +1151,15 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         {isScanning ? (
           <CameraView ref={cameraRef} style={styles.camera} facing="back">
 
+            {/* What the AI is sent: everything outside utils/scanImage's
+                SCAN_CROP is dimmed, so the bright window is exactly the photo
+                it reads. A label drifting toward the edge visibly goes dark —
+                the crop used to cut 44% of this picture with no sign. Under
+                every other overlay (lowest zIndex), and never takes a touch. */}
+            {SCAN_MASK_BANDS.map((band, i) => (
+              <View key={`mask${i}`} pointerEvents="none" style={[styles.scanMask, band]} />
+            ))}
+
             {/* Animated border — orange while scanning, green on success */}
             <Animated.View style={[styles.borderOverlay, { borderColor }]} />
 
@@ -1643,6 +1652,13 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
+  },
+  // Outside the part of the photo the AI is sent (SCAN_MASK_BANDS). Dark enough
+  // to read as "not in the shot", light enough to still aim through.
+  scanMask: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 1,
   },
   borderOverlay: {
     ...StyleSheet.absoluteFillObject,

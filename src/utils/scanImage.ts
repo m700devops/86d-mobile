@@ -17,7 +17,31 @@ import { ImageManipulator, SaveFormat, manipulateAsync, type ImageRef } from 'ex
 // These are fractions of the PHOTO because expo-camera crops each iOS photo to
 // exactly what the preview showed, and the image manipulator applies the photo's
 // orientation before any crop — so screen fractions and photo fractions agree.
+// Checked in expo-camera's own code (ios/Current): the preview fills the camera
+// view (resizeAspectFill, frame = the view's bounds) and each photo is cut to
+// the view's shape, centred — using the SCREEN's orientation, which is why this
+// holds however the phone is tilted, and only while the app is portrait-locked
+// (app.json). A landscape screen would need this re-checked.
+//
+// CameraScan dims everything outside this on the viewfinder (SCAN_MASK_BANDS),
+// so the bright window is exactly what the AI gets. Without it 44% of the
+// picture on screen was cut with no sign: a label low on a bottle, shot from
+// close up, could lose just the strip naming its variant ("Reposado") and be
+// counted as the plain bottle. Change the crop here and the dimming follows.
 export const SCAN_CROP = { left: 0.12, right: 0.88, top: 0.1, bottom: 0.84 };
+
+type Pct = `${number}%`;
+const pct = (fraction: number): Pct => `${+(fraction * 100).toFixed(3)}%`;
+
+// The four dimmed bands around the SCAN_CROP window, as fractions of the camera
+// view — which ARE fractions of the photo (see above): full-width bands above
+// and below, and one down each side between them.
+export const SCAN_MASK_BANDS: { top: Pct; left: Pct; width: Pct; height: Pct }[] = [
+  { top: pct(0), left: pct(0), width: pct(1), height: pct(SCAN_CROP.top) },
+  { top: pct(SCAN_CROP.bottom), left: pct(0), width: pct(1), height: pct(1 - SCAN_CROP.bottom) },
+  { top: pct(SCAN_CROP.top), left: pct(0), width: pct(SCAN_CROP.left), height: pct(SCAN_CROP.bottom - SCAN_CROP.top) },
+  { top: pct(SCAN_CROP.top), left: pct(SCAN_CROP.right), width: pct(1 - SCAN_CROP.right), height: pct(SCAN_CROP.bottom - SCAN_CROP.top) },
+];
 
 // Width of the uploaded image. 800 matched what the model actually reads (see
 // above) before cropping and still does; never upscaled.

@@ -172,7 +172,16 @@ Don't describe either in UI copy or docs.
   768px on its short side whatever is sent, so sending less of the shelf puts ~1.3× more of its
   pixels on the label. Fractions of the preview ARE fractions of the photo: expo-camera crops each
   iOS photo to the preview, and the manipulator applies orientation before cropping. Any crop
-  failure falls back to the whole frame — a scan never fails because of it. Capture quality is
+  failure falls back to the whole frame — a scan never fails because of it. **The viewfinder shows
+  the crop**: CameraScan dims everything outside `SCAN_CROP` (`SCAN_MASK_BANDS`, built from it in the
+  same file, so the two can't drift), and the bright window is exactly what the AI gets. Without it 44%
+  of the picture on screen was cut with no sign, and a low label shot from close up could lose just its
+  bottom line — often the variant ("Reposado") — so both AIs read only the brand, answered "Original",
+  agreed, and the plain bottle was counted with no flag. The bottom dimmed band sits level with the top
+  of the shutter button. The match between screen and photo was checked in expo-camera's own iOS code:
+  the preview fills the view (resizeAspectFill) and each photo is cut to the view's shape using the
+  SCREEN's orientation — true however the phone is tilted, and only while the app is portrait-locked.
+  Capture quality is
   0.85 for the same reason (`skipProcessing` is Android-only; on iOS `quality` is only the saved
   JPEG's compression, and the crop is barely downscaled, so capture artifacts reach the AI)
 - Scan ↔ server accuracy loop: `/scans/analyze` gets the bar's `location_id` and returns a
