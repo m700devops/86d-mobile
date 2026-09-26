@@ -107,6 +107,21 @@ export interface ParLevel {
   updated_at: string;
 }
 
+// One bottle that is in a bar's book twice (GET /locations/{id}/duplicates):
+// fold each copy into keep through POST /products/{id}/merge.
+export interface DuplicateProduct {
+  product_id: string;
+  name: string;
+  brand?: string | null;
+  size?: string | null;
+  verified: boolean;
+}
+
+export interface DuplicateGroup {
+  keep: DuplicateProduct;
+  fold: DuplicateProduct[];
+}
+
 export interface InventorySession {
   id: string;
   location_id: string;
@@ -179,6 +194,18 @@ export interface Bottle {
   // book by productId (see PricingContext), never copied onto the row, so it
   // can't go stale against a price edited in the Pricing screen.
   productId?: string;
+  // The server's log id for the scan that identified this row (scan_events in
+  // 86d-api). Removing the row or confirming a flagged one reports it
+  // (apiService.reportScanOutcome) — the scanner report's only evidence of
+  // right and wrong. It also rides along in the draft sync, which records the
+  // product the row holds (not an accuracy measure: a row's product can't be
+  // changed). Absent on rows added by hand, by barcode, or before this existed.
+  scanId?: string;
+  // Set when the two AIs read this bottle DIFFERENTLY (86d-api's second
+  // opinion): what the other one read, e.g. "Johnnie Walker Black Label". The
+  // row is counted as the better-supported reading but shown for a check in
+  // Review; confirming it there clears this. Never set on an agreed scan.
+  checkNote?: string;
   // Fire-and-forget scans: 'pending' while the AI identifies in the background,
   // 'failed' when identification didn't land (row shows a retry action)
   scanStatus?: 'pending' | 'failed';

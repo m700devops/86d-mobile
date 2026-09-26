@@ -4,6 +4,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { apiService } from '../services/api';
 import { useLocation } from './LocationContext';
 import { Bottle } from '../types';
+import { barcodeVariants } from '../utils/barcode';
 
 // --- The product book ---
 //
@@ -37,12 +38,15 @@ export interface BookEntry {
   productType?: string | null;
   size?: string | null;
   category?: string | null;
+  // The product's barcode, so a barcode scan of a bottle this bar already
+  // counts resolves on the phone — instantly, and with no signal in the cooler.
+  upc?: string | null;
   price?: number;
   par?: number;
   distributorId?: string;
 }
 
-type ProductInfo = Pick<BookEntry, 'productId' | 'name' | 'brand' | 'productType' | 'size' | 'category'>;
+type ProductInfo = Pick<BookEntry, 'productId' | 'name' | 'brand' | 'productType' | 'size' | 'category' | 'upc'>;
 
 export interface PriceableProduct {
   id: string;
@@ -66,6 +70,9 @@ interface ProductBookContextType {
   // "Not set" badge and the generate-order guard key off.
   parFor: (productId?: string) => number | undefined;
   distributorFor: (productId?: string) => string | undefined;
+  // The bottle in this bar's book with this barcode (in any of the forms the
+  // same code can be read as — utils/barcode), or undefined.
+  productForBarcode: (code?: string | null) => BookEntry | undefined;
   setPrice: (product: PriceableProduct, price: number) => Promise<void>;
   clearPrice: (productId: string) => Promise<void>;
   // Par and distributor are set mid-count, one tap at a time, often on a bar's
@@ -199,6 +206,7 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
             productType: pl.product?.product_type ?? null,
             size: pl.product?.size ?? null,
             category: pl.product?.category ?? null,
+            upc: pl.product?.upc ?? null,
           };
           // 0 is the backend's "never set", for price and par alike.
           if (pl.price && pl.price > 0) prices[pl.product_id] = pl.price;
@@ -325,6 +333,16 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
     (productId?: string) =>
       productId && bookMatchesLocation ? distByProductId[productId] : undefined,
     [distByProductId, bookMatchesLocation]
+  );
+
+  const productForBarcode = useCallback(
+    (code?: string | null) => {
+      if (!code || !bookMatchesLocation) return undefined;
+      // One-sided, as the server looks codes up (utils/barcode barcodeFinds).
+      const forms = new Set(barcodeVariants(code));
+      return Object.values(infoByProductId).find(info => !!info.upc && forms.has(info.upc));
+    },
+    [infoByProductId, bookMatchesLocation]
   );
 
   // Write through optimistically so the list reacts instantly, then roll the
@@ -497,6 +515,7 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
         priceFor,
         parFor,
         distributorFor,
+        productForBarcode,
         setPrice,
         clearPrice,
         setPar,

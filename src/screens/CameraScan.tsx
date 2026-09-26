@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
@@ -26,13 +25,15 @@ import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
 import { persistScanPhoto, deleteScanPhoto } from '../utils/scanPhotos';
+import { prepareScanImage, SCAN_MASK_BANDS } from '../utils/scanImage';
 import { bottleMatchKey } from '../utils/productKey';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { useInventory } from '../context/InventoryContext';
+import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { useProductBook } from '../context/ProductBookContext';
 import { useDistributors } from '../context/DistributorContext';
-import { Bottle } from '../types';
+import { Bottle, Product } from '../types';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 // --- Types ---
@@ -40,6 +41,12 @@ import BarcodeScannerModal from '../components/BarcodeScannerModal';
 type ScanState = 'idle' | 'capturing' | 'success';
 type IdentifyStatus = 'pending' | 'ok' | 'failed';
 type ScanApiResult = NonNullable<Awaited<ReturnType<typeof apiService.analyzeBottleImage>>>;
+
+// The server asks two AIs at once. When they read DIFFERENT bottles it answers
+// with the better-supported reading and flags it; the row carries what the
+// other AI read (Bottle.checkNote) so Review can ask for a check.
+const checkNoteOf = (r: ScanApiResult): string | undefined =>
+  r.needs_confirmation ? (r.alternative || 'a different bottle') : undefined;
 
 interface Props {
   onReview: () => void;
@@ -94,8 +101,9 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [showScanHint, setShowScanHint] = useState(false);
   const scanHintPulse = useRef(new Animated.Value(0)).current;
   const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
+  const { currentLocation } = useLocation();
   const { logout, refreshUser } = useAuth();
-  const { parFor, distributorFor } = useProductBook();
+  const { parFor, distributorFor, productForBarcode } = useProductBook();
   const { distributors } = useDistributors();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
@@ -116,6 +124,9 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [stockInput, setStockInput] = useState('');
   const [identifyStatus, setIdentifyStatus] = useState<IdentifyStatus>('pending');
   const [identifiedLabel, setIdentifiedLabel] = useState<string | null>(null);
+  // What the OTHER AI read, when the two disagreed about this bottle — shown on
+  // the pad so the bartender can check the label before saving.
+  const [identifiedCheck, setIdentifiedCheck] = useState<string | null>(null);
   const [failMessage, setFailMessage] = useState<string | null>(null);
   // Set when the scanned product is already in this session — commit updates
   // that row's count instead of adding a duplicate
@@ -325,9 +336,13 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     }, CAPTURE_WATCHDOG_MS);
 
     try {
-      // skipProcessing + low quality = fast shutter; we resize/compress below anyway
+      // skipProcessing is Android-only (iOS ignores it). On iOS `quality` is
+      // just the JPEG compression of the saved photo, and it matters now: the
+      // upload is a crop of this photo (utils/scanImage) and barely downscaled,
+      // so artifacts baked in here reach the AI. 0.5 blurred the thin label
+      // text the model has to read.
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.5,
+        quality: 0.85,
         base64: false,
         skipProcessing: true,
       });
@@ -351,24 +366,22 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       setStockInput('');
       setIdentifyStatus('pending');
       setIdentifiedLabel(null);
+      setIdentifiedCheck(null);
       setFailMessage(null);
       setFailTransient(false);
       setExistingBottle(null);
       setFailedViaBarcode(false);
       setPadVisible(true);
 
-      // Downscale before upload — full-res photos are several MB of base64,
-      // which blows past the backend's scan timeout on slow connections.
-      const resized = await ImageManipulator.manipulateAsync(
-        photo.uri,
-        [{ resize: { width: 800 } }],
-        { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-      );
+      // Crop to the aimed-at area and downscale before upload — see
+      // utils/scanImage. Full-res photos are several MB of base64, which blows
+      // past the backend's scan timeout on slow connections.
+      const imageBase64 = await prepareScanImage(photo.uri);
 
       // From here on the user may have saved the row and moved to the next
       // bottle (fire-and-forget) — check the committed map before the pad UI.
       if (token !== scanSeq.current && !pendingCommits.current.has(token)) return;
-      if (!resized.base64) {
+      if (!imageBase64) {
         const committedRowId = pendingCommits.current.get(token);
         if (committedRowId !== undefined) {
           pendingCommits.current.delete(token);
@@ -379,9 +392,9 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         return;
       }
 
-      imageSizeKb = Math.round((resized.base64.length * 0.75) / 1024);
+      imageSizeKb = Math.round((imageBase64.length * 0.75) / 1024);
 
-      const result = await apiService.analyzeBottleImage(resized.base64);
+      const result = await apiService.analyzeBottleImage(imageBase64, currentLocation?.id);
 
       const scanOk = result != null && !!result.matched_product_id;
       await scanDiagnostics.logScan({
@@ -390,6 +403,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         errorType: scanOk ? null : 'parse_error',
         errorMessage: scanOk ? null
           : result == null ? 'API returned null — no bottle detected'
+          : result.match_method === 'unreadable' ? 'Label unreadable — not matched'
           : 'No product match — confidence too low',
         httpStatus: 200,
         responseTimeMs: Date.now() - startTime,
@@ -423,6 +437,8 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
             brand: result.brand,
             category: result.category,
             productType: result.product_type || undefined,
+            scanId: result.scan_id ?? undefined,
+            checkNote: checkNoteOf(result),
           });
         } else {
           markScanFailed(committedRowId);
@@ -434,6 +450,12 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
       if (result == null) {
         failScan(token, 'No bottle detected — try again');
+        return;
+      }
+      // The server read the label as illegible and deliberately matched
+      // nothing rather than guess — a closer, steadier photo is the fix.
+      if (!result.matched_product_id && result.match_method === 'unreadable') {
+        failScan(token, "Couldn't read the label — move closer and retake");
         return;
       }
       // Low-confidence: no exact match, confidence too low for auto-create
@@ -464,6 +486,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               .join(' — ')
           : result.name
       );
+      setIdentifiedCheck(checkNoteOf(result) ?? null);
       setIdentifyStatus('ok');
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
@@ -548,7 +571,10 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         : 'Scan failed — try again',
         { transient: isTransient });
     }
-  }, [failScan, logout, setBorderValue, bottles, resolveScan, markScanFailed]);
+    // currentLocation: the bar this scan is for (its own bottles are matched
+    // first) — without it here, the first scan after switching bars went out
+    // under the previous bar.
+  }, [failScan, logout, setBorderValue, bottles, resolveScan, markScanFailed, currentLocation?.id]);
 
   // --- Number pad: commit / fail / cancel ---
 
@@ -597,13 +623,18 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
     if (existingBottle) {
       // Re-scan of a product already in the session — replace its count
-      updateBottle(existingBottle.id, { currentStock: stock });
+      // A disputed re-read flags the row it lands on; an agreed one leaves any
+      // earlier flag for Review to settle.
+      const check = checkNoteOf(result);
+      updateBottle(existingBottle.id, { currentStock: stock, ...(check ? { checkNote: check } : {}) });
       setLastBottleId(null);   // no undo for count updates
       setStatusText(`${label} — updated to ${formatStock(stock)}`);
     } else {
       const newBottle: Bottle = {
         id: `bottle_${Date.now()}`,   // always unique — productId tracks the catalog match
         productId: result.matched_product_id ?? undefined,
+        scanId: result.scan_id ?? undefined,
+        checkNote: checkNoteOf(result),
         name: result.name,
         brand: result.brand,
         category: result.category,
@@ -721,9 +752,10 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   }, [triggerCapture]);
 
   // Barcode path: skip the AI vision call entirely and look the UPC straight
-  // up in the catalog. No photo is involved, so there's nothing to retry —
-  // a miss just tells the user to add it via Manual Add (which registers
-  // the barcode for next time).
+  // up. This bar's own book first — a bottle it already counts resolves on the
+  // phone, instantly and with no signal (a walk-in cooler) — then the catalog.
+  // Both match the code in every form it can be read as (utils/barcode). No
+  // photo is involved, so a miss offers the camera scan instead.
   const handleBarcodeScanned = useCallback(async (code: string) => {
     setShowBarcodeScanner(false);
     const token = ++scanSeq.current;
@@ -732,6 +764,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     setStockInput('');
     setIdentifyStatus('pending');
     setIdentifiedLabel(null);
+    setIdentifiedCheck(null);
     setFailMessage(null);
     setFailTransient(false);
     setExistingBottle(null);
@@ -739,7 +772,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     setPadVisible(true);
 
     try {
-      const product = await apiService.getProductByBarcode(code);
+      const known = productForBarcode(code);
+      const product: Pick<Product, 'id' | 'name' | 'brand' | 'category' | 'product_type'> | null = known
+        ? { id: known.productId, name: known.name, brand: known.brand ?? null,
+            category: known.category ?? 'other', product_type: known.productType ?? null }
+        : await apiService.getProductByBarcode(code);
 
       // The user may have already hit "Add Bottle" while this was in flight
       // (fire-and-forget) — fill in that saved row instead of the pad UI.
@@ -764,7 +801,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
       if (!product) {
         setFailedViaBarcode(true);
-        failScan(token, "Not in catalog — add it via Add Manual in Review");
+        failScan(token, "This barcode isn't in the catalog yet — scan the label with the camera instead");
         return;
       }
 
@@ -806,7 +843,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
       setFailedViaBarcode(true);
       failScan(token, 'Barcode lookup failed — check your connection');
     }
-  }, [bottles, failScan, resolveScan, markScanFailed]);
+  }, [bottles, failScan, resolveScan, markScanFailed, productForBarcode]);
 
   const handleKeyPress = useCallback((key: string) => {
     Haptics.selectionAsync();
@@ -1114,6 +1151,15 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
         {isScanning ? (
           <CameraView ref={cameraRef} style={styles.camera} facing="back">
 
+            {/* What the AI is sent: everything outside utils/scanImage's
+                SCAN_CROP is dimmed, so the bright window is exactly the photo
+                it reads. A label drifting toward the edge visibly goes dark —
+                the first crop cut 44% of this picture with no sign. Under
+                every other overlay (lowest zIndex), and never takes a touch. */}
+            {SCAN_MASK_BANDS.map((band, i) => (
+              <View key={`mask${i}`} pointerEvents="none" style={[styles.scanMask, band]} />
+            ))}
+
             {/* Animated border — orange while scanning, green on success */}
             <Animated.View style={[styles.borderOverlay, { borderColor }]} />
 
@@ -1264,14 +1310,24 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 )}
                 {identifyStatus === 'ok' && (
                   <>
-                    <Check size={16} color={COLORS.success} />
-                    <Text style={styles.padStatusOk} numberOfLines={1}>{identifiedLabel}</Text>
+                    <Check size={16} color={identifiedCheck ? COLORS.warning : COLORS.success} />
+                    <Text style={[styles.padStatusOk, !!identifiedCheck && styles.padStatusCheck]} numberOfLines={1}>
+                      {identifiedLabel}
+                    </Text>
                   </>
                 )}
                 {identifyStatus === 'failed' && (
                   <Text style={styles.padStatusFailed}>{failMessage}</Text>
                 )}
               </View>
+
+              {/* The two AIs read different bottles: say what the other one read,
+                  so a glance at the label settles it before it's saved. */}
+              {identifyStatus === 'ok' && identifiedCheck && (
+                <Text style={styles.padCheckNote} numberOfLines={2}>
+                  The second AI read {identifiedCheck} — check the label
+                </Text>
+              )}
 
               {/* Synchronous "ok" result can still be the wrong bottle (glare,
                   similar label) — offer a one-tap way out before it's committed. */}
@@ -1596,6 +1652,13 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
+  },
+  // Outside the part of the photo the AI is sent (SCAN_MASK_BANDS). Dark enough
+  // to read as "not in the shot", light enough to still aim through.
+  scanMask: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 1,
   },
   borderOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1925,6 +1988,19 @@ const styles = StyleSheet.create({
   padRetakeRow: {
     alignItems: 'center',
     marginBottom: 4,
+  },
+  // Amber, not green: identified, but the two AIs disagreed — see identifiedCheck.
+  padStatusCheck: {
+    color: COLORS.warning,
+  },
+  padCheckNote: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.warning,
+    letterSpacing: LETTER_SPACING,
+    textAlign: 'center',
+    marginBottom: 4,
+    paddingHorizontal: SPACING.md,
   },
   padRetakeLink: {
     fontSize: FONT_SIZES.xs,

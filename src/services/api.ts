@@ -12,6 +12,7 @@ import {
   ProductSearchResponse,
   Location,
   ParLevel,
+  DuplicateGroup,
   InventorySession,
   InventorySessionDetail,
   Scan,
@@ -337,6 +338,7 @@ class ApiService {
     target_product_id: string;
     par_levels_moved: number;
     assignments_moved: number;
+    barcode_moved?: boolean;
   }> {
     const response = await this.client.post(`/products/${sourceProductId}/merge`, {
       target_product_id: targetProductId,
@@ -354,6 +356,15 @@ class ApiService {
       updates
     );
     return response.data;
+  }
+
+  // Bottles in this bar's book twice under two names — usually one label the
+  // scanner read two ways. Suggestions only: each merge is confirmed.
+  async getDuplicates(locationId: string): Promise<DuplicateGroup[]> {
+    const response = await this.client.get<{ groups: DuplicateGroup[] }>(
+      `/locations/${locationId}/duplicates`
+    );
+    return response.data.groups;
   }
 
   async getParLevels(locationId: string): Promise<ParLevel[]> {
@@ -551,8 +562,18 @@ class ApiService {
     this.client.post('/scans/warm', {}).catch(() => {});
   }
 
-  // Bottle analysis via backend (calls Gemini)
-  async analyzeBottleImage(imageBase64: string): Promise<{
+  // What the bartender did with a scanned row, for the server's scanner report
+  // (86d-api scanstats.py): 'removed' — deleted it, which is the only way to fix
+  // a wrong bottle — or 'confirmed' — tapped "this row is right" on a row the two
+  // AIs read differently. Fire-and-forget: a lost report only costs a data point.
+  reportScanOutcome(scanId: string, outcome: 'removed' | 'confirmed'): void {
+    this.client.post(`/scans/${encodeURIComponent(scanId)}/outcome`, { outcome }).catch(() => {});
+  }
+
+  // Bottle identification via the backend (OpenAI and Gemini asked side by
+  // side, the answer decided server-side). `locationId` is the bar being counted; the server logs
+  // it with the scan so accuracy can be read per bar.
+  async analyzeBottleImage(imageBase64: string, locationId?: string): Promise<{
     name: string;
     brand: string;
     category: string;
@@ -562,7 +583,17 @@ class ApiService {
     levelReadable?: boolean;
     matched_product_id?: string | null;
     is_new_product?: boolean;
+    // 'unreadable' = the AI couldn't read the label and deliberately matched
+    // nothing (it used to guess a generic product) — ask for a retake.
     match_method?: string;
+    needs_rescan?: boolean;
+    // The server's log id for this scan. Kept on the bottle row (Bottle.scanId)
+    // so removing or confirming the row can be reported against it.
+    scan_id?: string | null;
+    // The server asks two AIs at once. true = they read different bottles: this
+    // answer is the better-supported one, `alternative` is what the other read.
+    needs_confirmation?: boolean;
+    alternative?: string | null;
   } | null> {
     // Per-request 90s: a photo upload on one bar of signal plus AI analysis
     // genuinely takes time, and this path is fire-and-forget on the scan
@@ -570,6 +601,7 @@ class ApiService {
     const response = await this.client.post('/scans/analyze', {
       image: imageBase64,
       mode: 'bottle',
+      ...(locationId ? { location_id: locationId } : {}),
     }, { timeout: 90000 });
     return response.data;
   }

@@ -3,7 +3,7 @@
 ## Project
 React Native iOS bar inventory app. AI-powered bottle scanning for bartenders.
 Scan flow: point the camera at a bottle, AI vision identifies it (name/brand/category —
-OpenAI GPT-4o primary, Gemini 2.0 Flash fallback, both server-side in 86d-api),
+OpenAI GPT-4o primary, Gemini fallback, both server-side in 86d-api),
 then the user taps in the current stock count on a number pad. There is no pen-based
 detection and no automatic liquid-level reading in the current app — that was removed.
 Don't describe either in UI copy or docs.
@@ -159,10 +159,70 @@ Don't describe either in UI copy or docs.
   on bad bar wifi, and reverting the number under someone's thumb is worse than a write
   that lands a minute late. Reconnect-triggered refresh via NetInfo. Backed by
   `par_levels` (price + par) and `location_product_distributors` in 86d-api
+- **"Same bottle twice?" in the Bottle Book (PricingScreen).** 86d-api's
+  `GET /locations/{id}/duplicates` finds bottles in this bar's book under two names (usually one
+  label the scanner read two ways — "Red" and "Red Label"; never two sizes) and says which copy to
+  keep. Each shows with Merge (the same `mergeInto` + `repointProduct` as the merge icon, confirmed
+  with an alert) and Keep both, remembered per bar in AsyncStorage (`dupKeepBoth:<locationId>`,
+  as "keepId|foldId") so a wrong suggestion stops asking. Refetched whenever the book changes. A
+  suggestion only: offline or a failed fetch shows none
+- **Barcodes: the bar's own book first, then the server.** `productForBarcode(code)` (in
+  ProductBookContext, from `par_levels`' product `upc`) answers a barcode the bar already stocks
+  instantly and offline; only a miss goes to `GET /products/barcode/{upc}`. Both CameraScan and
+  ManualAdd do this. Codes are compared ONE-SIDED, as the server does — the stored code must be one
+  of the scanned code's forms (`barcodeVariants()` in src/utils/barcode.ts, a mirror of 86d-api's
+  `helpers.barcode_variants`, checked equal on 614 codes). Never compare both sides' forms: every
+  seeded product carries a made-up 11-digit code that a real scan could zero-pad to. Why forms at all: iOS reads a 12-digit UPC-A
+  as a 13-digit EAN-13 with a leading 0, GTINs pad to 14, and a can's 8-digit UPC-E stands for a
+  12-digit UPC-A, so an exact string compare missed the same bottle read on another phone. A
+  barcode nobody has registered says "scan the label with the camera instead". Registering a code
+  someone already registered comes back as a 409 whose `detail.existing_product` is the live
+  product; `apiService.createProduct` returns it, so the bottle is counted against it
 - src/context/StaffContext.tsx — per-bar list of staff names for "who counted this" —
   no logins, no passwords, no roles
+- src/utils/scanImage.ts — `prepareScanImage()`, the ONE place a scan photo becomes an upload,
+  shared by the live scan and the background re-identification sweep so both send the same
+  thing. Crops to `SCAN_CROP` (the viewfinder's corner guides plus a wide margin — the whole
+  frame used to go up, so on a shelf the bottle being counted sat among its neighbours), then
+  800px wide at JPEG 0.8. The crop is the only way to add detail: gpt-4o scales every image to
+  768px on its short side whatever is sent, so sending less of the shelf puts more of its pixels on
+  the label (~1.2× sharper; what the bartender would get holding the phone about a sixth closer). A
+  small gain on purpose: it only matters when the deciding text is small in the photo. Fractions of the preview ARE fractions of the photo: expo-camera crops each
+  iOS photo to the preview, and the manipulator applies orientation before cropping. Any crop
+  failure falls back to the whole frame — a scan never fails because of it. **The viewfinder shows
+  the crop**: CameraScan dims everything outside `SCAN_CROP` (`SCAN_MASK_BANDS`, built from it in the
+  same file, so the two can't drift), and the bright window is exactly what the AI gets. Without it the
+  first crop cut 44% of the picture on screen with no sign, and a low label shot from close up could lose
+  just its bottom line — often the variant ("Reposado") — so both AIs read only the brand, answered
+  "Original", agreed, and the plain bottle was counted with no flag. **The cut is 5% top, 8% bottom, 8%
+  each side** (73% of the picture kept) — the owner halved the first cut (10% / 16% / 12%) once it was
+  visible; the bottom band runs through the lower half of the shutter button. The match between screen and photo was checked in expo-camera's own iOS code:
+  the preview fills the view (resizeAspectFill) and each photo is cut to the view's shape using the
+  SCREEN's orientation — true however the phone is tilted, and only while the app is portrait-locked.
+  Capture quality is
+  0.85 for the same reason (`skipProcessing` is Android-only; on iOS `quality` is only the saved
+  JPEG's compression, and the crop is barely downscaled, so capture artifacts reach the AI)
+- Scan ↔ server accuracy loop: `/scans/analyze` gets the bar's `location_id` and returns a
+  `scan_id`, kept on the row as `Bottle.scanId` (live scan, fire-and-forget resolve, and retry).
+  The draft sync uploads whole rows, but that alone can't tell 86d-api a scan was WRONG: a row's
+  product can't be changed in Review, so a wrong bottle is fixed by removing the row. So the app
+  reports it — `apiService.reportScanOutcome(scanId, 'removed')` from `removeBottle` (Review's
+  delete and the scan screen's undo), and `'confirmed'` when the amber "the second AI read X — tap
+  if this row is right" chip is tapped. Fire-and-forget. These feed the Scanner page in the CRM
+  (86d-api scanstats.py). `match_method: 'unreadable'` means the server couldn't read the label
+  and deliberately matched nothing — the pad says "move closer and retake"
+- **Two AIs read every scan** (86d-api asks OpenAI and Gemini at once). When they read DIFFERENT
+  bottles, the server answers with the better-supported reading and `needs_confirmation: true` +
+  `alternative` (what the other read). The pad shows the name in amber with "The second AI read X —
+  check the label"; the row carries it as `Bottle.checkNote` (live scan, fire-and-forget resolve,
+  retry, and a re-read merging into an existing row), and Review shows an amber "Check — the second
+  AI read X. Tap if this row is right" chip — one tap clears it. If it's the other bottle, remove
+  the row and add the right one. An agreed scan never sets `checkNote`
 - src/utils/productKey.ts — `bottleMatchKey()`, swap/normalize-tolerant dedupe key used
-  client-side to catch the AI transcribing the same bottle's label differently between scans
+  client-side to catch the AI transcribing the same bottle's label differently between scans. Folds
+  accented letters ("Patrón" = "Patron") with an explicit map — it used to delete them, like the
+  backend's `normalize_match_text` still does; the backend's product matching now uses a key that
+  folds them (86d-api `product_match_key`)
 - src/utils/entitlements.ts — `isEntitled()`/`trialDaysLeft()`; mirrors the backend's
   `is_entitled()` in main.py, kept in sync manually — backend is the real source of truth
 - src/components/Brand.tsx — `BrandMark` (code-drawn login-screen logo) + `GlowBackground`.

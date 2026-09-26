@@ -589,6 +589,26 @@ function BottleRow({
         <Text style={styles.bottleBrand} numberOfLines={1}>
           {bottleSubtitle(bottle).toUpperCase()}
         </Text>
+        {/* The two AIs read this bottle differently. It's counted as the
+            better-supported reading; one tap confirms it. If it's the other
+            one, remove the row and add the right bottle. Amber like the
+            waiting chip: a question, not an error. */}
+        {bottle.checkNote && bottle.scanStatus === undefined && (
+          <TouchableOpacity
+            style={[styles.retryChip, styles.retryChipWaiting]}
+            onPress={() => {
+              onUpdate({ checkNote: undefined });
+              // The bartender settled a disagreement between the two AIs — the
+              // one piece of evidence the scanner report has about which was right.
+              if (bottle.scanId) apiService.reportScanOutcome(bottle.scanId, 'confirmed');
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.retryChipText, styles.retryChipWaitingText]} numberOfLines={2}>
+              Check — the second AI read {bottle.checkNote}. Tap if this row is right
+            </Text>
+          </TouchableOpacity>
+        )}
         {/* Two very different failures wear the same chip otherwise: a weak
             connection (self-heals, and tapping now will just fail again) vs.
             a photo the AI genuinely couldn't read (only a tap will fix it).
