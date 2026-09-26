@@ -146,8 +146,10 @@ Don't describe either in UI copy or docs.
 - **Barcodes: the bar's own book first, then the server.** `productForBarcode(code)` (in
   ProductBookContext, from `par_levels`' product `upc`) answers a barcode the bar already stocks
   instantly and offline; only a miss goes to `GET /products/barcode/{upc}`. Both CameraScan and
-  ManualAdd do this. Codes are compared with `sameBarcode()` (src/utils/barcode.ts, a mirror of
-  86d-api's `helpers.barcode_variants` — checked equal on 614 codes): iOS reads a 12-digit UPC-A
+  ManualAdd do this. Codes are compared ONE-SIDED, as the server does — the stored code must be one
+  of the scanned code's forms (`barcodeVariants()` in src/utils/barcode.ts, a mirror of 86d-api's
+  `helpers.barcode_variants`, checked equal on 614 codes). Never compare both sides' forms: every
+  seeded product carries a made-up 11-digit code that a real scan could zero-pad to. Why forms at all: iOS reads a 12-digit UPC-A
   as a 13-digit EAN-13 with a leading 0, GTINs pad to 14, and a can's 8-digit UPC-E stands for a
   12-digit UPC-A, so an exact string compare missed the same bottle read on another phone. A
   barcode nobody has registered says "scan the label with the camera instead". Registering a code

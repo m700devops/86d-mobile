@@ -4,7 +4,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { apiService } from '../services/api';
 import { useLocation } from './LocationContext';
 import { Bottle } from '../types';
-import { sameBarcode } from '../utils/barcode';
+import { barcodeVariants } from '../utils/barcode';
 
 // --- The product book ---
 //
@@ -336,10 +336,12 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
   );
 
   const productForBarcode = useCallback(
-    (code?: string | null) =>
-      code && bookMatchesLocation
-        ? Object.values(infoByProductId).find(info => sameBarcode(info.upc, code))
-        : undefined,
+    (code?: string | null) => {
+      if (!code || !bookMatchesLocation) return undefined;
+      // One-sided, as the server looks codes up (utils/barcode barcodeFinds).
+      const forms = new Set(barcodeVariants(code));
+      return Object.values(infoByProductId).find(info => !!info.upc && forms.has(info.upc));
+    },
     [infoByProductId, bookMatchesLocation]
   );
 

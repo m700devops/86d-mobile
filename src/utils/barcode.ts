@@ -57,8 +57,10 @@ export const barcodeVariants = (code?: string | null): string[] => {
   return Array.from(out);
 };
 
-export const sameBarcode = (a?: string | null, b?: string | null): boolean => {
-  if (!a || !b) return false;
-  const known = new Set(barcodeVariants(a));
-  return barcodeVariants(b).some(v => known.has(v));
-};
+// Whether a product stored with `stored` is the one `scanned` names. One-sided,
+// exactly as the server looks it up: the stored code must be one of the scanned
+// code's forms. Comparing both sides' forms would let a seeded product's
+// made-up 11-digit code (every seed carries one) answer to a real scan that
+// merely zero-pads to it.
+export const barcodeFinds = (stored?: string | null, scanned?: string | null): boolean =>
+  !!stored && barcodeVariants(scanned).includes(stored);
