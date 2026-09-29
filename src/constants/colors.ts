@@ -4,6 +4,8 @@ export const COLORS = {
   border: '#2D2D2D',
   accentPrimary: '#FF6B35',
   accentSecondary: '#FFD700',
+  // Text on a gold (accentSecondary) fill
+  onAccentSecondary: '#1A1400',
   success: '#4ADE80',
   warning: '#FDE047',
   error: '#F87171',

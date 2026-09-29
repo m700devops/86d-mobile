@@ -14,6 +14,7 @@ import { useProductBook, useBottleDefaults, bookProduct } from '../context/Produ
 import { apiService } from '../services/api';
 import { OrderItem, OrderDistributorSummary } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
+import { orderQuantity } from '../utils/orderQuantity';
 import ConnectionNotice from '../components/ConnectionNotice';
 
 interface Props {
@@ -73,19 +74,11 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       )
     : bottles
         .map(b => {
-          // Reorder point is a fraction of par (default 0.7, adjustable in
-          // Settings) — flag it once stock drops below that line. Once
-          // flagged, order whole bottles back up to full par (stock is
-          // decimal — 4.75 = 4 backups + one open at 3/4 — so the order
-          // itself always rounds up; you can't order a fractional bottle).
-          const stock = b.currentStock || 0;
           // Par comes from the product book by product, for the same reason the
           // price does: set once for this bar, and already correct on a bottle
-          // this week's scan just identified.
-          const par = parOf(b);
-          const reorderPoint = par * (currentLocation?.reorder_threshold ?? 0.7);
-          const needsReorder = stock < reorderPoint;
-          const totalQuantity = needsReorder ? Math.max(0, Math.ceil(par - stock)) : 0;
+          // this week's scan just identified. The quantity rule itself is shared
+          // with Review & Par's "N SHORT" badge (utils/orderQuantity).
+          const totalQuantity = orderQuantity(b.currentStock, parOf(b), currentLocation?.reorder_threshold);
 
           // Order lines show the full product: "Belvedere Vodka", "Gatorade Blue Bolt" —
           // never the raw scanned name, which is literally "Original" for a base product.
