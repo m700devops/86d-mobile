@@ -15,6 +15,7 @@ import { useProductBook, useBottleDefaults, bookProduct } from '../context/Produ
 import { apiService } from '../services/api';
 import { Bottle } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
+import { orderQuantity } from '../utils/orderQuantity';
 import ConnectionNotice from '../components/ConnectionNotice';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 
@@ -325,6 +326,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
             bottle={item}
             par={parOf(item)}
             parSet={isParSet(item)}
+            shortBy={orderQuantity(item.currentStock, parOf(item), currentLocation?.reorder_threshold)}
             onUpdate={(updates) => handleBottleUpdate(item, updates)}
             onRemove={() => removeBottle(item.id)}
             onRetryIdentify={item.scanStatus === 'failed' ? () => retryScan(item) : undefined}
@@ -512,6 +514,7 @@ function BottleRow({
   bottle,
   par,
   parSet,
+  shortBy,
   distributorName,
   onUpdate,
   onRemove,
@@ -523,6 +526,9 @@ function BottleRow({
   // bottle at this bar, or the row's own default when nobody has set one.
   par: number;
   parSet: boolean;
+  // Bottles this row puts on the order — the same orderQuantity() OrderSummary
+  // uses, so the "N SHORT" badge is the number that lands on the order. 0 = not short.
+  shortBy: number;
   // The saved distributor's name, when there is one. Present means the chip
   // reads as "already handled, tap to change" rather than "do this".
   distributorName?: string;
@@ -650,7 +656,7 @@ function BottleRow({
 
       {/* Current stock stepper — tap ±0.25, hold ±1.0 (±5.0 after 2s), tap number to type */}
       <View style={styles.stepperColumn}>
-        <View style={styles.stepperBox}>
+        <View style={[styles.stepperBox, shortBy > 0 && styles.stepperBoxShort]}>
           <TouchableOpacity
             style={styles.stepperButton}
             onPress={() => stepStock(-STOCK_TAP_STEP)}
@@ -681,6 +687,11 @@ function BottleRow({
           >
             <Plus size={10} color={COLORS.textSecondary} />
           </TouchableOpacity>
+          {shortBy > 0 && (
+            <View style={styles.shortBadge} pointerEvents="none">
+              <Text style={styles.shortBadgeText}>{formatStock(shortBy)} SHORT</Text>
+            </View>
+          )}
         </View>
         <Text style={styles.stepperLabel}>ON HAND</Text>
       </View>
@@ -951,6 +962,28 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: SPACING.xs,
     width: '100%',
+  },
+  // Below the reorder point: this bottle is on the order.
+  // The ring is 1px thicker than the normal border; take that back out of the
+  // padding so the count has exactly the room an unringed box gives it.
+  stepperBoxShort: {
+    borderWidth: 2,
+    borderColor: COLORS.accentSecondary,
+    paddingHorizontal: SPACING.xs - 1,
+  },
+  shortBadge: {
+    position: 'absolute',
+    top: -9,
+    right: -6,
+    backgroundColor: COLORS.accentSecondary,
+    borderRadius: 999,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  shortBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: COLORS.onAccentSecondary,
   },
   parBox: {
     backgroundColor: `${COLORS.accentPrimary}10`,
