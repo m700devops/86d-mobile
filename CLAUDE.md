@@ -276,6 +276,19 @@ globally installed — don't assume either is there. Options, in order of prefer
    If they paste it in chat, treat it as sensitive: don't echo it, and remind them to
    rotate it afterward.
 
+**Preview builds log in to Apple** (the workflow's "Log in to Apple for the ad hoc profile"
+step: the App Store Connect key secrets, `--refresh-ad-hoc-provisioning-profile`). A preview
+is ad hoc, signed with a profile that must carry every capability the app uses, and EAS
+only re-makes it when logged in to Apple — the profile made before Sign in with Apple was
+added failed every preview build ("doesn't include the Sign In with Apple capability")
+until this. Now each preview checks the profile with Apple: reused while valid, made again
+when a capability is added or a new device is registered (`eas device:create`), for every
+registered device. A preview run locally with `eas build` needs the same flag and the
+`EXPO_ASC_*` / `EXPO_APPLE_TEAM_ID` / `EXPO_APPLE_TEAM_TYPE` variables, or an interactive
+Apple login. The Claude GitHub App could not start workflows on 2026-09-26 (403 "Resource
+not accessible by integration"): if `actions_run_trigger` is refused, the owner starts the
+run from the Actions tab.
+
 ## Git Rules
 - Cannot push directly to main — always work on a feature branch and open a PR
 - No PR template configured in either repo
