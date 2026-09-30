@@ -57,6 +57,6 @@ const styles = StyleSheet.create({
   text: {
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
 });

@@ -9,6 +9,7 @@ import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/Numeri
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
+import ErrorMessage from '../components/ErrorMessage';
 
 const REORDER_THRESHOLD_OPTIONS = [0.5, 0.6, 0.7, 0.8];
 
@@ -374,7 +375,7 @@ export default function SettingsScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>DISTRIBUTORS</Text>
             <TouchableOpacity onPress={() => openModal()} style={styles.addNewButton} activeOpacity={0.7}>
-              <Plus size={14} color={COLORS.accentPrimary} />
+              <Plus size={14} color={COLORS.accentText} />
               <Text style={styles.addNewText}>Add New</Text>
             </TouchableOpacity>
           </View>
@@ -422,7 +423,7 @@ export default function SettingsScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>BARS</Text>
             <TouchableOpacity onPress={handleAddBar} style={styles.addNewButton} activeOpacity={0.7}>
-              <Plus size={14} color={COLORS.accentPrimary} />
+              <Plus size={14} color={COLORS.accentText} />
               <Text style={styles.addNewText}>Add Bar</Text>
             </TouchableOpacity>
           </View>
@@ -437,12 +438,12 @@ export default function SettingsScreen() {
                   activeOpacity={0.8}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md, flex: 1 }}>
-                    <MapPin size={16} color={isCurrent ? COLORS.accentPrimary : COLORS.textTertiary} />
-                    <Text style={[styles.settingLabel, isCurrent && { color: COLORS.accentPrimary }]}>
+                    <MapPin size={16} color={isCurrent ? COLORS.accentText : COLORS.textTertiary} />
+                    <Text style={[styles.settingLabel, isCurrent && { color: COLORS.accentText }]}>
                       {loc.name}
                     </Text>
                   </View>
-                  {isCurrent && <Check size={16} color={COLORS.accentPrimary} />}
+                  {isCurrent && <Check size={16} color={COLORS.accentText} />}
                 </TouchableOpacity>
               );
             })}
@@ -545,7 +546,7 @@ export default function SettingsScreen() {
                   />
                 </View>
                 {confirmNewPasswordInput.length > 0 && newPasswordInput !== confirmNewPasswordInput && (
-                  <Text style={styles.passwordMismatch}>Passwords do not match</Text>
+                  <ErrorMessage message="Passwords do not match" style={styles.passwordMismatch} />
                 )}
               </View>
             </View>
@@ -745,7 +746,7 @@ const styles = StyleSheet.create({
   addNewText: {
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     letterSpacing: LETTER_SPACING,
   },
   distributorsList: {
@@ -783,7 +784,7 @@ const styles = StyleSheet.create({
   distributorInitials: {
     fontSize: FONT_SIZES.lg,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
   distributorName: {
     fontSize: FONT_SIZES.base,
@@ -798,7 +799,7 @@ const styles = StyleSheet.create({
   },
   distributorRep: {
     fontSize: FONT_SIZES.xs,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     marginTop: 1,
     opacity: 0.8,
   },
@@ -806,8 +807,6 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
   },
   passwordMismatch: {
-    fontSize: FONT_SIZES.xs,
-    color: COLORS.error,
     marginTop: SPACING.xs,
   },
   barCardActive: {
@@ -966,7 +965,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.sm,
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,
     shadowRadius: 12,

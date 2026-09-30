@@ -330,7 +330,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     }
     return (
       <SafeAreaView style={[styles.container, styles.loadingCentered]}>
-        <ActivityIndicator color={COLORS.accentPrimary} />
+        <ActivityIndicator color={COLORS.accentText} />
       </SafeAreaView>
     );
   }
@@ -453,7 +453,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
               key={group.distributor.id}
               style={[
                 styles.distributorCard,
-                idx === 0 && styles.distributorCardOrange,
+                idx === 0 && styles.distributorCardAccent,
                 idx === 1 && styles.distributorCardBlue,
                 idx === 2 && styles.distributorCardGreen,
               ]}
@@ -462,7 +462,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                 <Text style={styles.distributorCardTitle}>{group.distributor.name}</Text>
                 <View style={[
                   styles.initialsBadge,
-                  idx === 0 && styles.initialsBadgeOrange,
+                  idx === 0 && styles.initialsBadgeAccent,
                   idx === 1 && styles.initialsBadgeBlue,
                   idx === 2 && styles.initialsBadgeGreen,
                 ]}>
@@ -675,7 +675,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                     {group.distributor.phone || 'No phone on file — add one in Settings'}
                   </Text>
                 </View>
-                {group.distributor.phone && <Phone size={16} color={COLORS.accentPrimary} />}
+                {group.distributor.phone && <Phone size={16} color={COLORS.accentText} />}
               </TouchableOpacity>
             ))}
           </TouchableOpacity>
@@ -803,7 +803,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: SPACING.lg,
   },
-  distributorCardOrange: {
+  distributorCardAccent: {
     backgroundColor: `${COLORS.accentPrimary}08`,
     borderColor: `${COLORS.accentPrimary}20`,
   },
@@ -834,7 +834,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  initialsBadgeOrange: {
+  initialsBadgeAccent: {
     backgroundColor: `${COLORS.accentPrimary}15`,
   },
   initialsBadgeBlue: {
@@ -864,7 +864,7 @@ const styles = StyleSheet.create({
   distributorItemQty: {
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     fontFamily: 'monospace',
   },
   unassignedCard: {
@@ -919,7 +919,7 @@ const styles = StyleSheet.create({
   assignChipText: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
   modalOverlay: {
     flex: 1,
@@ -987,7 +987,7 @@ const styles = StyleSheet.create({
   modalDistInitials: {
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
   modalDistName: {
     flex: 1,
@@ -1066,7 +1066,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.md,
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.5,
     shadowRadius: 20,
@@ -1117,7 +1117,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xl,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.5,
     shadowRadius: 20,
@@ -1187,7 +1187,7 @@ const styles = StyleSheet.create({
   distributorInitials: {
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     letterSpacing: 0.5,
   },
   distributorName: {
@@ -1220,7 +1220,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xl,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.5,
     shadowRadius: 20,
