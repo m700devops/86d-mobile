@@ -375,7 +375,7 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
         </View>
       ) : loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={COLORS.accentPrimary} />
+          <ActivityIndicator color={COLORS.accentText} />
         </View>
       ) : rows.length === 0 ? (
         <View style={styles.centered}>
@@ -459,7 +459,7 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
 
             {loadingDetail || !orderDetail ? (
               <View style={[styles.centered, { paddingVertical: SPACING['3xl'] }]}>
-                <ActivityIndicator color={COLORS.accentPrimary} />
+                <ActivityIndicator color={COLORS.accentText} />
               </View>
             ) : (
               <>
@@ -526,11 +526,11 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity style={styles.modalActionButton} onPress={handleReorder} activeOpacity={0.7}>
-                    <RotateCcw size={18} color={COLORS.accentPrimary} />
+                    <RotateCcw size={18} color={COLORS.accentText} />
                     <Text style={styles.modalActionText}>Reorder</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.modalActionButton} onPress={handleShare} activeOpacity={0.7}>
-                    <Share2 size={18} color={COLORS.accentPrimary} />
+                    <Share2 size={18} color={COLORS.accentText} />
                     <Text style={styles.modalActionText}>Share</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -540,9 +540,9 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
                     activeOpacity={0.7}
                   >
                     {isPrintingDetail ? (
-                      <ActivityIndicator size="small" color={COLORS.accentPrimary} />
+                      <ActivityIndicator size="small" color={COLORS.accentText} />
                     ) : (
-                      <Printer size={18} color={COLORS.accentPrimary} />
+                      <Printer size={18} color={COLORS.accentText} />
                     )}
                     <Text style={styles.modalActionText}>Print</Text>
                   </TouchableOpacity>
@@ -565,7 +565,7 @@ function TrendsView({ orders, loading }: { orders: Order[] | null; loading: bool
   if (loading || orders === null) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={COLORS.accentPrimary} />
+        <ActivityIndicator color={COLORS.accentText} />
       </View>
     );
   }
@@ -961,7 +961,7 @@ const styles = StyleSheet.create({
   loadMoreText: {
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
   centered: {
     flex: 1,
@@ -1088,7 +1088,7 @@ const styles = StyleSheet.create({
   distItemQty: {
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     fontFamily: 'monospace',
   },
   distCostText: {
@@ -1121,6 +1121,6 @@ const styles = StyleSheet.create({
   modalActionText: {
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
 });

@@ -244,9 +244,18 @@ Don't describe either in UI copy or docs.
   rounded corners, 48x48.
 - Logo palette (icon/splash/favicon/BrandMark only): paper `#f2ece4`, red `#8a1a26`,
   charcoal `#17181b`/`#2b2c30`/`#3a3b40`. This is separate from the in-app UI theme in
-  `src/constants/colors.ts` (primaryDark `#0F0F0F`, accentPrimary `#FF6B35`, accentSecondary
-  `#FFD700`) — the app's dark UI theme was intentionally left alone; only the logo/icon
-  surfaces moved to the new palette.
+  `src/constants/colors.ts`. The in-app accent is the logo's red on the same black
+  (primaryDark `#0F0F0F`, surface `#1A1A1A`, gold `#FFD700` unchanged):
+  - `accentPrimary` `#C8283A` — fills, borders, glows, buttons (white text on it ~5:1)
+  - `accentText` `#F0566A` — any red TEXT or small red icon on a dark background;
+    `#C8283A` is too dark for small text on `#0F0F0F`
+  - `accentPressed` `#9E1C28` — darker/pressed accent (no button uses a pressed colour yet;
+    they dim with `activeOpacity`)
+  - tinted fills: `accentAlpha(x)` = `rgba(200,40,58,x)`, or `${COLORS.accentPrimary}NN`
+  - `error` `#FF453A` — deliberately NOT the brand red, and every error message carries an
+    alert icon (`src/components/ErrorMessage.tsx`). Before the rebrand, the auth screens drew
+    validation errors in the orange accent itself; don't paint an error with an accent token.
+  Never hardcode an accent hex in a screen — use the tokens.
 
 ## Build Rules
 - ONE build at a time (costs $2-4 each)

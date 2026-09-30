@@ -54,7 +54,7 @@ export default function PaywallScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.iconBox}>
-          <Lock size={32} color={COLORS.accentPrimary} />
+          <Lock size={32} color={COLORS.accentText} />
         </View>
 
         <Text style={styles.title}>
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,

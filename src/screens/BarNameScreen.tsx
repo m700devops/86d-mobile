@@ -14,6 +14,8 @@ import { Store } from 'lucide-react-native';
 import { apiService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { BrandMark } from '../components/Brand';
+import ErrorMessage from '../components/ErrorMessage';
+import { COLORS } from '../constants/colors';
 
 interface Props {
   onDone: () => void;
@@ -80,7 +82,7 @@ export default function BarNameScreen({ onDone }: Props) {
           </Text>
 
           <View style={[styles.inputWrapper, focused && styles.inputWrapperFocused]}>
-            <Store size={18} color={focused ? '#FF6B35' : '#6B6B6B'} />
+            <Store size={18} color={focused ? COLORS.accentText : '#6B6B6B'} />
             <TextInput
               style={styles.input}
               placeholder="The Corner Tavern"
@@ -100,7 +102,7 @@ export default function BarNameScreen({ onDone }: Props) {
               autoFocus
             />
           </View>
-          {error && <Text style={styles.error}>{error}</Text>}
+          {error && <ErrorMessage message={error} />}
 
           <TouchableOpacity
             style={[styles.button, saving && styles.buttonDisabled]}
@@ -157,8 +159,8 @@ const styles = StyleSheet.create({
     height: 54,
   },
   inputWrapperFocused: {
-    borderColor: '#FF6B35',
-    backgroundColor: '#1A1512',
+    borderColor: COLORS.accentPrimary,
+    backgroundColor: COLORS.accentTintSurface,
   },
   input: {
     flex: 1,
@@ -166,13 +168,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     height: '100%',
   },
-  error: {
-    fontSize: 12,
-    color: '#FF6B35',
-    marginTop: 8,
-  },
   button: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: COLORS.accentPrimary,
     height: 54,
     borderRadius: 14,
     alignItems: 'center',

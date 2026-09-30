@@ -7,7 +7,7 @@ import {
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Search, Plus, ChevronRight, ChevronDown, Trash2, Minus, WifiOff, Check } from 'lucide-react-native';
+import { Search, Plus, ChevronRight, ChevronDown, Trash2, Minus, WifiOff, Check, AlertCircle } from 'lucide-react-native';
 import { useInventory } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
@@ -18,6 +18,7 @@ import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { orderQuantity } from '../utils/orderQuantity';
 import ConnectionNotice from '../components/ConnectionNotice';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
+import ErrorMessage from '../components/ErrorMessage';
 
 interface Props {
   onGenerateOrder: () => void;
@@ -242,7 +243,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   if (!isHydrated) {
     return (
       <SafeAreaView style={[styles.container, styles.loadingCentered]}>
-        <ActivityIndicator color={COLORS.accentPrimary} />
+        <ActivityIndicator color={COLORS.accentText} />
       </SafeAreaView>
     );
   }
@@ -404,7 +405,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
                     Phone and rep details are optional — add them later in Settings.
                   </Text>
 
-                  {!!newDistError && <Text style={styles.distFormError}>{newDistError}</Text>}
+                  {!!newDistError && <ErrorMessage message={newDistError} style={styles.distFormError} />}
 
                   <TouchableOpacity
                     style={[
@@ -476,7 +477,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
                     activeOpacity={0.7}
                   >
                     <View style={styles.modalAddDistBadge}>
-                      <Plus size={18} color={COLORS.accentPrimary} />
+                      <Plus size={18} color={COLORS.accentText} />
                     </View>
                     <Text style={styles.modalAddDistText}>Add New Distributor</Text>
                   </TouchableOpacity>
@@ -497,11 +498,14 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
           <Text style={styles.generateButtonText}>Generate Order Summary</Text>
           <ChevronRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={[styles.footerText, unsetParCount > 0 && styles.footerTextWarning]}>
-          {unsetParCount > 0
-            ? `${unsetParCount} item${unsetParCount === 1 ? '' : 's'} missing a par level`
-            : 'Finalize inventory and par levels'}
-        </Text>
+        <View style={styles.footerRow}>
+          {unsetParCount > 0 && <AlertCircle size={12} color={COLORS.error} />}
+          <Text style={[styles.footerText, unsetParCount > 0 && styles.footerTextWarning]}>
+            {unsetParCount > 0
+              ? `${unsetParCount} item${unsetParCount === 1 ? '' : 's'} missing a par level`
+              : 'Finalize inventory and par levels'}
+          </Text>
+        </View>
       </View>
       {/* One accessory for every stepper row — the stock steppers use a
           decimal pad, which has no return key on iOS. */}
@@ -631,8 +635,9 @@ function BottleRow({
               </Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={styles.retryChip} onPress={onRetryIdentify} activeOpacity={0.7}>
-              <Text style={styles.retryChipText}>Couldn't read the photo — tap to retry</Text>
+            <TouchableOpacity style={[styles.retryChip, styles.retryChipError]} onPress={onRetryIdentify} activeOpacity={0.7}>
+              <AlertCircle size={11} color={COLORS.error} />
+              <Text style={[styles.retryChipText, styles.retryChipTextShrink]}>Couldn't read the photo — tap to retry</Text>
             </TouchableOpacity>
           )
         )}
@@ -703,19 +708,22 @@ function BottleRow({
             style={styles.stepperButton}
             onPress={() => onUpdate({ parLevel: Math.max(1, par - 1), parLevelSet: true })}
           >
-            <Minus size={10} color={COLORS.accentPrimary} />
+            <Minus size={10} color={COLORS.accentText} />
           </TouchableOpacity>
           <Text style={[styles.stepperValue, styles.parValue]}>{par}</Text>
           <TouchableOpacity
             style={styles.stepperButton}
             onPress={() => onUpdate({ parLevel: par + 1, parLevelSet: true })}
           >
-            <Plus size={10} color={COLORS.accentPrimary} />
+            <Plus size={10} color={COLORS.accentText} />
           </TouchableOpacity>
         </View>
         <Text style={styles.parLabel}>PAR</Text>
         {!parSet && bottle.scanStatus === undefined && (
-          <Text style={styles.parUnsetBadge}>Not set</Text>
+          <View style={styles.parUnsetRow}>
+            <AlertCircle size={9} color={COLORS.error} />
+            <Text style={styles.parUnsetBadge}>Not set</Text>
+          </View>
         )}
       </View>
 
@@ -803,7 +811,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,
@@ -933,6 +941,14 @@ const styles = StyleSheet.create({
   },
   // Amber, not red: a weak signal is a wait-state that resolves itself, not
   // an error the user has to go fix.
+  retryChipError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  retryChipTextShrink: {
+    flexShrink: 1,
+  },
   retryChipWaiting: {
     borderColor: `${COLORS.warning}60`,
     backgroundColor: `${COLORS.warning}15`,
@@ -1011,7 +1027,7 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   parValue: {
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
   stepperLabel: {
     fontSize: 8,
@@ -1024,16 +1040,21 @@ const styles = StyleSheet.create({
   parLabel: {
     fontSize: 8,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     letterSpacing: 1,
     marginTop: 3,
+  },
+  parUnsetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    marginTop: 2,
   },
   parUnsetBadge: {
     fontSize: 8,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.error,
     letterSpacing: 0.5,
-    marginTop: 2,
   },
   deleteButton: {
     padding: SPACING.sm,
@@ -1058,7 +1079,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.md,
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.5,
     shadowRadius: 20,
@@ -1070,11 +1091,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: LETTER_SPACING,
   },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: SPACING.sm,
+  },
   footerText: {
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
     textAlign: 'center',
-    marginTop: SPACING.sm,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
@@ -1083,7 +1110,7 @@ const styles = StyleSheet.create({
   },
   sectionHeaderHint: {
     fontSize: FONT_SIZES.xs,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     letterSpacing: 0.5,
     marginTop: 2,
   },
@@ -1100,7 +1127,7 @@ const styles = StyleSheet.create({
   assignChipText: {
     fontSize: 9,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     letterSpacing: 0.5,
   },
   // An assigned bottle needs no call to action — it's a label you can tap to
@@ -1227,7 +1254,7 @@ const styles = StyleSheet.create({
   modalAddDistText: {
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     letterSpacing: LETTER_SPACING,
   },
   distFormBody: {
@@ -1258,9 +1285,6 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
   },
   distFormError: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.error,
     marginTop: SPACING.md,
   },
   distFormSave: {
@@ -1301,7 +1325,7 @@ const styles = StyleSheet.create({
   modalDistInitials: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     letterSpacing: 0.5,
   },
   modalDistName: {

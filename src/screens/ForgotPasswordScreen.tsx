@@ -15,6 +15,8 @@ import { Mail, Lock, KeyRound, Eye, EyeOff, ChevronLeft, CheckCircle2 } from 'lu
 import { apiService } from '../services/api';
 import { BrandMark, GlowBackground } from '../components/Brand';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
+import ErrorMessage from '../components/ErrorMessage';
+import { COLORS } from '../constants/colors';
 
 interface Props {
   onBackToLogin: () => void;
@@ -108,7 +110,7 @@ export function ForgotPasswordScreen({ onBackToLogin }: Props) {
                   <View style={styles.inputContainer}>
                     <Text style={styles.label}>Email</Text>
                     <View style={[styles.inputWrapper, focusedField === 'email' && styles.inputWrapperFocused]}>
-                      <Mail size={18} color={focusedField === 'email' ? '#FF6B35' : '#6B6B6B'} />
+                      <Mail size={18} color={focusedField === 'email' ? COLORS.accentText : '#6B6B6B'} />
                       <TextInput
                         style={styles.input}
                         placeholder="you@bar.com"
@@ -129,9 +131,7 @@ export function ForgotPasswordScreen({ onBackToLogin }: Props) {
                   </View>
 
                   {error && (
-                    <View style={styles.formErrorBox}>
-                      <Text style={styles.formErrorText}>{error}</Text>
-                    </View>
+                    <ErrorMessage variant="box" message={error} />
                   )}
 
                   <TouchableOpacity
@@ -153,7 +153,7 @@ export function ForgotPasswordScreen({ onBackToLogin }: Props) {
                   <View style={styles.inputContainer}>
                     <Text style={styles.label}>Reset Code</Text>
                     <View style={[styles.inputWrapper, focusedField === 'code' && styles.inputWrapperFocused]}>
-                      <KeyRound size={18} color={focusedField === 'code' ? '#FF6B35' : '#6B6B6B'} />
+                      <KeyRound size={18} color={focusedField === 'code' ? COLORS.accentText : '#6B6B6B'} />
                       <TextInput
                         style={styles.input}
                         placeholder="123456"
@@ -174,7 +174,7 @@ export function ForgotPasswordScreen({ onBackToLogin }: Props) {
                   <View style={styles.inputContainer}>
                     <Text style={styles.label}>New Password</Text>
                     <View style={[styles.inputWrapper, focusedField === 'password' && styles.inputWrapperFocused]}>
-                      <Lock size={18} color={focusedField === 'password' ? '#FF6B35' : '#6B6B6B'} />
+                      <Lock size={18} color={focusedField === 'password' ? COLORS.accentText : '#6B6B6B'} />
                       <TextInput
                         style={styles.input}
                         placeholder="••••••••"
@@ -195,9 +195,7 @@ export function ForgotPasswordScreen({ onBackToLogin }: Props) {
                   </View>
 
                   {error && (
-                    <View style={styles.formErrorBox}>
-                      <Text style={styles.formErrorText}>{error}</Text>
-                    </View>
+                    <ErrorMessage variant="box" message={error} />
                   )}
 
                   <TouchableOpacity
@@ -306,8 +304,8 @@ const styles = StyleSheet.create({
     height: 52,
   },
   inputWrapperFocused: {
-    borderColor: '#FF6B35',
-    backgroundColor: '#1A1512',
+    borderColor: COLORS.accentPrimary,
+    backgroundColor: COLORS.accentTintSurface,
   },
   input: {
     flex: 1,
@@ -315,27 +313,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     height: '100%',
   },
-  formErrorBox: {
-    backgroundColor: 'rgba(255, 107, 53, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.4)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
-  },
-  formErrorText: {
-    fontSize: 14,
-    color: '#FF6B35',
-    textAlign: 'center',
-    fontWeight: '600',
-  },
   button: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: COLORS.accentPrimary,
     height: 54,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.45,
     shadowRadius: 18,

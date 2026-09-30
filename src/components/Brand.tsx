@@ -10,6 +10,7 @@ import Svg, {
   Rect,
   Text as SvgText,
 } from 'react-native-svg';
+import { COLORS } from '../constants/colors';
 
 // --- BrandMark: "86'd" rubber-stamp wordmark over a bottle skyline, ported
 // from the icon source's 300x300 artboard (same coordinate space as
@@ -98,16 +99,16 @@ export function GlowBackground() {
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <Svg width={width} height={height}>
         <Defs>
-          <RadialGradient id="glowOrange" cx="0.5" cy="0.5" r="0.5">
-            <Stop offset="0" stopColor="#FF6B35" stopOpacity="0.22" />
-            <Stop offset="1" stopColor="#FF6B35" stopOpacity="0" />
+          <RadialGradient id="glowAccent" cx="0.5" cy="0.5" r="0.5">
+            <Stop offset="0" stopColor={COLORS.accentPrimary} stopOpacity="0.22" />
+            <Stop offset="1" stopColor={COLORS.accentPrimary} stopOpacity="0" />
           </RadialGradient>
           <RadialGradient id="glowGold" cx="0.5" cy="0.5" r="0.5">
             <Stop offset="0" stopColor="#FFD700" stopOpacity="0.10" />
             <Stop offset="1" stopColor="#FFD700" stopOpacity="0" />
           </RadialGradient>
         </Defs>
-        <Circle cx={width * 0.92} cy={height * 0.02} r={width * 0.62} fill="url(#glowOrange)" />
+        <Circle cx={width * 0.92} cy={height * 0.02} r={width * 0.62} fill="url(#glowAccent)" />
         <Circle cx={width * 0.02} cy={height * 0.96} r={width * 0.58} fill="url(#glowGold)" />
       </Svg>
     </View>

@@ -20,6 +20,8 @@ import { BrandMark, GlowBackground } from '../components/Brand';
 import { AppleSignInButton } from '../components/AppleSignInButton';
 import { User as AppUser } from '../types';
 import { track } from '../services/analytics';
+import ErrorMessage from '../components/ErrorMessage';
+import { COLORS } from '../constants/colors';
 
 // Retries are for a slow link, not a sleeping server: the API is on Render's
 // Starter plan and does not spin down. What does still stall a first request is
@@ -213,11 +215,11 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess, onAppleSi
           </TouchableOpacity>
         )}
       </View>
-      {errors[field] && <Text style={styles.errorText}>{errors[field]}</Text>}
+      {errors[field] && <ErrorMessage message={errors[field]} />}
     </View>
   );
 
-  const iconColor = (field: Field) => (focusedField === field ? '#FF6B35' : '#6B6B6B');
+  const iconColor = (field: Field) => (focusedField === field ? COLORS.accentText : '#6B6B6B');
 
   return (
     <SafeAreaView style={styles.container}>
@@ -308,14 +310,12 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess, onAppleSi
                     </Text>
                   </Text>
                 </TouchableOpacity>
-                {errors.terms && <Text style={styles.errorText}>{errors.terms}</Text>}
+                {errors.terms && <ErrorMessage message={errors.terms} />}
               </View>
 
               {/* Form-level error (timeout / network / server) */}
               {formError && (
-                <View style={styles.formErrorBox}>
-                  <Text style={styles.formErrorText}>{formError}</Text>
-                </View>
+                <ErrorMessage variant="box" message={formError} />
               )}
 
               {/* Create account */}
@@ -415,22 +415,17 @@ const styles = StyleSheet.create({
     height: 52,
   },
   inputWrapperFocused: {
-    borderColor: '#FF6B35',
-    backgroundColor: '#1A1512',
+    borderColor: COLORS.accentPrimary,
+    backgroundColor: COLORS.accentTintSurface,
   },
   inputWrapperError: {
-    borderColor: '#FF6B35',
+    borderColor: COLORS.error,
   },
   input: {
     flex: 1,
     fontSize: 16,
     color: '#FFFFFF',
     height: '100%',
-  },
-  errorText: {
-    fontSize: 12,
-    color: '#FF6B35',
-    marginTop: 6,
   },
   termsContainer: {
     marginBottom: 20,
@@ -452,8 +447,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#161616',
   },
   checkboxChecked: {
-    backgroundColor: '#FF6B35',
-    borderColor: '#FF6B35',
+    backgroundColor: COLORS.accentPrimary,
+    borderColor: COLORS.accentPrimary,
   },
   checkboxCheck: {
     color: '#FFFFFF',
@@ -469,27 +464,13 @@ const styles = StyleSheet.create({
   termsLink: {
     color: '#FFD700',
   },
-  formErrorBox: {
-    backgroundColor: 'rgba(255, 107, 53, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.4)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
-  },
-  formErrorText: {
-    fontSize: 14,
-    color: '#FF6B35',
-    textAlign: 'center',
-    fontWeight: '600',
-  },
   button: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: COLORS.accentPrimary,
     height: 54,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.45,
     shadowRadius: 18,

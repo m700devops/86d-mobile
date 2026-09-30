@@ -533,7 +533,7 @@ export default function PricingScreen() {
                     <Text style={styles.keepBothText}>Keep both</Text>
                   </TouchableOpacity>
                   {dupBusyKey === group.keep.product_id ? (
-                    <ActivityIndicator size="small" color={COLORS.accentPrimary} />
+                    <ActivityIndicator size="small" color={COLORS.accentText} />
                   ) : (
                     <TouchableOpacity
                       onPress={() => mergeDuplicate(group)}
@@ -572,7 +572,7 @@ export default function PricingScreen() {
 
           {loading && entries.length === 0 ? (
             <View style={styles.loadingRow}>
-              <ActivityIndicator color={COLORS.accentPrimary} />
+              <ActivityIndicator color={COLORS.accentText} />
             </View>
           ) : filteredEntries.length === 0 ? (
             <View style={styles.emptyState}>
@@ -606,7 +606,7 @@ export default function PricingScreen() {
                   <View style={styles.rowBadge}>
                     <DollarSign
                       size={14}
-                      color={isComplete(entry) ? COLORS.accentPrimary : COLORS.textTertiary}
+                      color={isComplete(entry) ? COLORS.accentText : COLORS.textTertiary}
                     />
                   </View>
                   <View style={styles.rowText}>
@@ -624,7 +624,7 @@ export default function PricingScreen() {
             <Text style={styles.sectionTitle}>ADD FROM CATALOG</Text>
             {isSearching ? (
               <View style={styles.loadingRow}>
-                <ActivityIndicator color={COLORS.accentPrimary} />
+                <ActivityIndicator color={COLORS.accentText} />
               </View>
             ) : catalogSuggestions.length === 0 ? (
               <Text style={styles.sectionHint}>No other bottles match that search.</Text>
@@ -690,7 +690,7 @@ export default function PricingScreen() {
                     {displayName(entry)}
                   </Text>
                   {mergeBusyId === entry.productId ? (
-                    <ActivityIndicator size="small" color={COLORS.accentPrimary} />
+                    <ActivityIndicator size="small" color={COLORS.accentText} />
                   ) : (
                     <Text style={styles.mergeOptionPrice}>
                       {entry.price !== undefined ? `$${entry.price.toFixed(2)}` : '—'}
@@ -936,7 +936,7 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   filterChipTextActive: {
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
   // The three settings on one line under the name. Missing ones stay visible
   // rather than being omitted — the gap is the information.
@@ -1005,7 +1005,7 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   distChipTextActive: {
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
   rowLeft: {
     flexDirection: 'row',
@@ -1088,7 +1088,7 @@ const styles = StyleSheet.create({
   addPriceText: {
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
   loadingRow: {
     paddingVertical: SPACING.xl,
