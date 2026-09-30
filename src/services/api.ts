@@ -551,6 +551,13 @@ class ApiService {
     return response.data;
   }
 
+  // What this account pays per month: $49.99, or the $29.99 launch price for
+  // the first 10 accounts (86d-api decides; Stripe checkout charges the same).
+  async getBillingPrice(): Promise<{ price: string; per: string; launch: boolean; regular_price: string }> {
+    const response = await this.client.get('/billing/price');
+    return response.data;
+  }
+
   async createPortalSession(): Promise<{ portal_url: string }> {
     const response = await this.client.post<{ portal_url: string }>('/billing/create-portal-session');
     return response.data;

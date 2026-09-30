@@ -249,7 +249,7 @@ export function RegisterScreen({ onNavigateToLogin, onRegisterSuccess, onAppleSi
             {/* Sign-up card */}
             <View style={styles.card}>
               <Text style={styles.title}>Create your account</Text>
-              <Text style={styles.subtitle}>Start your free 30-day trial</Text>
+              <Text style={styles.subtitle}>Start your free 15-day trial</Text>
 
               {renderInput('name', 'Full Name', <User size={18} color={iconColor('name')} />, {
                 value: name,

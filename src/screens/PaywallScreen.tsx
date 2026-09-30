@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Linking, Alert, ActivityIndicator } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
@@ -14,6 +14,17 @@ export default function PaywallScreen() {
   const { user, refreshUser, logout } = useAuth();
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // The server knows who gets the launch price; until it answers, show no
+  // number rather than a wrong one. Offline, the regular price.
+  const [price, setPrice] = useState<{ price: string; launch: boolean; regular_price: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiService.getBillingPrice()
+      .then(p => { if (!cancelled) setPrice(p); })
+      .catch(() => { if (!cancelled) setPrice({ price: '$49.99', launch: false, regular_price: '$49.99' }); });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSubscribe = async () => {
     if (isStartingCheckout) return;
@@ -64,10 +75,15 @@ export default function PaywallScreen() {
           Subscribe to keep scanning, ordering, and tracking your bar's inventory.
         </Text>
 
-        {/* Keep in sync with the live Stripe price (price_1TuyoSR4DRSILPkokV8ffVnK) */}
+        {/* From GET /billing/price — the same choice Stripe checkout makes. */}
         <Text style={styles.price}>
-          $29.99<Text style={styles.priceUnit}>/month</Text>
+          {price ? price.price : ' '}<Text style={styles.priceUnit}>{price ? '/month' : ''}</Text>
         </Text>
+        {price?.launch && (
+          <Text style={styles.launchNote}>
+            Launch price for our first 10 bars (regularly {price.regular_price}/month)
+          </Text>
+        )}
 
         <TouchableOpacity
           style={[styles.subscribeButton, isStartingCheckout && styles.buttonDisabled]}
@@ -149,6 +165,13 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.medium,
     color: COLORS.textSecondary,
+  },
+  launchNote: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.accentSecondary,
+    textAlign: 'center',
+    marginTop: -SPACING.sm,
+    marginBottom: SPACING.md,
   },
   subscribeButton: {
     width: '100%',
