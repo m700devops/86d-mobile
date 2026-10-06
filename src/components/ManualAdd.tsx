@@ -228,7 +228,7 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
                 ) : (
                   <>
                     <View style={styles.photoIconBox}>
-                      <Camera size={32} color={COLORS.accentPrimary} />
+                      <Camera size={32} color={COLORS.accentText} />
                     </View>
                     <Text style={styles.photoButtonText}>ADD PHOTO</Text>
                   </>
@@ -255,7 +255,7 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
                 />
                 {isLookingUpBarcode && (
                   <View style={styles.suggestionRow}>
-                    <ActivityIndicator size="small" color={COLORS.accentPrimary} />
+                    <ActivityIndicator size="small" color={COLORS.accentText} />
                     <Text style={styles.suggestionSubtext}>Looking up barcode…</Text>
                   </View>
                 )}
@@ -268,7 +268,7 @@ export default function ManualAdd({ onClose, onAdd }: Props) {
                   <View style={styles.suggestionsBox}>
                     {isSearching && suggestions.length === 0 ? (
                       <View style={styles.suggestionRow}>
-                        <ActivityIndicator size="small" color={COLORS.accentPrimary} />
+                        <ActivityIndicator size="small" color={COLORS.accentText} />
                         <Text style={styles.suggestionSubtext}>Searching catalog…</Text>
                       </View>
                     ) : (
@@ -489,7 +489,7 @@ const styles = StyleSheet.create({
   barcodeHint: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     marginTop: SPACING.xs,
   },
   suggestionsBox: {
@@ -545,7 +545,7 @@ const styles = StyleSheet.create({
     letterSpacing: LETTER_SPACING,
   },
   categoryButtonTextSelected: {
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
   barcodeButton: {
     height: 56,
@@ -578,7 +578,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.md,
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.5,
     shadowRadius: 20,

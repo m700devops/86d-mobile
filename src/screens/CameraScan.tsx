@@ -20,7 +20,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Check, ChevronLeft, ChevronDown, Zap, Camera, Delete, Barcode, Search, X, Menu } from 'lucide-react-native';
+import { Check, ChevronLeft, ChevronDown, Zap, Camera, Delete, Barcode, Search, X, Menu, AlertCircle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { apiService } from '../services/api';
 import { scanDiagnostics, ScanLogEntry } from '../utils/diagnostics';
@@ -146,7 +146,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   // retry (connectivity) rather than retaking on the spot (unreadable photo).
   const [failTransient, setFailTransient] = useState(false);
 
-  // Border: 0 = orange (scanning), 1 = green (success)
+  // Border: 0 = brand red (scanning), 1 = green (success)
   const [borderColorAnim] = useState(new Animated.Value(0));
   const [flashAnim] = useState(new Animated.Value(0));
 
@@ -1160,7 +1160,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               <View key={`mask${i}`} pointerEvents="none" style={[styles.scanMask, band]} />
             ))}
 
-            {/* Animated border — orange while scanning, green on success */}
+            {/* Animated border — red while scanning, green on success */}
             <Animated.View style={[styles.borderOverlay, { borderColor }]} />
 
             {/* Green flash on capture */}
@@ -1317,7 +1317,10 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                   </>
                 )}
                 {identifyStatus === 'failed' && (
-                  <Text style={styles.padStatusFailed}>{failMessage}</Text>
+                  <>
+                    <AlertCircle size={16} color={COLORS.error} />
+                    <Text style={styles.padStatusFailed}>{failMessage}</Text>
+                  </>
                 )}
               </View>
 
@@ -1517,7 +1520,10 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                   {item.scanStatus === 'pending' ? (
                     <ActivityIndicator size="small" color={COLORS.textTertiary} />
                   ) : item.scanStatus === 'failed' ? (
-                    <Text style={styles.scannedListRowFailed}>Failed</Text>
+                    <View style={styles.scannedListRowFailedWrap}>
+                      <AlertCircle size={12} color={COLORS.error} />
+                      <Text style={styles.scannedListRowFailed}>Failed</Text>
+                    </View>
                   ) : (
                     <Text style={styles.scannedListRowCount}>{formatStock(item.currentStock ?? 0)}</Text>
                   )}
@@ -1910,8 +1916,13 @@ const styles = StyleSheet.create({
   scannedListRowCount: {
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     fontFamily: 'monospace',
+  },
+  scannedListRowFailedWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   scannedListRowFailed: {
     fontSize: FONT_SIZES.xs,
@@ -1982,6 +1993,7 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.error,
+    flexShrink: 1,
     letterSpacing: LETTER_SPACING,
     textAlign: 'center',
   },
@@ -2005,14 +2017,14 @@ const styles = StyleSheet.create({
   padRetakeLink: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     letterSpacing: LETTER_SPACING,
     textDecorationLine: 'underline',
   },
   padDuplicateNote: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.semibold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     textAlign: 'center',
     marginBottom: 4,
   },
@@ -2170,7 +2182,7 @@ const styles = StyleSheet.create({
   doneButtonCount: {
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     fontFamily: 'monospace',
   },
 

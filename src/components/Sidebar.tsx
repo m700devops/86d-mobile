@@ -140,20 +140,20 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
                   the draft survives until an order is sent. Someone 30 bottles
                   in shouldn't have to gamble on that. */}
               <SidebarItem
-                icon={<Camera size={18} color={currentScreen === 'camera' ? '#FFFFFF' : COLORS.accentPrimary} />}
+                icon={<Camera size={18} color={currentScreen === 'camera' ? '#FFFFFF' : COLORS.accentText} />}
                 label={countInProgress > 0 ? 'Continue Scanning' : 'New Scan'}
                 badge={countInProgress > 0 ? String(countInProgress) : undefined}
                 active={currentScreen === 'camera'}
                 onPress={() => handleNavigate('camera')}
               />
               <SidebarItem
-                icon={<LayoutGrid size={18} color={currentScreen === 'review' ? '#FFFFFF' : COLORS.accentPrimary} />}
+                icon={<LayoutGrid size={18} color={currentScreen === 'review' ? '#FFFFFF' : COLORS.accentText} />}
                 label="Review & Par"
                 active={currentScreen === 'review'}
                 onPress={() => handleNavigate('review')}
               />
               <SidebarItem
-                icon={<History size={18} color={currentScreen === 'orders' ? '#FFFFFF' : COLORS.accentPrimary} />}
+                icon={<History size={18} color={currentScreen === 'orders' ? '#FFFFFF' : COLORS.accentText} />}
                 label="Order History"
                 active={currentScreen === 'orders'}
                 onPress={() => handleNavigate('orders')}
@@ -178,13 +178,13 @@ export default function Sidebar({ isOpen, onClose, currentScreen, onNavigate, on
 
               <Text style={styles.sectionTitle}>MANAGEMENT</Text>
               <SidebarItem
-                icon={<BookOpen size={18} color={currentScreen === 'pricing' ? '#FFFFFF' : COLORS.accentPrimary} />}
+                icon={<BookOpen size={18} color={currentScreen === 'pricing' ? '#FFFFFF' : COLORS.accentText} />}
                 label="Bottle Book"
                 active={currentScreen === 'pricing'}
                 onPress={() => handleNavigate('pricing')}
               />
               <SidebarItem
-                icon={<Settings size={18} color={currentScreen === 'settings' ? '#FFFFFF' : COLORS.accentPrimary} />}
+                icon={<Settings size={18} color={currentScreen === 'settings' ? '#FFFFFF' : COLORS.accentText} />}
                 label="Settings"
                 active={currentScreen === 'settings'}
                 onPress={() => handleNavigate('settings')}

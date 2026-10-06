@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
     letterSpacing: LETTER_SPACING,
   },
   activeLabel: {
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
     fontWeight: FONT_WEIGHTS.semibold,
   },
   labelColumn: {
@@ -107,6 +107,6 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
-    color: COLORS.accentPrimary,
+    color: COLORS.accentText,
   },
 });

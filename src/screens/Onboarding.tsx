@@ -93,7 +93,7 @@ export default function Onboarding({ onComplete }: Props) {
           {/* Features */}
           <View style={styles.features}>
             <FeatureItem
-              icon={<Camera size={18} color="#FF6B35" />}
+              icon={<Camera size={18} color={COLORS.accentText} />}
               title="Visual Scanning"
               desc="Point your camera, detect bottles instantly."
             />
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   },
   iconBackground: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#FF6B35',
+    backgroundColor: COLORS.accentPrimary,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
     letterSpacing: LETTER_SPACING,
     lineHeight: 42,
     marginBottom: 16,
-    color: '#FF6B35',
+    color: COLORS.accentText,
   },
   subheadline: {
     fontSize: 15,
@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
   button: {
     width: '100%',
     height: 52,
-    backgroundColor: '#FF6B35',
+    backgroundColor: COLORS.accentPrimary,
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',

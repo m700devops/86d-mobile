@@ -17,6 +17,8 @@ import { BrandMark, GlowBackground } from '../components/Brand';
 import { AppleSignInButton } from '../components/AppleSignInButton';
 import { User } from '../types';
 import { track } from '../services/analytics';
+import ErrorMessage from '../components/ErrorMessage';
+import { COLORS, accentAlpha } from '../constants/colors';
 
 // Retries are for a slow link, not a sleeping server: the API is on Render's
 // Starter plan and does not spin down. What does still stall a first request is
@@ -147,7 +149,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
                     errors.email && styles.inputWrapperError,
                   ]}
                 >
-                  <Mail size={18} color={focusedField === 'email' ? '#FF6B35' : '#6B6B6B'} />
+                  <Mail size={18} color={focusedField === 'email' ? COLORS.accentText : '#6B6B6B'} />
                   <TextInput
                     style={styles.input}
                     placeholder="you@bar.com"
@@ -168,7 +170,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
                     editable={!isLoading}
                   />
                 </View>
-                {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
+                {errors.email && <ErrorMessage message={errors.email} />}
               </View>
 
               {/* Password */}
@@ -181,7 +183,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
                     errors.password && styles.inputWrapperError,
                   ]}
                 >
-                  <Lock size={18} color={focusedField === 'password' ? '#FF6B35' : '#6B6B6B'} />
+                  <Lock size={18} color={focusedField === 'password' ? COLORS.accentText : '#6B6B6B'} />
                   <TextInput
                     ref={passwordRef}
                     style={styles.input}
@@ -208,7 +210,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
                       : <Eye size={18} color="#6B6B6B" />}
                   </TouchableOpacity>
                 </View>
-                {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+                {errors.password && <ErrorMessage message={errors.password} />}
               </View>
 
               {/* Forgot password */}
@@ -218,9 +220,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
 
               {/* Form-level error (wrong password / timeout / network) */}
               {formError && (
-                <View style={styles.formErrorBox}>
-                  <Text style={styles.formErrorText}>{formError}</Text>
-                </View>
+                <ErrorMessage variant="box" message={formError} />
               )}
 
               {/* Sign in */}
@@ -330,11 +330,11 @@ const styles = StyleSheet.create({
     height: 52,
   },
   inputWrapperFocused: {
-    borderColor: '#FF6B35',
-    backgroundColor: '#1A1512',
+    borderColor: COLORS.accentPrimary,
+    backgroundColor: COLORS.accentTintSurface,
   },
   inputWrapperError: {
-    borderColor: '#FF6B35',
+    borderColor: COLORS.error,
   },
   input: {
     flex: 1,
@@ -342,40 +342,21 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     height: '100%',
   },
-  errorText: {
-    fontSize: 12,
-    color: '#FF6B35',
-    marginTop: 6,
-  },
   forgotLink: {
     alignSelf: 'flex-end',
     marginBottom: 18,
   },
   forgotText: {
     fontSize: 13,
-    color: '#FF6B35',
-  },
-  formErrorBox: {
-    backgroundColor: 'rgba(255, 107, 53, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 53, 0.4)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
-  },
-  formErrorText: {
-    fontSize: 14,
-    color: '#FF6B35',
-    textAlign: 'center',
-    fontWeight: '600',
+    color: COLORS.accentText,
   },
   button: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: COLORS.accentPrimary,
     height: 54,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#FF6B35',
+    shadowColor: COLORS.accentPrimary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.45,
     shadowRadius: 18,
@@ -401,7 +382,7 @@ const styles = StyleSheet.create({
   },
   createButton: {
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 107, 53, 0.55)',
+    borderColor: accentAlpha(0.55),
     borderRadius: 14,
     paddingVertical: 13,
     paddingHorizontal: 28,
@@ -411,7 +392,7 @@ const styles = StyleSheet.create({
   createButtonText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#FF6B35',
+    color: COLORS.accentText,
     letterSpacing: 0.3,
   },
 });
