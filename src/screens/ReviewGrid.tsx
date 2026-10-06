@@ -15,7 +15,7 @@ import { useProductBook, useBottleDefaults, bookProduct } from '../context/Produ
 import { apiService } from '../services/api';
 import { Bottle } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
-import { orderQuantity } from '../utils/orderQuantity';
+import { orderQuantity, DEFAULT_REORDER_THRESHOLD, formatThreshold } from '../utils/orderQuantity';
 import ConnectionNotice from '../components/ConnectionNotice';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 import ErrorMessage from '../components/ErrorMessage';
@@ -46,6 +46,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   const { bottles, isHydrated, updateBottle, removeBottle, retryScan, autoResolvedCount, acknowledgeAutoResolved } = useInventory();
   const { distributors, addDistributor } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
+  const reorderThreshold = currentLocation?.reorder_threshold ?? DEFAULT_REORDER_THRESHOLD;
   // Par level and distributor are per-bottle decisions this bar makes once and
   // never again — they come from the product book, not from the scan.
   const { setPar, setDistributor } = useProductBook();
@@ -498,14 +499,29 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
           <Text style={styles.generateButtonText}>Generate Order Summary</Text>
           <ChevronRight size={20} color="#FFFFFF" />
         </TouchableOpacity>
-        <View style={styles.footerRow}>
-          {unsetParCount > 0 && <AlertCircle size={12} color={COLORS.error} />}
-          <Text style={[styles.footerText, unsetParCount > 0 && styles.footerTextWarning]}>
-            {unsetParCount > 0
-              ? `${unsetParCount} item${unsetParCount === 1 ? '' : 's'} missing a par level`
-              : 'Finalize inventory and par levels'}
-          </Text>
-        </View>
+        {unsetParCount > 0 ? (
+          <View style={styles.footerRow}>
+            <AlertCircle size={12} color={COLORS.error} />
+            <Text style={[styles.footerText, styles.footerTextWarning]}>
+              {`${unsetParCount} item${unsetParCount === 1 ? '' : 's'} missing a par level`}
+            </Text>
+          </View>
+        ) : (
+          // The reorder rule in words, with the bar's own threshold (Settings →
+          // Reorder Point), as a decimal of par like the counts themselves.
+          <>
+            <Text style={[styles.footerText, styles.footerRule]}>
+              AI reorders a bottle below {formatThreshold(reorderThreshold)} of its par
+            </Text>
+            <TouchableOpacity
+              onPress={onNavigateToSettings}
+              hitSlop={{ top: 10, bottom: 10, left: 16, right: 16 }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.footerLink}>Change in Settings</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
       {/* One accessory for every stepper row — the stock steppers use a
           decimal pad, which has no return key on iOS. */}
@@ -1104,6 +1120,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  footerRule: {
+    marginTop: SPACING.sm,
+  },
+  footerLink: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: FONT_WEIGHTS.semibold,
+    color: COLORS.accentText,
+    textAlign: 'center',
+    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    textDecorationLine: 'underline',
   },
   footerTextWarning: {
     color: COLORS.error,
