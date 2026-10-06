@@ -59,8 +59,14 @@ Don't describe either in UI copy or docs.
   sign-up form). Confirm Email STAYS — that address is the only account-recovery path
   there is and nothing in the app verifies it, so a typo means an account nobody can
   get back into. Remove it only once email verification exists
-- src/screens/BarNameScreen.tsx — one field, shown once, right after a social sign-up
-  whose account has no `business_name`. That name heads every order email, and it used
+- src/screens/BarNameScreen.tsx — shown once, right after ANY new account (email sign-up or a
+  social sign-in with no `business_name`): the bar's name, plus an OPTIONAL phone ("for setup
+  help"), saved as `users.phone` through `PATCH /users/me` (86d-api checks it is a dialable US
+  number and shows it on the CRM's Customers page). It used to appear only after Sign in with
+  Apple, and even then App.tsx's resume-last-screen restore, which ran on EVERY sign-in,
+  overrode it, so it never actually showed. The restore now runs once, at launch, and the
+  last-screen write waits for it (it used to overwrite the saved screen with 'camera' first,
+  so the app always reopened on the camera). That name heads every order email, and it used
   to be demanded by a modal in OrderSummary at first send — with an order ready to go
   out, the worst possible moment. It is also what keeps sales attribution honest: the
   CRM matches a lead to a customer by email first and falls back to the business name,
