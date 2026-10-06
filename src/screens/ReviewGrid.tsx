@@ -692,13 +692,15 @@ function BottleRow({
           >
             <Plus size={10} color={COLORS.textSecondary} />
           </TouchableOpacity>
-          {shortBy > 0 && (
-            <View style={styles.shortBadge} pointerEvents="none">
-              <Text style={styles.shortBadgeText}>{formatStock(shortBy)} SHORT</Text>
-            </View>
-          )}
         </View>
         <Text style={styles.stepperLabel}>ON HAND</Text>
+        {/* Under the label, in the flow, like PAR's "Not set". It used to float
+            over the box's top corner, and on a phone it covered the count. */}
+        {shortBy > 0 && (
+          <View style={styles.shortBadge} pointerEvents="none">
+            <Text style={styles.shortBadgeText}>{formatStock(shortBy)} SHORT</Text>
+          </View>
+        )}
       </View>
 
       {/* Par stepper */}
@@ -988,9 +990,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xs - 1,
   },
   shortBadge: {
-    position: 'absolute',
-    top: -9,
-    right: -6,
+    marginTop: 3,
     backgroundColor: COLORS.accentSecondary,
     borderRadius: 999,
     paddingHorizontal: 5,
