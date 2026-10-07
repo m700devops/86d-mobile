@@ -10,6 +10,13 @@
 
 export const DEFAULT_REORDER_THRESHOLD = 0.7;
 
+// How the threshold is shown to people: a decimal of par, like the counts
+// themselves (0.7, never "70%"). Up to two decimals: 0.75 shows as 0.75.
+export function formatThreshold(threshold: number | null | undefined): string {
+  const t = threshold ?? DEFAULT_REORDER_THRESHOLD;
+  return String(Math.round(t * 100) / 100);
+}
+
 export function orderQuantity(
   stock: number | null | undefined,
   par: number | null | undefined,

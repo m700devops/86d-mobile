@@ -236,7 +236,7 @@ class ApiService {
     return response.data;
   }
 
-  async updateProfile(updates: { business_name?: string; manager_name?: string }): Promise<User> {
+  async updateProfile(updates: { business_name?: string; manager_name?: string; phone?: string }): Promise<User> {
     const response = await this.client.patch<User>('/users/me', updates);
     await this.setUserData(response.data);
     return response.data;

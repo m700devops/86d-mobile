@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { Store } from 'lucide-react-native';
+import { Store, Phone } from 'lucide-react-native';
 import { apiService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { BrandMark } from '../components/Brand';
@@ -40,6 +40,11 @@ export default function BarNameScreen({ onDone }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
+  // Optional: a number to call about getting set up. Never required, and a
+  // blank one is simply not sent.
+  const [phone, setPhone] = useState('');
+  const [phoneFocused, setPhoneFocused] = useState(false);
+  const phoneRef = useRef<TextInput>(null);
 
   const save = async () => {
     const trimmed = name.trim();
@@ -50,10 +55,19 @@ export default function BarNameScreen({ onDone }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await apiService.updateProfile({ business_name: trimmed });
+      const phoneTrimmed = phone.trim();
+      await apiService.updateProfile(
+        phoneTrimmed ? { business_name: trimmed, phone: phoneTrimmed } : { business_name: trimmed }
+      );
       await refreshUser();
       onDone();
-    } catch {
+    } catch (e: any) {
+      // A number the server can't dial is the one thing worth stopping for:
+      // say so and let them fix it or clear it.
+      if (e?.response?.data?.detail?.error === 'invalid_phone') {
+        setError(e.response.data.detail.message);
+        return;
+      }
       // Never a dead end: the name can be set later in Settings, and blocking
       // someone out of the app over it would be a worse trade than losing it.
       setError("Couldn't save that — you can add it later in Settings.");
@@ -96,10 +110,37 @@ export default function BarNameScreen({ onDone }: Props) {
               onBlur={() => setFocused(false)}
               autoCapitalize="words"
               autoCorrect={false}
+              returnKeyType="next"
+              onSubmitEditing={() => phoneRef.current?.focus()}
+              blurOnSubmit={false}
+              editable={!saving}
+              autoFocus
+            />
+          </View>
+
+          <Text style={styles.phoneLabel}>
+            Your phone <Text style={styles.optional}>(optional, for setup help)</Text>
+          </Text>
+          <View style={[styles.inputWrapper, phoneFocused && styles.inputWrapperFocused]}>
+            <Phone size={18} color={phoneFocused ? COLORS.accentText : '#6B6B6B'} />
+            <TextInput
+              ref={phoneRef}
+              style={styles.input}
+              placeholder="(555) 123-4567"
+              placeholderTextColor="#5C5C5C"
+              value={phone}
+              onChangeText={(t) => {
+                setPhone(t);
+                if (error) setError(null);
+              }}
+              onFocus={() => setPhoneFocused(true)}
+              onBlur={() => setPhoneFocused(false)}
+              keyboardType="phone-pad"
+              textContentType="telephoneNumber"
+              autoComplete="tel"
               returnKeyType="done"
               onSubmitEditing={save}
               editable={!saving}
-              autoFocus
             />
           </View>
           {error && <ErrorMessage message={error} />}
@@ -127,6 +168,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
   hero: { alignItems: 'center', marginBottom: 28 },
+  phoneLabel: { fontSize: 14, fontWeight: '600', color: '#D9D9D9', marginTop: 18, marginBottom: 8 },
+  optional: { fontWeight: '400', color: '#8A8A8A' },
   title: {
     fontSize: 22,
     fontWeight: '700',

@@ -18,7 +18,7 @@ import { AppleSignInButton } from '../components/AppleSignInButton';
 import { User } from '../types';
 import { track } from '../services/analytics';
 import ErrorMessage from '../components/ErrorMessage';
-import { COLORS, accentAlpha } from '../constants/colors';
+import { COLORS } from '../constants/colors';
 
 // Retries are for a slow link, not a sleeping server: the API is on Render's
 // Starter plan and does not spin down. What does still stall a first request is
@@ -231,7 +231,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
                 activeOpacity={0.85}
               >
                 {isLoading ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={COLORS.primaryDark} />
                 ) : (
                   <Text style={styles.buttonText}>Sign In</Text>
                 )}
@@ -247,7 +247,7 @@ export function LoginScreen({ onNavigateToRegister, onLoginSuccess, onForgotPass
                 disabled={isLoading}
                 activeOpacity={0.8}
               >
-                <Text style={styles.createButtonText}>Create Free Account</Text>
+                <Text style={styles.createButtonText}>Start Free Trial</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -351,16 +351,11 @@ const styles = StyleSheet.create({
     color: COLORS.accentText,
   },
   button: {
-    backgroundColor: COLORS.accentPrimary,
+    backgroundColor: COLORS.textPrimary,
     height: 54,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: COLORS.accentPrimary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 18,
-    elevation: 10,
   },
   buttonDisabled: {
     opacity: 0.7,
@@ -368,7 +363,7 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: COLORS.primaryDark,
     letterSpacing: 0.3,
   },
   footer: {
@@ -382,7 +377,7 @@ const styles = StyleSheet.create({
   },
   createButton: {
     borderWidth: 1.5,
-    borderColor: accentAlpha(0.55),
+    borderColor: 'rgba(255, 255, 255, 0.25)',
     borderRadius: 14,
     paddingVertical: 13,
     paddingHorizontal: 28,
@@ -392,7 +387,7 @@ const styles = StyleSheet.create({
   createButtonText: {
     fontSize: 15,
     fontWeight: '700',
-    color: COLORS.accentText,
+    color: COLORS.textPrimary,
     letterSpacing: 0.3,
   },
 });

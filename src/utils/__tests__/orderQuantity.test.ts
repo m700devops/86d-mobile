@@ -1,7 +1,7 @@
 // Run: node --test --experimental-strip-types src/utils/__tests__/orderQuantity.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { orderQuantity } from '../orderQuantity.ts';
+import { orderQuantity, formatThreshold } from '../orderQuantity.ts';
 
 test('4 on hand, par 6 → 2', () => assert.equal(orderQuantity(4, 6), 2));
 test('1.25 on hand, par 4 → 3 (2.75 rounds up to whole bottles)', () =>
@@ -18,3 +18,11 @@ test('above the reorder point but under par → not ordered', () => {
   assert.equal(orderQuantity(3, 4, 0.75), 0); // exactly at the reorder point
 });
 test('missing threshold falls back to 0.7', () => assert.equal(orderQuantity(4, 6, undefined), 2));
+
+test('threshold shows as a decimal of par, never a percentage', () => {
+  assert.equal(formatThreshold(0.7), '0.7');
+  assert.equal(formatThreshold(0.5), '0.5');
+  assert.equal(formatThreshold(0.75), '0.75');
+  assert.equal(formatThreshold(0.6000000000000001), '0.6');
+  assert.equal(formatThreshold(null), '0.7');
+});

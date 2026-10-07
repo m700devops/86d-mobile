@@ -16,6 +16,8 @@ export interface User {
   email: string;
   name: string | null;
   business_name: string | null;
+  // Optional, from the bar-name screen ("for setup help"), stored as 615-742-9095.
+  phone?: string | null;
   manager_name: string | null;
   subscription_status: string;
   subscription_tier: string;

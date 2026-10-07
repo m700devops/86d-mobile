@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 import ErrorMessage from '../components/ErrorMessage';
+import { formatThreshold } from '../utils/orderQuantity';
 
 const REORDER_THRESHOLD_OPTIONS = [0.5, 0.6, 0.7, 0.8];
 
@@ -346,7 +347,7 @@ export default function SettingsScreen() {
           <View style={styles.reorderCard}>
             <Text style={styles.settingLabel}>Reorder Point</Text>
             <Text style={styles.settingSubLabel}>
-              Flags a bottle to reorder once it drops below {Math.round(reorderThreshold * 100)}% of par
+              Reorders a bottle once it drops below {formatThreshold(reorderThreshold)} of its par
             </Text>
             <View style={styles.reorderChipRow}>
               {REORDER_THRESHOLD_OPTIONS.map(value => {
@@ -360,7 +361,7 @@ export default function SettingsScreen() {
                     activeOpacity={0.8}
                   >
                     <Text style={[styles.reorderChipText, isActive && styles.reorderChipTextActive]}>
-                      {Math.round(value * 100)}%
+                      {formatThreshold(value)}
                     </Text>
                   </TouchableOpacity>
                 );

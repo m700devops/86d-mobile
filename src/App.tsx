@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, TouchableOpacity, Text, ActivityIndicator, SafeAreaView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from './constants/colors';
@@ -43,6 +43,7 @@ function AppContent() {
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
   const [isRestoringScreen, setIsRestoringScreen] = useState(true);
+  const restoreDecided = useRef(false);
   const trialDays = trialDaysLeft(user);
 
   const navigate = (screen: AppScreen | 'login' | 'register' | 'forgot-password' | 'bar-name') => {
@@ -63,8 +64,15 @@ function AppContent() {
 
   // Once auth has settled, resume the last main screen for an authenticated
   // user — nothing to resume for a signed-out session.
+  //
+  // Only ONCE, when the app opens already signed in. A sign-in or sign-up
+  // during this launch flips isAuthenticated too, and restoring then
+  // overrode the screen the sign-in had just picked (the bar-name screen
+  // after a new account), so that screen never showed.
   useEffect(() => {
     if (isLoading) return;
+    if (restoreDecided.current) return;
+    restoreDecided.current = true;
     if (!isAuthenticated) {
       setIsRestoringScreen(false);
       return;
@@ -80,11 +88,15 @@ function AppContent() {
   }, [isLoading, isAuthenticated]);
 
   // Keep the last resumable screen written to disk as it changes.
+  // Not until the restore above has read it: on launch this ran first with
+  // the default 'camera' and overwrote the saved screen, so the app always
+  // resumed on the camera.
   useEffect(() => {
+    if (isRestoringScreen) return;
     if ((RESUMABLE_SCREENS as string[]).includes(currentScreen)) {
       AsyncStorage.setItem(LAST_SCREEN_KEY, currentScreen).catch(() => {});
     }
-  }, [currentScreen]);
+  }, [currentScreen, isRestoringScreen]);
 
   // A social sign-in skips the whole form, which means it also skips the one
   // useful thing the form collected. Ask for the bar's name once, here, if the
@@ -114,7 +126,7 @@ function AppContent() {
           return (
             <RegisterScreen
               onNavigateToLogin={() => navigate('login')}
-              onRegisterSuccess={() => navigate('camera')}
+              onRegisterSuccess={() => navigate('bar-name')}
               onAppleSignIn={handleAppleSignIn}
             />
           );
