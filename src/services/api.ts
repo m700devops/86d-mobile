@@ -551,9 +551,9 @@ class ApiService {
     return response.data;
   }
 
-  // What this account pays per month: $49.99, or the $29.99 launch price for
-  // the first 10 accounts (86d-api decides; Stripe checkout charges the same).
-  async getBillingPrice(): Promise<{ price: string; per: string; launch: boolean; regular_price: string }> {
+  // What a subscription costs per month ($49.99, the one price; Stripe checkout
+  // charges the same). The server still sends `launch: false` for older builds.
+  async getBillingPrice(): Promise<{ price: string; per: string }> {
     const response = await this.client.get('/billing/price');
     return response.data;
   }

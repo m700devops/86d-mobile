@@ -110,8 +110,8 @@ Don't describe either in UI copy or docs.
   and is filtered out of the second. Blanking a field clears it; price is awaited and can
   fail, par/distributor queue (see ProductBookContext), so the editor saves price first
 - src/screens/PaywallScreen.tsx — shown when trial (15 days) or subscription has lapsed. Its price
-  comes from 86d-api `GET /billing/price` ($49.99/month, or the $29.99 launch price for the
-  first 10 accounts, with a gold "Launch price" line) — never hardcode it here. Blocks the
+  comes from 86d-api `GET /billing/price` ($49.99/month, one price for everyone — the
+  $29.99 launch price for the first 10 accounts was dropped on 2026-10-07) — never hardcode it here. Blocks the
   rest of the app except sign-out. Checkout opens Stripe's hosted page in the system
   browser — no Stripe code or IAP runs inside the app itself
 - src/services/api.ts — all backend API calls (axios, auto token refresh). **A failed token
