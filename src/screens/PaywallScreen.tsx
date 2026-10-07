@@ -14,15 +14,15 @@ export default function PaywallScreen() {
   const { user, refreshUser, logout } = useAuth();
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  // The server knows who gets the launch price; until it answers, show no
-  // number rather than a wrong one. Offline, the regular price.
-  const [price, setPrice] = useState<{ price: string; launch: boolean; regular_price: string } | null>(null);
+  // The price comes from the server, so it can change without a new build;
+  // until it answers, show no number rather than a wrong one. Offline, $49.99.
+  const [price, setPrice] = useState<{ price: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     apiService.getBillingPrice()
       .then(p => { if (!cancelled) setPrice(p); })
-      .catch(() => { if (!cancelled) setPrice({ price: '$49.99', launch: false, regular_price: '$49.99' }); });
+      .catch(() => { if (!cancelled) setPrice({ price: '$49.99' }); });
     return () => { cancelled = true; };
   }, []);
 
@@ -75,15 +75,10 @@ export default function PaywallScreen() {
           Subscribe to keep scanning, ordering, and tracking your bar's inventory.
         </Text>
 
-        {/* From GET /billing/price — the same choice Stripe checkout makes. */}
+        {/* From GET /billing/price — the same price Stripe checkout charges. */}
         <Text style={styles.price}>
           {price ? price.price : ' '}<Text style={styles.priceUnit}>{price ? '/month' : ''}</Text>
         </Text>
-        {price?.launch && (
-          <Text style={styles.launchNote}>
-            Launch price for our first 10 bars (regularly {price.regular_price}/month)
-          </Text>
-        )}
 
         <TouchableOpacity
           style={[styles.subscribeButton, isStartingCheckout && styles.buttonDisabled]}
@@ -165,13 +160,6 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.base,
     fontWeight: FONT_WEIGHTS.medium,
     color: COLORS.textSecondary,
-  },
-  launchNote: {
-    fontSize: FONT_SIZES.sm,
-    color: COLORS.accentSecondary,
-    textAlign: 'center',
-    marginTop: -SPACING.sm,
-    marginBottom: SPACING.md,
   },
   subscribeButton: {
     width: '100%',
