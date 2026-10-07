@@ -348,7 +348,7 @@ const styles = StyleSheet.create({
   },
   forgotText: {
     fontSize: 13,
-    color: COLORS.accentText,
+    color: COLORS.textPrimary,
   },
   button: {
     backgroundColor: COLORS.textPrimary,
