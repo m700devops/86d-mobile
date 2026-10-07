@@ -758,6 +758,9 @@ function BottleRow({
   );
 }
 
+// White at 55%: the short ring and pill.
+const SHORT_OUTLINE = `${COLORS.textPrimary}8C`;
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -997,25 +1000,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xs,
     width: '100%',
   },
-  // Below the reorder point: this bottle is on the order.
+  // Below the reorder point: this bottle is on the order. A quiet white ring
+  // and an outlined pill, in the screen's own colours: the page is black,
+  // white, grey and the logo red, and the gold this used to be was a third hue
+  // found nowhere else on it. Not red either — the PAR box beside it is red,
+  // and short isn't an error, it's what the order is for.
   // The ring is 1px thicker than the normal border; take that back out of the
   // padding so the count has exactly the room an unringed box gives it.
   stepperBoxShort: {
     borderWidth: 2,
-    borderColor: COLORS.accentSecondary,
+    borderColor: SHORT_OUTLINE,
     paddingHorizontal: SPACING.xs - 1,
   },
+  // Same box as the filled pill it replaced: the 1px border comes back out of
+  // the padding, so the row doesn't grow.
   shortBadge: {
     marginTop: 3,
-    backgroundColor: COLORS.accentSecondary,
+    borderWidth: 1,
+    borderColor: SHORT_OUTLINE,
     borderRadius: 999,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 0,
   },
   shortBadgeText: {
     fontSize: 11,
     fontWeight: '800',
-    color: COLORS.onAccentSecondary,
+    color: COLORS.textPrimary,
   },
   parBox: {
     backgroundColor: `${COLORS.accentPrimary}10`,
