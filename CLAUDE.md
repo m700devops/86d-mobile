@@ -57,7 +57,7 @@ Don't describe either in UI copy or docs.
 - **The distributor email matches the landing page's order card** (86d-api `helpers.order_email`):
   subject "Order #1042 from <bar>", then "Acct #4471" and "Deliver by Fri, Oct 10", a unit on
   every line, "Order sent by Dana Reyes, Bar Manager at <bar>. Please put order #1042 on the
-  invoice.", a light HTML card, From "<bar> via 86'd". The app feeds it:
+  invoice.", a light HTML card, From 86'd Orders <orders@my86d.com>. The app feeds it:
   - **Account numbers** — per BAR per distributor (DistributorContext `accountFor` /
     `setAccountNumber`, cached per location, `GET/PUT /locations/{id}/distributor-accounts`).
     Asked in the distributor form ("Your account # with them — it's on any invoice") and right
