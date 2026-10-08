@@ -22,6 +22,7 @@ import {
 } from 'lucide-react-native';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
+import { longQty, shortQty } from '../utils/caseOrder';
 import { Order, OrderDetail, OrderDistributorSummary } from '../types';
 
 const PAGE_SIZE = 20;
@@ -225,7 +226,7 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
     });
     const lines = orderDetail.distributors.map(d =>
       `${d.distributor_name ?? 'Distributor'} (${d.status}):\n` +
-      d.items.map(i => `  - ${i.name}${i.size ? ` ${i.size}` : ''} x${i.quantity}`).join('\n')
+      d.items.map(i => `  - ${i.name}${i.size ? ` ${i.size}` : ''} x ${longQty(histQty(i))}`).join('\n')
     ).join('\n\n');
     try {
       const ref = formatOrderNumber(orderDetail.order_number);
@@ -248,7 +249,7 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
         <h2>${escapeHtml(d.distributor_name ?? 'Distributor')}</h2>
         <table>
           <tr><th>Item</th><th>Qty</th></tr>
-          ${d.items.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${i.quantity}</td></tr>`).join('')}
+          ${d.items.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${escapeHtml(longQty(histQty(i)))}</td></tr>`).join('')}
         </table>
       `).join('');
       await Print.printAsync({
@@ -513,7 +514,7 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
                             <Text style={styles.distItemName} numberOfLines={1}>
                               {it.name}{it.size ? ` ${it.size}` : ''}
                             </Text>
-                            <Text style={styles.distItemQty}>x{it.quantity}</Text>
+                            <Text style={styles.distItemQty}>{shortQty(histQty(it))}</Text>
                           </View>
                         ))}
                         {distCost > 0 && (
@@ -727,6 +728,14 @@ function OrderRow({ order, onPress }: { order: Order; onPress: () => void }) {
     </TouchableOpacity>
   );
 }
+
+// A history line as caseOrder formats it. quantity is bottles either way, so
+// spend and trends keep summing it as before.
+const histQty = (i: { quantity: number; unit?: string | null; case_size?: number | null }) => ({
+  quantity: i.quantity,
+  unit: i.unit === 'case' && i.case_size ? ('case' as const) : ('bottle' as const),
+  caseSize: i.case_size ?? null,
+});
 
 const styles = StyleSheet.create({
   container: {

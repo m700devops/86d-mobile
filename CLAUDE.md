@@ -49,6 +49,23 @@ Don't describe either in UI copy or docs.
   back — emails nobody twice: 86d-api skips every distributor already sent that exact order
   and reports it sent with its original number (`results[].order_number`, used per
   distributor). The network-error alert says resending is safe
+- src/utils/caseOrder.ts — **case or bottles, decided FOR the bar** (2026-10-08). The manager
+  is never asked: `planOrderLine()` rounds a shortfall up to a full case only when the extra
+  bottles would be used within `CASE_CLEAR_WEEKS` (3) — Tito's short 4 at ~6/week → 1 case;
+  Green Chartreuse short 1 at ~1/month → 1 bottle. Short a case or more and slow → "1 case + 3",
+  never rounded up. How fast the bar goes through it (`weeklyUse()`): its own sent orders
+  (86d-api `GET /locations/{id}/order-usage`, by product id, else by the order line's name), else
+  par read as `PAR_WEEKS` (3) weeks of stock — deliberately low, so a guess orders bottles, not a
+  case that sits. History that doesn't include a bottle = barely used. No case size known (a mini,
+  an odd size) = bottles. Case size: the bar's saved one, else `defaultCaseSize()` from the bottle
+  size (750ml/1L 12, 1.75L 6, 375ml 24, 12oz 24). **`quantity` is always bottles**, a case line
+  included; 86d-api's email spells out "2 cases (12/cs, 24 bottles)". OrderSummary shows each
+  line's "1 cs" / "4 btl" chip with the reason under it; ONE TAP flips it and saves the bar's
+  choice for that bottle (ProductBookContext `setOrderChoice`, queued like par, key `unit:`),
+  which is then never second-guessed. The Bottle Book editor has ORDER AS (Let 86'd decide /
+  Bottles / Cases) and BOTTLES PER CASE. ReviewGrid's "N SHORT" badge stays the bottle shortfall.
+  Sends now carry `size`, `product_id` and, on case lines, `unit`/`case_size`; reorders keep
+  their cases; Order History shows them. Covered by utils/__tests__/caseOrder.test.ts
 - src/screens/SettingsScreen.tsx — manage distributors (add/edit/remove) + Restaurant
   section (business name / bar manager name, editable anytime)
 - src/screens/LoginScreen.tsx — login. Email field intentionally has no `autoFocus` —

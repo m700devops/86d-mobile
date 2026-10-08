@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, STORAGE_KEYS } from '../config/api';
+import type { UsageData } from '../utils/caseOrder';
 import {
   AuthResponse,
   LoginRequest,
@@ -349,8 +350,12 @@ class ApiService {
   async updateProductStock(
     locationId: string,
     productId: string,
-    updates: { full?: number; current_stock?: number; par?: number; price?: number }
-  ): Promise<{ location_id: string; product_id: string; full: number; current_stock: number; par: number | null; price: number | null; updated_at: string }> {
+    updates: {
+      full?: number; current_stock?: number; par?: number; price?: number;
+      // 'auto' hands the choice back to the app; case_size 0 clears it.
+      order_unit?: 'auto' | 'bottle' | 'case'; case_size?: number;
+    }
+  ): Promise<{ location_id: string; product_id: string; full: number; current_stock: number; par: number | null; price: number | null; order_unit?: 'bottle' | 'case' | null; case_size?: number | null; updated_at: string }> {
     const response = await this.client.patch(
       `/locations/${locationId}/products/${productId}`,
       updates
@@ -365,6 +370,13 @@ class ApiService {
       `/locations/${locationId}/duplicates`
     );
     return response.data.groups;
+  }
+
+  // How many bottles of each product this bar went through lately, from its
+  // own sent orders (utils/caseOrder weeklyUse). span_days 0 = no usable rate.
+  async getOrderUsage(locationId: string): Promise<UsageData> {
+    const response = await this.client.get<UsageData>(`/locations/${locationId}/order-usage`);
+    return response.data;
   }
 
   async getParLevels(locationId: string): Promise<ParLevel[]> {
@@ -489,7 +501,11 @@ class ApiService {
     location_name: string;
     orders: {
       distributor_id: string;
-      items: { name: string; quantity: number; size?: string; price?: number }[];
+      // quantity is bottles; a case line adds unit 'case' + case_size.
+      items: {
+        name: string; quantity: number; size?: string; price?: number;
+        unit?: 'bottle' | 'case'; case_size?: number; product_id?: string;
+      }[];
     }[];
     // The same id on a retry of the same order (after a timeout or dropped
     // connection) lets the server skip every distributor already emailed it.

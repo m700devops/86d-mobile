@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import * as Print from 'expo-print';
 import * as Clipboard from 'expo-clipboard';
@@ -15,6 +15,7 @@ import { apiService } from '../services/api';
 import { OrderItem, OrderDistributorSummary } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { orderQuantity } from '../utils/orderQuantity';
+import { planOrderLine, weeklyUse, shortQty, longQty, UsageData } from '../utils/caseOrder';
 import ConnectionNotice from '../components/ConnectionNotice';
 
 interface Props {
@@ -32,7 +33,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const { distributors, initialsFor } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
-  const { priceFor, setDistributor } = useProductBook();
+  const { priceFor, setDistributor, orderChoiceFor, caseSizeFor, setOrderChoice } = useProductBook();
   const { parOf, distributorOf } = useBottleDefaults();
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
@@ -57,6 +58,20 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const [showCallList, setShowCallList] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
 
+  // How fast this bar goes through each bottle, from its own sent orders —
+  // what decides whether a shortfall rounds up to a case (utils/caseOrder).
+  // Unavailable (offline, an older server) is fine: par stands in for it.
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const locationId = currentLocation?.id;
+  useEffect(() => {
+    if (!locationId || presetOrder) return;
+    let live = true;
+    apiService.getOrderUsage(locationId)
+      .then(u => { if (live) setUsage(u); })
+      .catch(() => { if (live) setUsage(null); });
+    return () => { live = false; };
+  }, [locationId, presetOrder]);
+
   // Reordering a past order skips the bottles/par-level derivation entirely —
   // the items and quantities come straight from what was ordered before.
   const orderItems: OrderItem[] = presetOrder
@@ -65,11 +80,16 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           bottleId: `reorder-${di}-${ii}`,
           bottleName: item.name,
           name: item.name,
+          // Bottles; a case line comes back as one, so a reorder keeps its cases.
           quantity: item.quantity,
           price: item.price || 0,
           category: 'Other',
           urgency: 'normal' as OrderItem['urgency'],
           distributorId: dist.distributor_id || undefined,
+          productId: item.product_id || undefined,
+          size: item.size || undefined,
+          unit: item.unit === 'case' && item.case_size ? ('case' as const) : ('bottle' as const),
+          caseSize: item.unit === 'case' ? item.case_size ?? null : null,
         }))
       )
     : bottles
@@ -78,11 +98,20 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           // price does: set once for this bar, and already correct on a bottle
           // this week's scan just identified. The quantity rule itself is shared
           // with Review & Par's "N SHORT" badge (utils/orderQuantity).
-          const totalQuantity = orderQuantity(b.currentStock, parOf(b), currentLocation?.reorder_threshold);
+          const shortfall = orderQuantity(b.currentStock, parOf(b), currentLocation?.reorder_threshold);
 
           // Order lines show the full product: "Belvedere Vodka", "Gatorade Blue Bolt" —
           // never the raw scanned name, which is literally "Original" for a base product.
           const label = [b.brand, bottleSubtitle(b)].filter(Boolean).join(' ') || b.name;
+
+          // Case or bottles: decided here from how fast this bar goes through
+          // the bottle, unless the bar chose (utils/caseOrder). Nobody is asked.
+          const caseSize = caseSizeFor(b.productId, b.size) ?? null;
+          const { perWeek } = weeklyUse({ productId: b.productId, name: label, par: parOf(b), usage });
+          const plan = planOrderLine({
+            shortfall, caseSize, choice: orderChoiceFor(b.productId), perWeek,
+          });
+          const totalQuantity = plan.quantity;
 
           return {
             bottleId: b.id,
@@ -96,6 +125,16 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             category: b.category,
             urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
             distributorId: distributorOf(b),
+            productId: b.productId,
+            // Sent so the email can name it ("Tito's 1L") — unless the label
+            // already says it.
+            size: b.size && !label.toLowerCase().includes(b.size.toLowerCase()) ? b.size : undefined,
+            unit: plan.unit,
+            caseSize: plan.caseSize,
+            shortfall,
+            reason: plan.reason,
+            chosen: plan.chosen,
+            canSwitch: !!caseSize && !!b.productId,
           };
         })
         .filter(b => b.quantity > 0);
@@ -108,6 +147,26 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     .filter(group => group.items.length > 0);
 
   const unassignedItems = orderItems.filter(item => !item.distributorId);
+
+  // One tap flips a line between cases and bottles, and the bar's choice is
+  // saved for that bottle — so it's never asked again, and the app never
+  // second-guesses it on a later order.
+  const switchUnit = (item: OrderItem) => {
+    const bottle = bottles.find(b => b.id === item.bottleId);
+    const product = bottle ? bookProduct(bottle) : undefined;
+    if (!product || !item.canSwitch) return;
+    const size = caseSizeFor(product.id, product.size);
+    if (item.unit === 'case') setOrderChoice(product, 'bottle');
+    else if (size) setOrderChoice(product, 'case', size);
+  };
+
+  // The small grey line under a bottle: why it's a case or bottles, or that
+  // the bar chose it. Nothing when there was nothing to decide.
+  const lineNote = (item: OrderItem) => {
+    if (presetOrder || !item.canSwitch) return '';
+    if (item.chosen) return item.unit === 'case' ? 'You order this by the case · tap to switch' : 'You order this by the bottle · tap to switch';
+    return item.reason ? `${capitalize(item.reason)} · tap to switch` : '';
+  };
 
   const handleSendOrders = () => {
     if (isSending || groupedByDistributor.length === 0) return;
@@ -168,8 +227,11 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           distributor_id: g.distributor.id,
           items: g.items.map(i => ({
             name: i.name || i.bottleName,
-            quantity: i.quantity,
+            quantity: i.quantity,          // bottles, case lines included
             price: i.price || undefined,
+            size: i.size || undefined,
+            product_id: i.productId,
+            ...(i.unit === 'case' && i.caseSize ? { unit: 'case' as const, case_size: i.caseSize } : {}),
           })),
         })),
       });
@@ -288,7 +350,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     const title = user?.business_name || currentLocation?.name || 'Order Summary';
     const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const sections = groupedByDistributor.map(group => {
-      const lines = group.items.map(item => `  - ${item.name || item.bottleName} x${item.quantity}`).join('\n');
+      const lines = group.items.map(item => `  - ${item.name || item.bottleName} x ${longQty(lineQty(item))}`).join('\n');
       return `${group.distributor.name}\n${lines}`;
     }).join('\n\n');
 
@@ -302,7 +364,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       <h2>${escapeHtml(group.distributor.name)}</h2>
       <table>
         <tr><th>Item</th><th>Qty</th></tr>
-        ${group.items.map(item => `<tr><td>${escapeHtml(item.name || item.bottleName)}</td><td>${item.quantity}</td></tr>`).join('')}
+        ${group.items.map(item => `<tr><td>${escapeHtml(item.name || item.bottleName)}</td><td>${escapeHtml(longQty(lineQty(item)))}</td></tr>`).join('')}
       </table>
     `).join('');
 
@@ -473,10 +535,28 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
               </View>
               {group.items.map(item => (
                 <View key={item.bottleId} style={styles.distributorItem}>
-                  <Text style={styles.distributorItemName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text style={styles.distributorItemQty}>x{item.quantity}</Text>
+                  <View style={styles.distributorItemText}>
+                    <Text style={styles.distributorItemName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    {lineNote(item) ? (
+                      <Text style={styles.distributorItemReason} numberOfLines={2}>
+                        {lineNote(item)}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {item.canSwitch && !presetOrder ? (
+                    <TouchableOpacity
+                      onPress={() => switchUnit(item)}
+                      style={styles.unitChip}
+                      activeOpacity={0.7}
+                      accessibilityLabel={`${longQty(lineQty(item))}. Tap to order ${item.unit === 'case' ? 'bottles' : 'by the case'} instead`}
+                    >
+                      <Text style={styles.distributorItemQty}>{shortQty(lineQty(item))}</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={styles.distributorItemQty}>{shortQty(lineQty(item))}</Text>
+                  )}
                 </View>
               ))}
             </View>
@@ -756,6 +836,14 @@ function ExportButton({ icon, label, onPress }: { icon: React.ReactNode; label: 
   );
 }
 
+const lineQty = (item: OrderItem) => ({
+  quantity: item.quantity,
+  unit: item.unit === 'case' ? ('case' as const) : ('bottle' as const),
+  caseSize: item.caseSize ?? null,
+});
+
+const capitalize = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -856,10 +944,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: `${COLORS.border}30`,
   },
+  distributorItemText: {
+    flex: 1,
+    marginRight: SPACING.sm,
+  },
   distributorItemName: {
     fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
-    flex: 1,
+  },
+  distributorItemReason: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: 2,
+  },
+  unitChip: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: `${COLORS.accentPrimary}60`,
+    backgroundColor: `${COLORS.accentPrimary}14`,
   },
   distributorItemQty: {
     fontSize: FONT_SIZES.sm,
