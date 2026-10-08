@@ -615,7 +615,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                     }}
                     activeOpacity={0.7}
                   >
-                    <Hash size={13} color={COLORS.textTertiary} />
                     <Text style={accountShown(group.distributor.id) ? styles.infoText : styles.infoAction}>
                       {accountShown(group.distributor.id) ? `Acct #${accountShown(group.distributor.id)}` : 'Add account #'}
                     </Text>
