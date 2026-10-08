@@ -5,9 +5,8 @@ import * as Clipboard from 'expo-clipboard';
 import { COLORS, DISTRIBUTOR_COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X, Hash, CalendarDays } from 'lucide-react-native';
+import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X, Hash } from 'lucide-react-native';
 import { emailProblemText } from '../utils/emailProblem';
-import { parseDays, nextDelivery, upcomingDates, isoDate, fromIsoDate, deliveryLabel } from '../utils/delivery';
 import { useInventory, newOrderRef } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
@@ -62,15 +61,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const [showCallList, setShowCallList] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
 
-  // "Deliver by" per distributor: the next of its delivery days (Settings),
-  // filled in by itself; one tap changes it for this order. '' = no date.
-  const [deliverPick, setDeliverPick] = useState<Record<string, string>>({});
-  const [pickingDateFor, setPickingDateFor] = useState<string | null>(null);
-  const deliverByFor = (distId: string): Date | null => {
-    if (distId in deliverPick) return fromIsoDate(deliverPick[distId]);
-    const dist = distributors.find(d => d.id === distId);
-    return nextDelivery(parseDays(dist?.deliveryDays));
-  };
   // The account number, asked right where it's needed: a distributor with none
   // saved shows "+ Add account #" in its box. Saved for good on Save; if that
   // fails (bar wifi) the order still carries what was typed and the server
@@ -192,13 +182,11 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     return DISTRIBUTOR_COLORS[(i < 0 ? 0 : i) % DISTRIBUTOR_COLORS.length];
   };
 
-  // "Acct #4471", "Deliver by Fri, Oct 10" — what the email will carry.
+  // "Acct #4471" — what the email will carry.
   const cardInfo = (distId: string) => {
     const out: string[] = [];
     const acct = accountShown(distId);
     if (acct) out.push(`Acct #${acct}`);
-    const d = deliverByFor(distId);
-    if (d) out.push(`Deliver by ${deliveryLabel(d)}`);
     return out;
   };
 
@@ -279,7 +267,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         location_name: currentLocation.name ?? 'My Bar',
         orders: pending.map(g => ({
           distributor_id: g.distributor.id,
-          ...(deliverByFor(g.distributor.id) ? { deliver_by: isoDate(deliverByFor(g.distributor.id)!) } : {}),
           ...(accountUnsaved[g.distributor.id] ? { account_number: accountUnsaved[g.distributor.id] } : {}),
           items: g.items.map(i => ({
             name: i.name || i.bottleName,
@@ -628,23 +615,8 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                     }}
                     activeOpacity={0.7}
                   >
-                    <Hash size={13} color={COLORS.textTertiary} />
                     <Text style={accountShown(group.distributor.id) ? styles.infoText : styles.infoAction}>
                       {accountShown(group.distributor.id) ? `Acct #${accountShown(group.distributor.id)}` : 'Add account #'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                {accountEditing !== group.distributor.id && (
-                  <TouchableOpacity
-                    style={styles.infoChip}
-                    onPress={() => setPickingDateFor(group.distributor.id)}
-                    activeOpacity={0.7}
-                  >
-                    <CalendarDays size={13} color={COLORS.textTertiary} />
-                    <Text style={deliverByFor(group.distributor.id) ? styles.infoText : styles.infoAction}>
-                      {deliverByFor(group.distributor.id)
-                        ? `Deliver by ${deliveryLabel(deliverByFor(group.distributor.id)!)}`
-                        : 'Delivery date'}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -702,65 +674,6 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
               ))}
             </View>
           )}
-
-          {/* Deliver-by picker: the distributor's next delivery days (or the
-              next week when none are saved), plus "No date". */}
-          <Modal
-            visible={pickingDateFor !== null}
-            transparent
-            animationType="slide"
-            onRequestClose={() => setPickingDateFor(null)}
-          >
-            <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPickingDateFor(null)}>
-              <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
-                <View style={styles.modalHandle} />
-                <View style={styles.modalHeader}>
-                  <View>
-                    <Text style={styles.modalTitle}>Deliver by</Text>
-                    <Text style={styles.modalSubtitle} numberOfLines={1}>
-                      {distributors.find(d => d.id === pickingDateFor)?.name}
-                      {parseDays(distributors.find(d => d.id === pickingDateFor)?.deliveryDays).length
-                        ? '' : ' · set their delivery days in Settings'}
-                    </Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setPickingDateFor(null)}>
-                    <X size={20} color={COLORS.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-                {pickingDateFor &&
-                  upcomingDates(parseDays(distributors.find(d => d.id === pickingDateFor)?.deliveryDays), 6).map(d => (
-                    <TouchableOpacity
-                      key={isoDate(d)}
-                      style={styles.modalDistRow}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        setDeliverPick(prev => ({ ...prev, [pickingDateFor]: isoDate(d) }));
-                        setPickingDateFor(null);
-                      }}
-                    >
-                      <CalendarDays size={18} color={COLORS.textTertiary} />
-                      <Text style={styles.modalDistName}>{deliveryLabel(d)}</Text>
-                      {deliverByFor(pickingDateFor) && isoDate(deliverByFor(pickingDateFor)!) === isoDate(d) ? (
-                        <CheckCircle2 size={18} color={COLORS.accentText} />
-                      ) : null}
-                    </TouchableOpacity>
-                  ))}
-                {pickingDateFor && (
-                  <TouchableOpacity
-                    style={styles.modalDistRow}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      setDeliverPick(prev => ({ ...prev, [pickingDateFor]: '' }));
-                      setPickingDateFor(null);
-                    }}
-                  >
-                    <X size={18} color={COLORS.textTertiary} />
-                    <Text style={styles.modalDistName}>No date on this order</Text>
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            </TouchableOpacity>
-          </Modal>
 
           {/* Assign Distributor Modal */}
           <Modal

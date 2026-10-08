@@ -55,7 +55,7 @@ Don't describe either in UI copy or docs.
   whoever came first that week took the red. Colours shift only when a distributor is added or
   removed
 - **The distributor email matches the landing page's order card** (86d-api `helpers.order_email`):
-  subject "Order #1042 from <bar>", then "Acct #4471" and "Deliver by Fri, Oct 10", a unit on
+  subject "Order #1042 from <bar>", then "Acct #4471", a unit on
   every line, "Order sent by Dana Reyes, Bar Manager at <bar>. Please put order #1042 on the
   invoice.", a light HTML card, From 86'd Orders <orders@my86d.com>. The app feeds it:
   - **Account numbers** — per BAR per distributor (DistributorContext `accountFor` /
@@ -64,12 +64,11 @@ Don't describe either in UI copy or docs.
     on the order screen: a distributor with none shows "Add account #" in its box, Save keeps it
     for good. If that save fails offline, the send carries it (`account_number`) and the server
     saves it then. Never blocks a send.
-  - **Delivery days** — per distributor, Mon–Sun chips in the distributor form
-    (`distributors.delivery_days`, "mon,thu"; `utils/delivery.ts`). The order screen fills in
-    "Deliver by" with the NEXT delivery day after today (`nextDelivery` — today's truck may have
-    gone); one tap opens a picker (the next six delivery days, or the next week when none are
-    saved, plus "No date on this order"). Sent as `deliver_by`, an ISO date in the PHONE's
-    calendar (`isoDate`, never toISOString's UTC).
+  - **No delivery date** (owner's call, 2026-10-08): the order screen has no "Deliver by" chip or
+    picker and the app sends no `deliver_by`, so the email carries none — the distributor
+    assumes the following week. The distributor form has no delivery-days chips either
+    (`utils/delivery.ts` and 86d-api's `delivery_days` / `deliver_by` stay for orders already in
+    the history, which still show the date they carried).
   - **Settings → Restaurant**: YOUR TITLE (`users.title`, blank reads "Bar Manager") and
     DISTRIBUTOR REPLIES GO TO (`users.order_reply_to`, blank = the login email; nudged for an
     Apple hidden email, whose relay may refuse a distributor's reply; a bad address is a 422
