@@ -454,6 +454,9 @@ class ApiService {
       ...raw,
       repName: raw.repName ?? raw.rep_name ?? undefined,
       deliveryDays: raw.deliveryDays ?? raw.delivery_days ?? null,
+      emailProblem: raw.emailProblem ?? raw.email_problem ?? null,
+      emailProblemReason: raw.emailProblemReason ?? raw.email_problem_reason ?? null,
+      emailProblemAt: raw.emailProblemAt ?? raw.email_problem_at ?? null,
     };
   }
 

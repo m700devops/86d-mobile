@@ -77,6 +77,12 @@ Don't describe either in UI copy or docs.
   - api.ts maps the server's `rep_name`/`delivery_days` to `repName`/`deliveryDays` (rep_name
     used to arrive unmapped, so a saved rep never showed). Order History shows the account and
     date each email carried. Covered by utils/__tests__/delivery.test.ts
+- **Bounce warning** (src/utils/emailProblem.ts). 86d-api records Resend's delivery webhooks on
+  the distributor (`email_problem` bounced|complained, reason, time; cleared by a later delivery
+  or by saving a different address). OrderSummary shows an amber box on that distributor's card
+  ("Order emails to X are bouncing … fix it in Settings — or call this order in") and Settings
+  shows "⚠ … — tap to fix" under the distributor. Both screens refresh distributors on open.
+  Covered by utils/__tests__/emailProblem.test.ts
 - src/utils/caseOrder.ts — **case or bottles, decided FOR the bar** (2026-10-08). The manager
   is never asked: `planOrderLine()` rounds a shortfall up to a full case only when the extra
   bottles would be used within `CASE_CLEAR_WEEKS` (3) — Tito's short 4 at ~6/week → 1 case;
