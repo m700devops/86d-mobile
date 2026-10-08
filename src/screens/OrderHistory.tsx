@@ -22,6 +22,8 @@ import {
 } from 'lucide-react-native';
 import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
+import { longQty, shortQty } from '../utils/caseOrder';
+import { fromIsoDate, deliveryLabel } from '../utils/delivery';
 import { Order, OrderDetail, OrderDistributorSummary } from '../types';
 
 const PAGE_SIZE = 20;
@@ -225,7 +227,8 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
     });
     const lines = orderDetail.distributors.map(d =>
       `${d.distributor_name ?? 'Distributor'} (${d.status}):\n` +
-      d.items.map(i => `  - ${i.name}${i.size ? ` ${i.size}` : ''} x${i.quantity}`).join('\n')
+      (sentInfo(d) ? `  ${sentInfo(d)}\n` : '') +
+      d.items.map(i => `  - ${i.name}${i.size ? ` ${i.size}` : ''} x ${longQty(histQty(i))}`).join('\n')
     ).join('\n\n');
     try {
       const ref = formatOrderNumber(orderDetail.order_number);
@@ -246,9 +249,10 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
       });
       const sections = orderDetail.distributors.map(d => `
         <h2>${escapeHtml(d.distributor_name ?? 'Distributor')}</h2>
+        ${sentInfo(d) ? `<p>${escapeHtml(sentInfo(d))}</p>` : ''}
         <table>
           <tr><th>Item</th><th>Qty</th></tr>
-          ${d.items.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${i.quantity}</td></tr>`).join('')}
+          ${d.items.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${escapeHtml(longQty(histQty(i)))}</td></tr>`).join('')}
         </table>
       `).join('');
       await Print.printAsync({
@@ -508,12 +512,13 @@ export default function OrderHistory({ onBack, onReorder }: Props) {
                           <Text style={styles.distCardName}>{dist.distributor_name ?? 'Distributor'}</Text>
                           <StatusBadge status={dist.status} />
                         </View>
+                        {sentInfo(dist) ? <Text style={styles.distCardInfo}>{sentInfo(dist)}</Text> : null}
                         {dist.items.map((it, idx) => (
                           <View key={idx} style={styles.distItemRow}>
                             <Text style={styles.distItemName} numberOfLines={1}>
                               {it.name}{it.size ? ` ${it.size}` : ''}
                             </Text>
-                            <Text style={styles.distItemQty}>x{it.quantity}</Text>
+                            <Text style={styles.distItemQty}>{shortQty(histQty(it))}</Text>
                           </View>
                         ))}
                         {distCost > 0 && (
@@ -727,6 +732,23 @@ function OrderRow({ order, onPress }: { order: Order; onPress: () => void }) {
     </TouchableOpacity>
   );
 }
+
+// "Acct #4471 · Deliver by Fri, Oct 10" — what that distributor's email carried.
+const sentInfo = (d: { account_number?: string | null; deliver_by?: string | null }) => {
+  const parts: string[] = [];
+  if (d.account_number) parts.push(`Acct #${d.account_number}`);
+  const date = fromIsoDate(d.deliver_by);
+  if (date) parts.push(`Deliver by ${deliveryLabel(date)}`);
+  return parts.join(' · ');
+};
+
+// A history line as caseOrder formats it. quantity is bottles either way, so
+// spend and trends keep summing it as before.
+const histQty = (i: { quantity: number; unit?: string | null; case_size?: number | null }) => ({
+  quantity: i.quantity,
+  unit: i.unit === 'case' && i.case_size ? ('case' as const) : ('bottle' as const),
+  caseSize: i.case_size ?? null,
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -1044,6 +1066,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: SPACING.sm,
+  },
+  distCardInfo: {
+    fontSize: FONT_SIZES.xs + 1,
+    color: COLORS.textTertiary,
+    marginTop: -4,
+    marginBottom: 6,
   },
   distCardName: {
     fontSize: FONT_SIZES.base,

@@ -14,7 +14,9 @@ interface AuthContextType {
   // True when the account was re-read; false when the server couldn't be
   // reached (the user stays signed in either way).
   refreshUser: () => Promise<boolean>;
-  updateProfile: (updates: { business_name?: string; manager_name?: string; phone?: string }) => Promise<void>;
+  updateProfile: (updates: {
+    business_name?: string; manager_name?: string; phone?: string; title?: string; order_reply_to?: string;
+  }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -140,7 +142,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, []);
 
-  const updateProfile = async (updates: { business_name?: string; manager_name?: string; phone?: string }) => {
+  const updateProfile = async (updates: {
+    business_name?: string; manager_name?: string; phone?: string; title?: string; order_reply_to?: string;
+  }) => {
     const userData = await apiService.updateProfile(updates);
     setUser(userData);
   };

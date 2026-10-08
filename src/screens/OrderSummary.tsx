@@ -1,11 +1,12 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import * as Print from 'expo-print';
 import * as Clipboard from 'expo-clipboard';
-import { COLORS } from '../constants/colors';
+import { COLORS, DISTRIBUTOR_COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X } from 'lucide-react-native';
+import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X, Hash, CalendarDays } from 'lucide-react-native';
+import { parseDays, nextDelivery, upcomingDates, isoDate, fromIsoDate, deliveryLabel } from '../utils/delivery';
 import { useInventory, newOrderRef } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
@@ -15,6 +16,7 @@ import { apiService } from '../services/api';
 import { OrderItem, OrderDistributorSummary } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { orderQuantity } from '../utils/orderQuantity';
+import { planOrderLine, weeklyUse, shortQty, longQty, UsageData } from '../utils/caseOrder';
 import ConnectionNotice from '../components/ConnectionNotice';
 
 interface Props {
@@ -29,10 +31,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const { bottles, isHydrated, updateBottle, clearBottles, getOrderRef } = useInventory();
   // A reorder from history isn't a count's draft: one id for this screen.
   const reorderRef = useRef(newOrderRef());
-  const { distributors, initialsFor } = useDistributors();
+  const { distributors, initialsFor, accountFor, setAccountNumber } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
-  const { priceFor, setDistributor } = useProductBook();
+  const { priceFor, setDistributor, orderChoiceFor, caseSizeFor, setOrderChoice } = useProductBook();
   const { parOf, distributorOf } = useBottleDefaults();
   const [isSending, setIsSending] = useState(false);
   const [sentDistributors, setSentDistributors] = useState<string[]>([]);
@@ -57,6 +59,54 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const [showCallList, setShowCallList] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
 
+  // "Deliver by" per distributor: the next of its delivery days (Settings),
+  // filled in by itself; one tap changes it for this order. '' = no date.
+  const [deliverPick, setDeliverPick] = useState<Record<string, string>>({});
+  const [pickingDateFor, setPickingDateFor] = useState<string | null>(null);
+  const deliverByFor = (distId: string): Date | null => {
+    if (distId in deliverPick) return fromIsoDate(deliverPick[distId]);
+    const dist = distributors.find(d => d.id === distId);
+    return nextDelivery(parseDays(dist?.deliveryDays));
+  };
+  // The account number, asked right where it's needed: a distributor with none
+  // saved shows "+ Add account #" in its box. Saved for good on Save; if that
+  // fails (bar wifi) the order still carries what was typed and the server
+  // saves it with the send.
+  const [accountEditing, setAccountEditing] = useState<string | null>(null);
+  const [accountDraft, setAccountDraft] = useState<Record<string, string>>({});
+  const [accountUnsaved, setAccountUnsaved] = useState<Record<string, string>>({});
+  const accountShown = (distId: string) => accountUnsaved[distId] || accountFor(distId);
+  const saveAccount = async (distId: string) => {
+    const value = (accountDraft[distId] || '').trim();
+    setAccountEditing(null);
+    if (!value || value === accountFor(distId)) return;
+    setAccountUnsaved(prev => ({ ...prev, [distId]: value }));
+    try {
+      await setAccountNumber(distId, value);
+      setAccountUnsaved(prev => {
+        const next = { ...prev };
+        delete next[distId];
+        return next;
+      });
+    } catch {
+      // Kept in accountUnsaved: it goes with the order and is saved then.
+    }
+  };
+
+  // How fast this bar goes through each bottle, from its own sent orders —
+  // what decides whether a shortfall rounds up to a case (utils/caseOrder).
+  // Unavailable (offline, an older server) is fine: par stands in for it.
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const locationId = currentLocation?.id;
+  useEffect(() => {
+    if (!locationId || presetOrder) return;
+    let live = true;
+    apiService.getOrderUsage(locationId)
+      .then(u => { if (live) setUsage(u); })
+      .catch(() => { if (live) setUsage(null); });
+    return () => { live = false; };
+  }, [locationId, presetOrder]);
+
   // Reordering a past order skips the bottles/par-level derivation entirely —
   // the items and quantities come straight from what was ordered before.
   const orderItems: OrderItem[] = presetOrder
@@ -65,11 +115,16 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           bottleId: `reorder-${di}-${ii}`,
           bottleName: item.name,
           name: item.name,
+          // Bottles; a case line comes back as one, so a reorder keeps its cases.
           quantity: item.quantity,
           price: item.price || 0,
           category: 'Other',
           urgency: 'normal' as OrderItem['urgency'],
           distributorId: dist.distributor_id || undefined,
+          productId: item.product_id || undefined,
+          size: item.size || undefined,
+          unit: item.unit === 'case' && item.case_size ? ('case' as const) : ('bottle' as const),
+          caseSize: item.unit === 'case' ? item.case_size ?? null : null,
         }))
       )
     : bottles
@@ -78,11 +133,20 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
           // price does: set once for this bar, and already correct on a bottle
           // this week's scan just identified. The quantity rule itself is shared
           // with Review & Par's "N SHORT" badge (utils/orderQuantity).
-          const totalQuantity = orderQuantity(b.currentStock, parOf(b), currentLocation?.reorder_threshold);
+          const shortfall = orderQuantity(b.currentStock, parOf(b), currentLocation?.reorder_threshold);
 
           // Order lines show the full product: "Belvedere Vodka", "Gatorade Blue Bolt" —
           // never the raw scanned name, which is literally "Original" for a base product.
           const label = [b.brand, bottleSubtitle(b)].filter(Boolean).join(' ') || b.name;
+
+          // Case or bottles: decided here from how fast this bar goes through
+          // the bottle, unless the bar chose (utils/caseOrder). Nobody is asked.
+          const caseSize = caseSizeFor(b.productId, b.size) ?? null;
+          const { perWeek } = weeklyUse({ productId: b.productId, name: label, par: parOf(b), usage });
+          const plan = planOrderLine({
+            shortfall, caseSize, choice: orderChoiceFor(b.productId), perWeek,
+          });
+          const totalQuantity = plan.quantity;
 
           return {
             bottleId: b.id,
@@ -96,6 +160,16 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             category: b.category,
             urgency: (totalQuantity > 5 ? 'critical' : 'normal') as OrderItem['urgency'],
             distributorId: distributorOf(b),
+            productId: b.productId,
+            // Sent so the email can name it ("Tito's 1L") — unless the label
+            // already says it.
+            size: b.size && !label.toLowerCase().includes(b.size.toLowerCase()) ? b.size : undefined,
+            unit: plan.unit,
+            caseSize: plan.caseSize,
+            shortfall,
+            reason: plan.reason,
+            chosen: plan.chosen,
+            canSwitch: !!caseSize && !!b.productId,
           };
         })
         .filter(b => b.quantity > 0);
@@ -108,6 +182,42 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     .filter(group => group.items.length > 0);
 
   const unassignedItems = orderItems.filter(item => !item.distributorId);
+
+  // The same colour for a distributor on every order (constants/colors).
+  const distributorColor = (id: string) => {
+    const i = distributors.findIndex(d => d.id === id);
+    return DISTRIBUTOR_COLORS[(i < 0 ? 0 : i) % DISTRIBUTOR_COLORS.length];
+  };
+
+  // "Acct #4471", "Deliver by Fri, Oct 10" — what the email will carry.
+  const cardInfo = (distId: string) => {
+    const out: string[] = [];
+    const acct = accountShown(distId);
+    if (acct) out.push(`Acct #${acct}`);
+    const d = deliverByFor(distId);
+    if (d) out.push(`Deliver by ${deliveryLabel(d)}`);
+    return out;
+  };
+
+  // One tap flips a line between cases and bottles, and the bar's choice is
+  // saved for that bottle — so it's never asked again, and the app never
+  // second-guesses it on a later order.
+  const switchUnit = (item: OrderItem) => {
+    const bottle = bottles.find(b => b.id === item.bottleId);
+    const product = bottle ? bookProduct(bottle) : undefined;
+    if (!product || !item.canSwitch) return;
+    const size = caseSizeFor(product.id, product.size);
+    if (item.unit === 'case') setOrderChoice(product, 'bottle');
+    else if (size) setOrderChoice(product, 'case', size);
+  };
+
+  // The small grey line under a bottle: why it's a case or bottles, or that
+  // the bar chose it. Nothing when there was nothing to decide.
+  const lineNote = (item: OrderItem) => {
+    if (presetOrder || !item.canSwitch) return '';
+    if (item.chosen) return item.unit === 'case' ? 'You order this by the case · tap to switch' : 'You order this by the bottle · tap to switch';
+    return item.reason ? `${capitalize(item.reason)} · tap to switch` : '';
+  };
 
   const handleSendOrders = () => {
     if (isSending || groupedByDistributor.length === 0) return;
@@ -166,10 +276,15 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         location_name: currentLocation.name ?? 'My Bar',
         orders: pending.map(g => ({
           distributor_id: g.distributor.id,
+          ...(deliverByFor(g.distributor.id) ? { deliver_by: isoDate(deliverByFor(g.distributor.id)!) } : {}),
+          ...(accountUnsaved[g.distributor.id] ? { account_number: accountUnsaved[g.distributor.id] } : {}),
           items: g.items.map(i => ({
             name: i.name || i.bottleName,
-            quantity: i.quantity,
+            quantity: i.quantity,          // bottles, case lines included
             price: i.price || undefined,
+            size: i.size || undefined,
+            product_id: i.productId,
+            ...(i.unit === 'case' && i.caseSize ? { unit: 'case' as const, case_size: i.caseSize } : {}),
           })),
         })),
       });
@@ -288,8 +403,9 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     const title = user?.business_name || currentLocation?.name || 'Order Summary';
     const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const sections = groupedByDistributor.map(group => {
-      const lines = group.items.map(item => `  - ${item.name || item.bottleName} x${item.quantity}`).join('\n');
-      return `${group.distributor.name}\n${lines}`;
+      const lines = group.items.map(item => `  - ${item.name || item.bottleName} x ${longQty(lineQty(item))}`).join('\n');
+      const info = cardInfo(group.distributor.id).join(' · ');
+      return `${group.distributor.name}${info ? `\n${info}` : ''}\n${lines}`;
     }).join('\n\n');
 
     return `${title}\n${dateStr}\n\n${sections}`;
@@ -300,9 +416,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const sections = groupedByDistributor.map(group => `
       <h2>${escapeHtml(group.distributor.name)}</h2>
+      ${cardInfo(group.distributor.id).length ? `<p>${escapeHtml(cardInfo(group.distributor.id).join(' · '))}</p>` : ''}
       <table>
         <tr><th>Item</th><th>Qty</th></tr>
-        ${group.items.map(item => `<tr><td>${escapeHtml(item.name || item.bottleName)}</td><td>${item.quantity}</td></tr>`).join('')}
+        ${group.items.map(item => `<tr><td>${escapeHtml(item.name || item.bottleName)}</td><td>${escapeHtml(longQty(lineQty(item)))}</td></tr>`).join('')}
       </table>
     `).join('');
 
@@ -448,35 +565,102 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         {/* Distributor Breakdown (Sidebar on desktop, top on mobile) */}
         <View style={styles.distributorSection}>
           <Text style={styles.sectionHeader}>Distributor Breakdown</Text>
-          {groupedByDistributor.map((group, idx) => (
+          {groupedByDistributor.map(group => (
             <View
               key={group.distributor.id}
               style={[
                 styles.distributorCard,
-                idx === 0 && styles.distributorCardAccent,
-                idx === 1 && styles.distributorCardBlue,
-                idx === 2 && styles.distributorCardGreen,
+                {
+                  backgroundColor: `${distributorColor(group.distributor.id)}08`,
+                  borderColor: `${distributorColor(group.distributor.id)}20`,
+                },
               ]}
             >
               <View style={styles.distributorCardHeader}>
                 <Text style={styles.distributorCardTitle}>{group.distributor.name}</Text>
                 <View style={[
                   styles.initialsBadge,
-                  idx === 0 && styles.initialsBadgeAccent,
-                  idx === 1 && styles.initialsBadgeBlue,
-                  idx === 2 && styles.initialsBadgeGreen,
+                  { backgroundColor: `${distributorColor(group.distributor.id)}15` },
                 ]}>
                   <Text style={styles.initialsText}>
                     {initialsFor(group.distributor.id)}
                   </Text>
                 </View>
               </View>
+              <View style={styles.cardInfoRow}>
+                {accountEditing === group.distributor.id ? (
+                  <View style={styles.accountEdit}>
+                    <Hash size={13} color={COLORS.textTertiary} />
+                    <TextInput
+                      style={styles.accountInput}
+                      autoFocus
+                      placeholder="Account # (on any invoice)"
+                      placeholderTextColor={COLORS.textTertiary}
+                      value={accountDraft[group.distributor.id] ?? accountShown(group.distributor.id) ?? ''}
+                      onChangeText={t => setAccountDraft(prev => ({ ...prev, [group.distributor.id]: t }))}
+                      onSubmitEditing={() => saveAccount(group.distributor.id)}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                    />
+                    <TouchableOpacity onPress={() => saveAccount(group.distributor.id)} activeOpacity={0.7}>
+                      <Text style={styles.infoAction}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.infoChip}
+                    onPress={() => {
+                      setAccountDraft(prev => ({ ...prev, [group.distributor.id]: accountShown(group.distributor.id) ?? '' }));
+                      setAccountEditing(group.distributor.id);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Hash size={13} color={COLORS.textTertiary} />
+                    <Text style={accountShown(group.distributor.id) ? styles.infoText : styles.infoAction}>
+                      {accountShown(group.distributor.id) ? `Acct #${accountShown(group.distributor.id)}` : 'Add account #'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {accountEditing !== group.distributor.id && (
+                  <TouchableOpacity
+                    style={styles.infoChip}
+                    onPress={() => setPickingDateFor(group.distributor.id)}
+                    activeOpacity={0.7}
+                  >
+                    <CalendarDays size={13} color={COLORS.textTertiary} />
+                    <Text style={deliverByFor(group.distributor.id) ? styles.infoText : styles.infoAction}>
+                      {deliverByFor(group.distributor.id)
+                        ? `Deliver by ${deliveryLabel(deliverByFor(group.distributor.id)!)}`
+                        : 'Delivery date'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
               {group.items.map(item => (
                 <View key={item.bottleId} style={styles.distributorItem}>
-                  <Text style={styles.distributorItemName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text style={styles.distributorItemQty}>x{item.quantity}</Text>
+                  <View style={styles.distributorItemText}>
+                    <Text style={styles.distributorItemName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    {lineNote(item) ? (
+                      <Text style={styles.distributorItemReason} numberOfLines={2}>
+                        {lineNote(item)}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {item.canSwitch && !presetOrder ? (
+                    <TouchableOpacity
+                      onPress={() => switchUnit(item)}
+                      style={styles.unitChip}
+                      activeOpacity={0.7}
+                      accessibilityLabel={`${longQty(lineQty(item))}. Tap to order ${item.unit === 'case' ? 'bottles' : 'by the case'} instead`}
+                    >
+                      <Text style={styles.distributorItemQty}>{shortQty(lineQty(item))}</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={styles.distributorItemQty}>{shortQty(lineQty(item))}</Text>
+                  )}
                 </View>
               ))}
             </View>
@@ -506,6 +690,65 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
               ))}
             </View>
           )}
+
+          {/* Deliver-by picker: the distributor's next delivery days (or the
+              next week when none are saved), plus "No date". */}
+          <Modal
+            visible={pickingDateFor !== null}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setPickingDateFor(null)}
+          >
+            <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPickingDateFor(null)}>
+              <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
+                <View style={styles.modalHandle} />
+                <View style={styles.modalHeader}>
+                  <View>
+                    <Text style={styles.modalTitle}>Deliver by</Text>
+                    <Text style={styles.modalSubtitle} numberOfLines={1}>
+                      {distributors.find(d => d.id === pickingDateFor)?.name}
+                      {parseDays(distributors.find(d => d.id === pickingDateFor)?.deliveryDays).length
+                        ? '' : ' · set their delivery days in Settings'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setPickingDateFor(null)}>
+                    <X size={20} color={COLORS.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+                {pickingDateFor &&
+                  upcomingDates(parseDays(distributors.find(d => d.id === pickingDateFor)?.deliveryDays), 6).map(d => (
+                    <TouchableOpacity
+                      key={isoDate(d)}
+                      style={styles.modalDistRow}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        setDeliverPick(prev => ({ ...prev, [pickingDateFor]: isoDate(d) }));
+                        setPickingDateFor(null);
+                      }}
+                    >
+                      <CalendarDays size={18} color={COLORS.textTertiary} />
+                      <Text style={styles.modalDistName}>{deliveryLabel(d)}</Text>
+                      {deliverByFor(pickingDateFor) && isoDate(deliverByFor(pickingDateFor)!) === isoDate(d) ? (
+                        <CheckCircle2 size={18} color={COLORS.accentText} />
+                      ) : null}
+                    </TouchableOpacity>
+                  ))}
+                {pickingDateFor && (
+                  <TouchableOpacity
+                    style={styles.modalDistRow}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setDeliverPick(prev => ({ ...prev, [pickingDateFor]: '' }));
+                      setPickingDateFor(null);
+                    }}
+                  >
+                    <X size={18} color={COLORS.textTertiary} />
+                    <Text style={styles.modalDistName}>No date on this order</Text>
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
 
           {/* Assign Distributor Modal */}
           <Modal
@@ -756,6 +999,14 @@ function ExportButton({ icon, label, onPress }: { icon: React.ReactNode; label: 
   );
 }
 
+const lineQty = (item: OrderItem) => ({
+  quantity: item.quantity,
+  unit: item.unit === 'case' ? ('case' as const) : ('bottle' as const),
+  caseSize: item.caseSize ?? null,
+});
+
+const capitalize = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -803,18 +1054,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: SPACING.lg,
   },
-  distributorCardAccent: {
-    backgroundColor: `${COLORS.accentPrimary}08`,
-    borderColor: `${COLORS.accentPrimary}20`,
-  },
-  distributorCardBlue: {
-    backgroundColor: '#3B82F608',
-    borderColor: '#3B82F620',
-  },
-  distributorCardGreen: {
-    backgroundColor: '#10B98108',
-    borderColor: '#10B98120',
-  },
   distributorCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -834,15 +1073,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  initialsBadgeAccent: {
-    backgroundColor: `${COLORS.accentPrimary}15`,
-  },
-  initialsBadgeBlue: {
-    backgroundColor: '#3B82F615',
-  },
-  initialsBadgeGreen: {
-    backgroundColor: '#10B98115',
-  },
   initialsText: {
     fontSize: FONT_SIZES.xs,
     fontWeight: FONT_WEIGHTS.bold,
@@ -856,10 +1086,69 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: `${COLORS.border}30`,
   },
+  cardInfoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginTop: -SPACING.xs,
+    marginBottom: SPACING.sm,
+  },
+  infoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: `${COLORS.textPrimary}0D`,
+  },
+  infoText: {
+    fontSize: FONT_SIZES.xs + 1,
+    color: COLORS.textSecondary,
+    fontWeight: FONT_WEIGHTS.semibold,
+  },
+  infoAction: {
+    fontSize: FONT_SIZES.xs + 1,
+    color: COLORS.accentText,
+    fontWeight: FONT_WEIGHTS.semibold,
+  },
+  accountEdit: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: `${COLORS.accentPrimary}60`,
+  },
+  accountInput: {
+    flex: 1,
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textPrimary,
+    paddingVertical: 3,
+  },
+  distributorItemText: {
+    flex: 1,
+    marginRight: SPACING.sm,
+  },
   distributorItemName: {
     fontSize: FONT_SIZES.sm,
     color: COLORS.textSecondary,
-    flex: 1,
+  },
+  distributorItemReason: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: 2,
+  },
+  unitChip: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: `${COLORS.accentPrimary}60`,
+    backgroundColor: `${COLORS.accentPrimary}14`,
   },
   distributorItemQty: {
     fontSize: FONT_SIZES.sm,

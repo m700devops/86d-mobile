@@ -5,6 +5,7 @@ import { apiService } from '../services/api';
 import { useLocation } from './LocationContext';
 import { Bottle } from '../types';
 import { barcodeVariants } from '../utils/barcode';
+import { defaultCaseSize, OrderChoice } from '../utils/caseOrder';
 
 // --- The product book ---
 //
@@ -44,6 +45,11 @@ export interface BookEntry {
   price?: number;
   par?: number;
   distributorId?: string;
+  // How it's ordered. undefined = the app decides each order (utils/caseOrder);
+  // 'bottle' / 'case' = the bar chose. caseSize is what the bar saved, else
+  // what the bottle size says (750ml/1L 12, 1.75L 6, 375ml 24), else none.
+  orderChoice?: 'bottle' | 'case';
+  caseSize?: number;
 }
 
 type ProductInfo = Pick<BookEntry, 'productId' | 'name' | 'brand' | 'productType' | 'size' | 'category' | 'upc'>;
@@ -70,6 +76,14 @@ interface ProductBookContextType {
   // "Not set" badge and the generate-order guard key off.
   parFor: (productId?: string) => number | undefined;
   distributorFor: (productId?: string) => string | undefined;
+  // The bar's own case/bottle choice, or undefined = the app decides.
+  orderChoiceFor: (productId?: string) => OrderChoice;
+  // Bottles per case: the bar's saved size, else the bottle size's usual one.
+  caseSizeFor: (productId?: string, size?: string | null) => number | undefined;
+  // One tap on an order line or in the Bottle Book. 'auto' hands it back to
+  // the app. Queued like par: applied at once, written when there's signal.
+  setOrderChoice: (product: PriceableProduct, choice: 'auto' | 'bottle' | 'case', caseSize?: number) => void;
+  setCaseSize: (product: PriceableProduct, caseSize: number) => void;
   // The bottle in this bar's book with this barcode (in any of the forms the
   // same code can be read as — utils/barcode), or undefined.
   productForBarcode: (code?: string | null) => BookEntry | undefined;
@@ -104,6 +118,8 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [priceByProductId, setPriceByProductId] = useState<Record<string, number>>({});
   const [parByProductId, setParByProductId] = useState<Record<string, number>>({});
   const [distByProductId, setDistByProductId] = useState<Record<string, string>>({});
+  const [choiceByProductId, setChoiceByProductId] = useState<Record<string, 'bottle' | 'case'>>({});
+  const [caseSizeByProductId, setCaseSizeByProductId] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   // Which bar the loaded maps actually belong to. This is state, not a ref, on
   // purpose: reads are gated on it matching the selected bar, so it has to
@@ -198,6 +214,8 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const info: Record<string, ProductInfo> = {};
         const prices: Record<string, number> = {};
         const pars: Record<string, number> = {};
+        const choices: Record<string, 'bottle' | 'case'> = {};
+        const caseSizes: Record<string, number> = {};
         parResult.value.forEach(pl => {
           info[pl.product_id] = {
             productId: pl.product_id,
@@ -211,6 +229,8 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
           // 0 is the backend's "never set", for price and par alike.
           if (pl.price && pl.price > 0) prices[pl.product_id] = pl.price;
           if (pl.par_quantity && pl.par_quantity > 0) pars[pl.product_id] = pl.par_quantity;
+          if (pl.order_unit === 'bottle' || pl.order_unit === 'case') choices[pl.product_id] = pl.order_unit;
+          if (pl.case_size && pl.case_size >= 2) caseSizes[pl.product_id] = pl.case_size;
         });
 
         // An assignment can exist with no par_levels row behind it, so the
@@ -240,6 +260,8 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
         setInfoByProductId(info);
         setPriceByProductId(prices);
         setParByProductId(pars);
+        setChoiceByProductId(choices);
+        setCaseSizeByProductId(caseSizes);
         // Only claim the book belongs to this bar once the rows behind it are
         // really loaded — see the gate on the readers below.
         setBookLocationId(locationId);
@@ -335,6 +357,22 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
     [distByProductId, bookMatchesLocation]
   );
 
+  const orderChoiceFor = useCallback(
+    (productId?: string): OrderChoice =>
+      productId && bookMatchesLocation ? choiceByProductId[productId] : undefined,
+    [choiceByProductId, bookMatchesLocation]
+  );
+
+  const caseSizeFor = useCallback(
+    (productId?: string, size?: string | null) => {
+      const saved = productId && bookMatchesLocation ? caseSizeByProductId[productId] : undefined;
+      if (saved) return saved;
+      const knownSize = size ?? (productId ? infoByProductId[productId]?.size : null);
+      return defaultCaseSize(knownSize) ?? undefined;
+    },
+    [caseSizeByProductId, infoByProductId, bookMatchesLocation]
+  );
+
   const productForBarcode = useCallback(
     (code?: string | null) => {
       if (!code || !bookMatchesLocation) return undefined;
@@ -424,6 +462,53 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
     [currentLocation, runWrite, rememberInfo]
   );
 
+  // Like par: the tap is the intent, applied at once and never rolled back.
+  // A "case" choice always carries its case size, so the server never has to
+  // refuse it for lacking one.
+  const setOrderChoice = useCallback(
+    (product: PriceableProduct, choice: 'auto' | 'bottle' | 'case', caseSize?: number) => {
+      if (!currentLocation) return;
+      const locationId = currentLocation.id;
+      const productId = product.id;
+      const size =
+        caseSize ?? caseSizeByProductId[productId] ?? defaultCaseSize(product.size) ?? undefined;
+      if (choice === 'case' && !size) return;
+
+      rememberInfo(product);
+      setChoiceByProductId(prev => {
+        const next = { ...prev };
+        if (choice === 'auto') delete next[productId];
+        else next[productId] = choice;
+        return next;
+      });
+      if (size) setCaseSizeByProductId(prev => ({ ...prev, [productId]: size }));
+
+      runWrite(`unit:${productId}`, () =>
+        apiService.updateProductStock(locationId, productId, {
+          order_unit: choice,
+          ...(size ? { case_size: size } : {}),
+        })
+      );
+    },
+    [currentLocation, runWrite, rememberInfo, caseSizeByProductId]
+  );
+
+  const setCaseSize = useCallback(
+    (product: PriceableProduct, caseSize: number) => {
+      if (!currentLocation) return;
+      const locationId = currentLocation.id;
+      const productId = product.id;
+      const n = Math.round(caseSize);
+      if (n < 2 || n > 120) return;
+      rememberInfo(product);
+      setCaseSizeByProductId(prev => ({ ...prev, [productId]: n }));
+      runWrite(`casesize:${productId}`, () =>
+        apiService.updateProductStock(locationId, productId, { case_size: n })
+      );
+    },
+    [currentLocation, runWrite, rememberInfo]
+  );
+
   const setDistributor = useCallback(
     (product: PriceableProduct, distributorId: string) => {
       if (!currentLocation) return;
@@ -499,12 +584,15 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
               price: priceByProductId[info.productId],
               par: parByProductId[info.productId],
               distributorId: distByProductId[info.productId],
+              orderChoice: choiceByProductId[info.productId],
+              caseSize: caseSizeByProductId[info.productId] ?? defaultCaseSize(info.size) ?? undefined,
             }))
             .sort((a, b) =>
               `${a.brand ?? ''} ${a.name}`.trim().localeCompare(`${b.brand ?? ''} ${b.name}`.trim())
             )
         : [],
-    [bookMatchesLocation, infoByProductId, priceByProductId, parByProductId, distByProductId]
+    [bookMatchesLocation, infoByProductId, priceByProductId, parByProductId, distByProductId,
+     choiceByProductId, caseSizeByProductId]
   );
 
   return (
@@ -515,6 +603,10 @@ export const ProductBookProvider: React.FC<{ children: React.ReactNode }> = ({ c
         priceFor,
         parFor,
         distributorFor,
+        orderChoiceFor,
+        caseSizeFor,
+        setOrderChoice,
+        setCaseSize,
         productForBarcode,
         setPrice,
         clearPrice,

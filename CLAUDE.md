@@ -48,7 +48,52 @@ Don't describe either in UI copy or docs.
   retry after a lost response — the 20s timeout, bar wifi, or leaving the screen and coming
   back — emails nobody twice: 86d-api skips every distributor already sent that exact order
   and reports it sent with its original number (`results[].order_number`, used per
-  distributor). The network-error alert says resending is safe
+  distributor). The network-error alert says resending is safe. **Each distributor keeps its
+  own colour on every order** (`DISTRIBUTOR_COLORS` in constants/colors.ts, eight hues, brand red
+  first), picked by its place in the bar's name-sorted distributor list — it used to be by place
+  in THIS order (1st red, 2nd blue, 3rd green, the rest a near-invisible black outline), so
+  whoever came first that week took the red. Colours shift only when a distributor is added or
+  removed
+- **The distributor email matches the landing page's order card** (86d-api `helpers.order_email`):
+  subject "Order #1042 from <bar>", then "Acct #4471" and "Deliver by Fri, Oct 10", a unit on
+  every line, "Order sent by Dana Reyes, Bar Manager at <bar>. Please put order #1042 on the
+  invoice.", a light HTML card, From "<bar> via 86'd". The app feeds it:
+  - **Account numbers** — per BAR per distributor (DistributorContext `accountFor` /
+    `setAccountNumber`, cached per location, `GET/PUT /locations/{id}/distributor-accounts`).
+    Asked in the distributor form ("Your account # with them — it's on any invoice") and right
+    on the order screen: a distributor with none shows "Add account #" in its box, Save keeps it
+    for good. If that save fails offline, the send carries it (`account_number`) and the server
+    saves it then. Never blocks a send.
+  - **Delivery days** — per distributor, Mon–Sun chips in the distributor form
+    (`distributors.delivery_days`, "mon,thu"; `utils/delivery.ts`). The order screen fills in
+    "Deliver by" with the NEXT delivery day after today (`nextDelivery` — today's truck may have
+    gone); one tap opens a picker (the next six delivery days, or the next week when none are
+    saved, plus "No date on this order"). Sent as `deliver_by`, an ISO date in the PHONE's
+    calendar (`isoDate`, never toISOString's UTC).
+  - **Settings → Restaurant**: YOUR TITLE (`users.title`, blank reads "Bar Manager") and
+    DISTRIBUTOR REPLIES GO TO (`users.order_reply_to`, blank = the login email; nudged for an
+    Apple hidden email, whose relay may refuse a distributor's reply; a bad address is a 422
+    `invalid_email` shown as such).
+  - api.ts maps the server's `rep_name`/`delivery_days` to `repName`/`deliveryDays` (rep_name
+    used to arrive unmapped, so a saved rep never showed). Order History shows the account and
+    date each email carried. Covered by utils/__tests__/delivery.test.ts
+- src/utils/caseOrder.ts — **case or bottles, decided FOR the bar** (2026-10-08). The manager
+  is never asked: `planOrderLine()` rounds a shortfall up to a full case only when the extra
+  bottles would be used within `CASE_CLEAR_WEEKS` (3) — Tito's short 4 at ~6/week → 1 case;
+  Green Chartreuse short 1 at ~1/month → 1 bottle. Short a case or more and slow → "1 case + 3",
+  never rounded up. How fast the bar goes through it (`weeklyUse()`): its own sent orders
+  (86d-api `GET /locations/{id}/order-usage`, by product id, else by the order line's name), else
+  par read as `PAR_WEEKS` (3) weeks of stock — deliberately low, so a guess orders bottles, not a
+  case that sits. History that doesn't include a bottle = barely used. No case size known (a mini,
+  an odd size) = bottles. Case size: the bar's saved one, else `defaultCaseSize()` from the bottle
+  size (750ml/1L 12, 1.75L 6, 375ml 24, 12oz 24). **`quantity` is always bottles**, a case line
+  included; 86d-api's email spells out "2 cases (12/cs, 24 bottles)". OrderSummary shows each
+  line's "1 cs" / "4 btl" chip with the reason under it; ONE TAP flips it and saves the bar's
+  choice for that bottle (ProductBookContext `setOrderChoice`, queued like par, key `unit:`),
+  which is then never second-guessed. The Bottle Book editor has ORDER AS (Let 86'd decide /
+  Bottles / Cases) and BOTTLES PER CASE. ReviewGrid's "N SHORT" badge stays the bottle shortfall.
+  Sends now carry `size`, `product_id` and, on case lines, `unit`/`case_size`; reorders keep
+  their cases; Order History shows them. Covered by utils/__tests__/caseOrder.test.ts
 - src/screens/SettingsScreen.tsx — manage distributors (add/edit/remove) + Restaurant
   section (business name / bar manager name, editable anytime)
 - src/screens/LoginScreen.tsx — login. Email field intentionally has no `autoFocus` —

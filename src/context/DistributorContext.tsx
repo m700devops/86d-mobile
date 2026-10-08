@@ -4,6 +4,7 @@ import { Distributor } from '../types';
 import { buildInitialsMap } from '../utils/distributorInitials';
 import { apiService } from '../services/api';
 import { useAuth } from './AuthContext';
+import { useLocation } from './LocationContext';
 
 interface DistributorContextType {
   distributors: Distributor[];
@@ -19,6 +20,13 @@ interface DistributorContextType {
   addDistributor: (distributor: Distributor) => Promise<Distributor>;
   updateDistributor: (id: string, updates: Partial<Distributor>) => Promise<void>;
   removeDistributor: (id: string) => Promise<void>;
+  // This bar's account number with a distributor (per bar: each licensed bar
+  // gets its own). Asked for once — in Settings or right on the order screen —
+  // and kept until edited. Every order email carries it.
+  accountFor: (distributorId: string) => string | undefined;
+  // Resolves when the server has it; "" clears. Rejects on failure (offline):
+  // the caller keeps the typed value and the order send carries it instead.
+  setAccountNumber: (distributorId: string, accountNumber: string) => Promise<void>;
 }
 
 const DistributorContext = createContext<DistributorContextType | undefined>(undefined);
@@ -29,12 +37,16 @@ const DistributorContext = createContext<DistributorContextType | undefined>(und
 // failed. Keyed by user id so accounts on a shared phone don't inherit each
 // other's distributor lists.
 const distributorsKey = (userId: string) => `@86d_distributors_${userId}`;
+const accountsKey = (locationId: string) => `@86d_distributor_accounts_${locationId}`;
 
 export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
   const [distributors, setDistributors] = useState<Distributor[]>([]);
   const [loading, setLoading] = useState(false);
   const userId = user?.id;
+  const { currentLocation } = useLocation();
+  const locationId = currentLocation?.id;
+  const [accounts, setAccounts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!isAuthenticated || !userId) {
@@ -46,7 +58,12 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(distributorsKey(userId));
-        if (raw && !cancelled) setDistributors(JSON.parse(raw));
+        if (raw && !cancelled) {
+          // Older caches hold the server's snake_case fields.
+          setDistributors(JSON.parse(raw).map((d: any) => ({
+            ...d, repName: d.repName ?? d.rep_name, deliveryDays: d.deliveryDays ?? d.delivery_days ?? null,
+          })));
+        }
       } catch {
         // cache miss/corruption — the server fetch below is the source of truth
       }
@@ -65,6 +82,50 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     })();
     return () => { cancelled = true; };
   }, [isAuthenticated, userId]);
+
+  // Account numbers belong to the selected bar: cache first (an order on bad
+  // wifi should still carry it), then the server.
+  useEffect(() => {
+    if (!isAuthenticated || !locationId) {
+      setAccounts({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(accountsKey(locationId));
+        if (!cancelled) setAccounts(raw ? JSON.parse(raw) : {});
+      } catch {
+        if (!cancelled) setAccounts({});
+      }
+      try {
+        const fetched = await apiService.getDistributorAccounts(locationId);
+        if (cancelled) return;
+        setAccounts(fetched);
+        AsyncStorage.setItem(accountsKey(locationId), JSON.stringify(fetched)).catch(() => {});
+      } catch (err) {
+        console.error('[DistributorContext] failed to load account numbers:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, locationId]);
+
+  const accountFor = useCallback((id: string) => accounts[id], [accounts]);
+
+  const setAccountNumber = useCallback(
+    async (distributorId: string, accountNumber: string) => {
+      if (!locationId) throw new Error('No bar selected');
+      const saved = await apiService.setDistributorAccount(locationId, distributorId, accountNumber.trim());
+      setAccounts(prev => {
+        const next = { ...prev };
+        if (saved) next[distributorId] = saved;
+        else delete next[distributorId];
+        AsyncStorage.setItem(accountsKey(locationId), JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+    },
+    [locationId]
+  );
 
   // Recomputed whenever the list changes — a rename should move the badge with
   // it, and a new distributor that collides has to be resolved against
@@ -85,7 +146,8 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
       distributor.name,
       distributor.email,
       distributor.phone,
-      distributor.repName
+      distributor.repName,
+      distributor.deliveryDays
     );
     setDistributors(prev => persist([...prev, created]));
     return created;
@@ -115,7 +177,10 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   return (
     <DistributorContext.Provider
-      value={{ distributors, loading, initialsFor, addDistributor, updateDistributor, removeDistributor }}
+      value={{
+        distributors, loading, initialsFor, addDistributor, updateDistributor, removeDistributor,
+        accountFor, setAccountNumber,
+      }}
     >
       {children}
     </DistributorContext.Provider>

@@ -19,6 +19,11 @@ export interface User {
   // Optional, from the bar-name screen ("for setup help"), stored as 615-742-9095.
   phone?: string | null;
   manager_name: string | null;
+  // "Order sent by Dana Reyes, <title> at …" on every order email; blank reads
+  // "Bar Manager".
+  title?: string | null;
+  // Where distributors' replies go, when it shouldn't be the login email.
+  order_reply_to?: string | null;
   subscription_status: string;
   subscription_tier: string;
   trial_ends_at: string | null;
@@ -106,6 +111,11 @@ export interface ParLevel {
   par_quantity: number;
   // Per-location bottle price — what this bar pays, set from the Pricing screen
   price?: number | null;
+  // How this bar orders it. null = nobody chose: the app decides each order
+  // (utils/caseOrder). 'bottle' / 'case' = the bar chose, never second-guessed.
+  // case_size is bottles per case, when the bar set one.
+  order_unit?: 'bottle' | 'case' | null;
+  case_size?: number | null;
   updated_at: string;
 }
 
@@ -251,6 +261,9 @@ export interface Distributor {
   email?: string;
   phone?: string;
   repName?: string;
+  // The days this distributor delivers, "mon,thu" (utils/delivery). Set once;
+  // the order screen fills in the next one as the "Deliver by" date.
+  deliveryDays?: string | null;
   // No `initials` here on purpose. The backend has no such column, so one set
   // on a Distributor could never survive a reload. Badges come from
   // `useDistributors().initialsFor(id)`, which derives them from the names and
@@ -260,12 +273,26 @@ export interface Distributor {
 export interface OrderItem {
   bottleId: string;
   bottleName: string;
+  // Bottles, always — a case line included (2 cases of 12 is 24).
   quantity: number;
   distributorId?: string;
   name?: string;
   price?: number;
   category?: string;
   urgency?: 'critical' | 'normal';
+  productId?: string;
+  size?: string;
+  // Set on a line ordered by the case (utils/caseOrder planOrderLine).
+  unit?: 'bottle' | 'case';
+  caseSize?: number | null;
+  // Bottles actually short, before any rounding to a case.
+  shortfall?: number;
+  // Why it's a case or bottles, in a few words; empty when nothing to explain.
+  reason?: string;
+  // The bar's own tap decided it, not the app.
+  chosen?: boolean;
+  // A case size is known, so the line can be switched case <-> bottles.
+  canSwitch?: boolean;
 }
 
 export type LiquidLevel = 'full' | 'almost_full' | '3/4' | 'half' | '1/4' | 'empty';
@@ -280,9 +307,12 @@ export type AppScreen =
 
 export interface OrderLineItem {
   name: string;
-  quantity: number;
+  quantity: number;            // bottles, case lines included
   size?: string | null;
   price?: number | null;
+  unit?: 'bottle' | 'case' | null;
+  case_size?: number | null;
+  product_id?: string | null;
 }
 
 export interface OrderDistributorSummary {
@@ -291,6 +321,8 @@ export interface OrderDistributorSummary {
   email: string | null;
   status: 'sent' | 'failed' | 'no_email';
   items: OrderLineItem[];
+  account_number?: string | null;   // what the email carried
+  deliver_by?: string | null;       // ISO date the email asked for
 }
 
 export interface Order {

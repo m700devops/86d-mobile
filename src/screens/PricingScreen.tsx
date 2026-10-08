@@ -55,6 +55,10 @@ export default function PricingScreen() {
     clearDistributor,
     trackProduct,
     mergeInto,
+    orderChoiceFor,
+    caseSizeFor,
+    setOrderChoice,
+    setCaseSize,
   } = useProductBook();
   const { bottles, repointProduct } = useInventory();
   const { currentLocation } = useLocation();
@@ -74,6 +78,10 @@ export default function PricingScreen() {
   const [priceInput, setPriceInput] = useState('');
   const [parInput, setParInput] = useState('');
   const [distDraft, setDistDraft] = useState<string | null>(null);
+  // How it's ordered. 'auto' is the default and means 86'd decides each order
+  // from how fast the bar goes through it (utils/caseOrder).
+  const [unitDraft, setUnitDraft] = useState<'auto' | 'bottle' | 'case'>('auto');
+  const [caseInput, setCaseInput] = useState('');
   const [saving, setSaving] = useState(false);
 
   // The duplicate being folded into a bottle already in the book, once the
@@ -267,8 +275,11 @@ export default function PricingScreen() {
       setPriceInput(price !== undefined ? String(price) : '');
       setParInput(par !== undefined ? String(par) : '');
       setDistDraft(distributorFor(product.id) ?? null);
+      setUnitDraft(orderChoiceFor(product.id) ?? 'auto');
+      const cs = caseSizeFor(product.id, product.size);
+      setCaseInput(cs ? String(cs) : '');
     },
-    [priceFor, parFor, distributorFor]
+    [priceFor, parFor, distributorFor, orderChoiceFor, caseSizeFor]
   );
 
   const closeEditor = () => {
@@ -276,6 +287,8 @@ export default function PricingScreen() {
     setPriceInput('');
     setParInput('');
     setDistDraft(null);
+    setUnitDraft('auto');
+    setCaseInput('');
     setSaving(false);
   };
 
@@ -308,11 +321,30 @@ export default function PricingScreen() {
       nextPar = value;
     }
 
+    let nextCase: number | undefined;
+    if (caseInput.trim()) {
+      const value = parseInt(caseInput.trim(), 10);
+      if (Number.isNaN(value) || value < 2 || value > 120) {
+        Alert.alert('Check the case size', 'How many bottles come in one case — usually 12, or 6 for 1.75L.');
+        return;
+      }
+      nextCase = value;
+    }
+    if (unitDraft === 'case' && !nextCase) {
+      Alert.alert('How many in a case?', 'Type how many bottles come in one case to order this by the case.');
+      return;
+    }
+
     const prevPrice = priceFor(product.id);
     const prevPar = parFor(product.id);
     const prevDist = distributorFor(product.id);
+    const prevUnit = orderChoiceFor(product.id) ?? 'auto';
+    const prevCase = caseSizeFor(product.id, product.size);
+    const unitChanged = unitDraft !== prevUnit;
+    const caseChanged = nextCase !== undefined && nextCase !== prevCase;
     const wroteSomething =
-      nextPrice !== prevPrice || nextPar !== prevPar || (distDraft ?? undefined) !== prevDist;
+      nextPrice !== prevPrice || nextPar !== prevPar || (distDraft ?? undefined) !== prevDist ||
+      unitChanged || caseChanged;
 
     setSaving(true);
     try {
@@ -328,6 +360,10 @@ export default function PricingScreen() {
         if (distDraft) setDistributor(product, distDraft);
         else clearDistributor(product.id);
       }
+      // One write carries both when the unit changed (setOrderChoice sends the
+      // case size with it); a case size changed on its own goes by itself.
+      if (unitChanged) setOrderChoice(product, unitDraft, nextCase);
+      else if (caseChanged && nextCase) setCaseSize(product, nextCase);
       // Saved with nothing filled in — usually a catalog bottle being added
       // ahead of time. Still give it a book row so it's here to come back to.
       if (!wroteSomething && !entries.some(e => e.productId === product.id)) {
@@ -796,6 +832,47 @@ export default function PricingScreen() {
                   ))}
                 </View>
               )}
+
+              <Text style={styles.fieldLabel}>ORDER AS</Text>
+              <View style={styles.distChips}>
+                {([
+                  ['auto', 'Let 86\'d decide'],
+                  ['bottle', 'Bottles'],
+                  ['case', 'Cases'],
+                ] as const).map(([value, label]) => (
+                  <TouchableOpacity
+                    key={value}
+                    style={[styles.distChip, unitDraft === value && styles.distChipActive]}
+                    onPress={() => setUnitDraft(value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.distChipText, unitDraft === value && styles.distChipTextActive]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.fieldHint}>
+                {unitDraft === 'auto'
+                  ? 'Orders a full case when you go through this bottle fast enough to use the extra within a few weeks — otherwise just what you need.'
+                  : unitDraft === 'case'
+                    ? 'Always rounds up to full cases.'
+                    : 'Always orders exactly what you need.'}
+              </Text>
+
+              <Text style={styles.fieldLabel}>BOTTLES PER CASE</Text>
+              <View style={styles.priceInputRow}>
+                <TextInput
+                  style={styles.priceInput}
+                  placeholder="Not set"
+                  placeholderTextColor={COLORS.textTertiary}
+                  value={caseInput}
+                  onChangeText={text => setCaseInput(text.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                  inputAccessoryViewID={NUMERIC_ACCESSORY_ID}
+                  returnKeyType="done"
+                />
+              </View>
 
               <Text style={styles.fieldHint}>
                 Leave a field blank to clear it.

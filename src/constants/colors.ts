@@ -28,3 +28,19 @@ export const COLORS = {
 
 // Tinted accent fills: rgba of accentPrimary at the given alpha.
 export const accentAlpha = (alpha: number) => `rgba(200, 40, 58, ${alpha})`;
+
+// One colour per distributor on the order screen, so the same distributor is
+// the same colour on every order. Picked by the distributor's place in the
+// bar's (name-sorted) distributor list, not by its place in this order —
+// otherwise whoever happens to come first that week would take the red.
+// The brand red first; the rest are distinct hues that read on the dark UI.
+export const DISTRIBUTOR_COLORS = [
+  '#C8283A', // brand red (accentPrimary)
+  '#3B82F6', // blue
+  '#10B981', // green
+  '#F59E0B', // amber
+  '#8B5CF6', // violet
+  '#14B8A6', // teal
+  '#EC4899', // pink
+  '#84CC16', // lime
+];
