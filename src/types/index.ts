@@ -264,6 +264,12 @@ export interface Distributor {
   // The days this distributor delivers, "mon,thu" (utils/delivery). Set once;
   // the order screen fills in the next one as the "Deliver by" date.
   deliveryDays?: string | null;
+  // Set by 86d-api when Resend reports this address bounced, or that the rep
+  // marked an order as spam (utils/emailProblem). Cleared by a later delivery
+  // or by saving a different address.
+  emailProblem?: 'bounced' | 'complained' | null;
+  emailProblemReason?: string | null;
+  emailProblemAt?: string | null;
   // No `initials` here on purpose. The backend has no such column, so one set
   // on a Distributor could never survive a reload. Badges come from
   // `useDistributors().initialsFor(id)`, which derives them from the names and

@@ -20,6 +20,10 @@ interface DistributorContextType {
   addDistributor: (distributor: Distributor) => Promise<Distributor>;
   updateDistributor: (id: string, updates: Partial<Distributor>) => Promise<void>;
   removeDistributor: (id: string) => Promise<void>;
+  // Re-fetch the list (quietly; keeps what's shown on failure). The order
+  // screen and Settings call it on open, so a bounce Resend reported since
+  // launch shows up where the bar is about to send.
+  refresh: () => Promise<void>;
   // This bar's account number with a distributor (per bar: each licensed bar
   // gets its own). Asked for once — in Settings or right on the order screen —
   // and kept until edited. Every order email carries it.
@@ -62,6 +66,9 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
           // Older caches hold the server's snake_case fields.
           setDistributors(JSON.parse(raw).map((d: any) => ({
             ...d, repName: d.repName ?? d.rep_name, deliveryDays: d.deliveryDays ?? d.delivery_days ?? null,
+            emailProblem: d.emailProblem ?? d.email_problem ?? null,
+            emailProblemReason: d.emailProblemReason ?? d.email_problem_reason ?? null,
+            emailProblemAt: d.emailProblemAt ?? d.email_problem_at ?? null,
           })));
         }
       } catch {
@@ -81,6 +88,17 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
     })();
     return () => { cancelled = true; };
+  }, [isAuthenticated, userId]);
+
+  const refresh = useCallback(async () => {
+    if (!isAuthenticated || !userId) return;
+    try {
+      const fetched = await apiService.getDistributors();
+      setDistributors(fetched);
+      AsyncStorage.setItem(distributorsKey(userId), JSON.stringify(fetched)).catch(() => {});
+    } catch {
+      // offline: keep what's shown
+    }
   }, [isAuthenticated, userId]);
 
   // Account numbers belong to the selected bar: cache first (an order on bad
@@ -179,7 +197,7 @@ export const DistributorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     <DistributorContext.Provider
       value={{
         distributors, loading, initialsFor, addDistributor, updateDistributor, removeDistributor,
-        accountFor, setAccountNumber,
+        accountFor, setAccountNumber, refresh,
       }}
     >
       {children}

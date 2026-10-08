@@ -4,6 +4,7 @@ import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Plus, X, Trash2, User, Mail, Check, Phone, Store, MapPin, CreditCard, ChevronRight, Hash, BadgeCheck, Reply } from 'lucide-react-native';
+import { emailProblemText } from '../utils/emailProblem';
 import { WEEKDAYS, WEEKDAY_LABELS, Weekday, parseDays, joinDays } from '../utils/delivery';
 import { useDistributors } from '../context/DistributorContext';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
@@ -18,7 +19,9 @@ const REORDER_THRESHOLD_OPTIONS = [0.5, 0.6, 0.7, 0.8];
 export default function SettingsScreen() {
   const {
     distributors, initialsFor, addDistributor, updateDistributor, removeDistributor, accountFor, setAccountNumber,
+    refresh: refreshDistributors,
   } = useDistributors();
+  useEffect(() => { refreshDistributors(); }, [refreshDistributors]);
   const { user, updateProfile, logout } = useAuth();
   const { currentLocation, locations, setCurrentLocation, addLocation, updateReorderThreshold } = useLocation();
   const [savingReorderThreshold, setSavingReorderThreshold] = useState(false);
@@ -480,6 +483,11 @@ export default function SettingsScreen() {
                     {dist.repName ? (
                       <Text style={styles.distributorRep}>Rep: {dist.repName}</Text>
                     ) : null}
+                    {emailProblemText(dist) ? (
+                      <Text style={styles.distributorProblem}>
+                        ⚠ {emailProblemText(dist)!.title} — tap to fix
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
                 <TouchableOpacity
@@ -919,6 +927,12 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
     marginTop: 2,
+  },
+  distributorProblem: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.warning,
+    marginTop: 3,
+    fontWeight: FONT_WEIGHTS.semibold,
   },
   distributorRep: {
     fontSize: FONT_SIZES.xs,

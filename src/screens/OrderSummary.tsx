@@ -6,6 +6,7 @@ import { COLORS, DISTRIBUTOR_COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X, Hash, CalendarDays } from 'lucide-react-native';
+import { emailProblemText } from '../utils/emailProblem';
 import { parseDays, nextDelivery, upcomingDates, isoDate, fromIsoDate, deliveryLabel } from '../utils/delivery';
 import { useInventory, newOrderRef } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
@@ -31,7 +32,9 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const { bottles, isHydrated, updateBottle, clearBottles, getOrderRef } = useInventory();
   // A reorder from history isn't a count's draft: one id for this screen.
   const reorderRef = useRef(newOrderRef());
-  const { distributors, initialsFor, accountFor, setAccountNumber } = useDistributors();
+  const { distributors, initialsFor, accountFor, setAccountNumber, refresh: refreshDistributors } = useDistributors();
+  // A bounce Resend reported since launch should show before this order goes.
+  useEffect(() => { refreshDistributors(); }, [refreshDistributors]);
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
   const { priceFor, setDistributor, orderChoiceFor, caseSizeFor, setOrderChoice } = useProductBook();
@@ -587,6 +590,15 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                   </Text>
                 </View>
               </View>
+              {emailProblemText(group.distributor) ? (
+                <View style={styles.emailProblem}>
+                  <AlertTriangle size={14} color={COLORS.warning} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emailProblemTitle}>{emailProblemText(group.distributor)!.title}</Text>
+                    <Text style={styles.emailProblemDetail}>{emailProblemText(group.distributor)!.detail}</Text>
+                  </View>
+                </View>
+              ) : null}
               <View style={styles.cardInfoRow}>
                 {accountEditing === group.distributor.id ? (
                   <View style={styles.accountEdit}>
@@ -1085,6 +1097,27 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
     borderBottomColor: `${COLORS.border}30`,
+  },
+  emailProblem: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: SPACING.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: `${COLORS.warning}55`,
+    backgroundColor: `${COLORS.warning}12`,
+    marginBottom: SPACING.sm,
+  },
+  emailProblemTitle: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: FONT_WEIGHTS.bold,
+    color: COLORS.warning,
+  },
+  emailProblemDetail: {
+    fontSize: FONT_SIZES.xs + 1,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+    lineHeight: 15,
   },
   cardInfoRow: {
     flexDirection: 'row',
