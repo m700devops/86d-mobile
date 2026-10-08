@@ -5,7 +5,8 @@ import * as Clipboard from 'expo-clipboard';
 import { COLORS, DISTRIBUTOR_COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X } from 'lucide-react-native';
+import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X, Hash, CalendarDays } from 'lucide-react-native';
+import { parseDays, nextDelivery, upcomingDates, isoDate, fromIsoDate, deliveryLabel } from '../utils/delivery';
 import { useInventory, newOrderRef } from '../context/InventoryContext';
 import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
@@ -30,7 +31,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const { bottles, isHydrated, updateBottle, clearBottles, getOrderRef } = useInventory();
   // A reorder from history isn't a count's draft: one id for this screen.
   const reorderRef = useRef(newOrderRef());
-  const { distributors, initialsFor } = useDistributors();
+  const { distributors, initialsFor, accountFor, setAccountNumber } = useDistributors();
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
   const { user, updateProfile } = useAuth();
   const { priceFor, setDistributor, orderChoiceFor, caseSizeFor, setOrderChoice } = useProductBook();
@@ -57,6 +58,40 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   const [savingProfile, setSavingProfile] = useState(false);
   const [showCallList, setShowCallList] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+
+  // "Deliver by" per distributor: the next of its delivery days (Settings),
+  // filled in by itself; one tap changes it for this order. '' = no date.
+  const [deliverPick, setDeliverPick] = useState<Record<string, string>>({});
+  const [pickingDateFor, setPickingDateFor] = useState<string | null>(null);
+  const deliverByFor = (distId: string): Date | null => {
+    if (distId in deliverPick) return fromIsoDate(deliverPick[distId]);
+    const dist = distributors.find(d => d.id === distId);
+    return nextDelivery(parseDays(dist?.deliveryDays));
+  };
+  // The account number, asked right where it's needed: a distributor with none
+  // saved shows "+ Add account #" in its box. Saved for good on Save; if that
+  // fails (bar wifi) the order still carries what was typed and the server
+  // saves it with the send.
+  const [accountEditing, setAccountEditing] = useState<string | null>(null);
+  const [accountDraft, setAccountDraft] = useState<Record<string, string>>({});
+  const [accountUnsaved, setAccountUnsaved] = useState<Record<string, string>>({});
+  const accountShown = (distId: string) => accountUnsaved[distId] || accountFor(distId);
+  const saveAccount = async (distId: string) => {
+    const value = (accountDraft[distId] || '').trim();
+    setAccountEditing(null);
+    if (!value || value === accountFor(distId)) return;
+    setAccountUnsaved(prev => ({ ...prev, [distId]: value }));
+    try {
+      await setAccountNumber(distId, value);
+      setAccountUnsaved(prev => {
+        const next = { ...prev };
+        delete next[distId];
+        return next;
+      });
+    } catch {
+      // Kept in accountUnsaved: it goes with the order and is saved then.
+    }
+  };
 
   // How fast this bar goes through each bottle, from its own sent orders —
   // what decides whether a shortfall rounds up to a case (utils/caseOrder).
@@ -154,6 +189,16 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     return DISTRIBUTOR_COLORS[(i < 0 ? 0 : i) % DISTRIBUTOR_COLORS.length];
   };
 
+  // "Acct #4471", "Deliver by Fri, Oct 10" — what the email will carry.
+  const cardInfo = (distId: string) => {
+    const out: string[] = [];
+    const acct = accountShown(distId);
+    if (acct) out.push(`Acct #${acct}`);
+    const d = deliverByFor(distId);
+    if (d) out.push(`Deliver by ${deliveryLabel(d)}`);
+    return out;
+  };
+
   // One tap flips a line between cases and bottles, and the bar's choice is
   // saved for that bottle — so it's never asked again, and the app never
   // second-guesses it on a later order.
@@ -231,6 +276,8 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         location_name: currentLocation.name ?? 'My Bar',
         orders: pending.map(g => ({
           distributor_id: g.distributor.id,
+          ...(deliverByFor(g.distributor.id) ? { deliver_by: isoDate(deliverByFor(g.distributor.id)!) } : {}),
+          ...(accountUnsaved[g.distributor.id] ? { account_number: accountUnsaved[g.distributor.id] } : {}),
           items: g.items.map(i => ({
             name: i.name || i.bottleName,
             quantity: i.quantity,          // bottles, case lines included
@@ -357,7 +404,8 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const sections = groupedByDistributor.map(group => {
       const lines = group.items.map(item => `  - ${item.name || item.bottleName} x ${longQty(lineQty(item))}`).join('\n');
-      return `${group.distributor.name}\n${lines}`;
+      const info = cardInfo(group.distributor.id).join(' · ');
+      return `${group.distributor.name}${info ? `\n${info}` : ''}\n${lines}`;
     }).join('\n\n');
 
     return `${title}\n${dateStr}\n\n${sections}`;
@@ -368,6 +416,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const sections = groupedByDistributor.map(group => `
       <h2>${escapeHtml(group.distributor.name)}</h2>
+      ${cardInfo(group.distributor.id).length ? `<p>${escapeHtml(cardInfo(group.distributor.id).join(' · '))}</p>` : ''}
       <table>
         <tr><th>Item</th><th>Qty</th></tr>
         ${group.items.map(item => `<tr><td>${escapeHtml(item.name || item.bottleName)}</td><td>${escapeHtml(longQty(lineQty(item)))}</td></tr>`).join('')}
@@ -538,6 +587,56 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
                   </Text>
                 </View>
               </View>
+              <View style={styles.cardInfoRow}>
+                {accountEditing === group.distributor.id ? (
+                  <View style={styles.accountEdit}>
+                    <Hash size={13} color={COLORS.textTertiary} />
+                    <TextInput
+                      style={styles.accountInput}
+                      autoFocus
+                      placeholder="Account # (on any invoice)"
+                      placeholderTextColor={COLORS.textTertiary}
+                      value={accountDraft[group.distributor.id] ?? accountShown(group.distributor.id) ?? ''}
+                      onChangeText={t => setAccountDraft(prev => ({ ...prev, [group.distributor.id]: t }))}
+                      onSubmitEditing={() => saveAccount(group.distributor.id)}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                    />
+                    <TouchableOpacity onPress={() => saveAccount(group.distributor.id)} activeOpacity={0.7}>
+                      <Text style={styles.infoAction}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.infoChip}
+                    onPress={() => {
+                      setAccountDraft(prev => ({ ...prev, [group.distributor.id]: accountShown(group.distributor.id) ?? '' }));
+                      setAccountEditing(group.distributor.id);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Hash size={13} color={COLORS.textTertiary} />
+                    <Text style={accountShown(group.distributor.id) ? styles.infoText : styles.infoAction}>
+                      {accountShown(group.distributor.id) ? `Acct #${accountShown(group.distributor.id)}` : 'Add account #'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {accountEditing !== group.distributor.id && (
+                  <TouchableOpacity
+                    style={styles.infoChip}
+                    onPress={() => setPickingDateFor(group.distributor.id)}
+                    activeOpacity={0.7}
+                  >
+                    <CalendarDays size={13} color={COLORS.textTertiary} />
+                    <Text style={deliverByFor(group.distributor.id) ? styles.infoText : styles.infoAction}>
+                      {deliverByFor(group.distributor.id)
+                        ? `Deliver by ${deliveryLabel(deliverByFor(group.distributor.id)!)}`
+                        : 'Delivery date'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
               {group.items.map(item => (
                 <View key={item.bottleId} style={styles.distributorItem}>
                   <View style={styles.distributorItemText}>
@@ -591,6 +690,65 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
               ))}
             </View>
           )}
+
+          {/* Deliver-by picker: the distributor's next delivery days (or the
+              next week when none are saved), plus "No date". */}
+          <Modal
+            visible={pickingDateFor !== null}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setPickingDateFor(null)}
+          >
+            <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPickingDateFor(null)}>
+              <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
+                <View style={styles.modalHandle} />
+                <View style={styles.modalHeader}>
+                  <View>
+                    <Text style={styles.modalTitle}>Deliver by</Text>
+                    <Text style={styles.modalSubtitle} numberOfLines={1}>
+                      {distributors.find(d => d.id === pickingDateFor)?.name}
+                      {parseDays(distributors.find(d => d.id === pickingDateFor)?.deliveryDays).length
+                        ? '' : ' · set their delivery days in Settings'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setPickingDateFor(null)}>
+                    <X size={20} color={COLORS.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+                {pickingDateFor &&
+                  upcomingDates(parseDays(distributors.find(d => d.id === pickingDateFor)?.deliveryDays), 6).map(d => (
+                    <TouchableOpacity
+                      key={isoDate(d)}
+                      style={styles.modalDistRow}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        setDeliverPick(prev => ({ ...prev, [pickingDateFor]: isoDate(d) }));
+                        setPickingDateFor(null);
+                      }}
+                    >
+                      <CalendarDays size={18} color={COLORS.textTertiary} />
+                      <Text style={styles.modalDistName}>{deliveryLabel(d)}</Text>
+                      {deliverByFor(pickingDateFor) && isoDate(deliverByFor(pickingDateFor)!) === isoDate(d) ? (
+                        <CheckCircle2 size={18} color={COLORS.accentText} />
+                      ) : null}
+                    </TouchableOpacity>
+                  ))}
+                {pickingDateFor && (
+                  <TouchableOpacity
+                    style={styles.modalDistRow}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setDeliverPick(prev => ({ ...prev, [pickingDateFor]: '' }));
+                      setPickingDateFor(null);
+                    }}
+                  >
+                    <X size={18} color={COLORS.textTertiary} />
+                    <Text style={styles.modalDistName}>No date on this order</Text>
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
 
           {/* Assign Distributor Modal */}
           <Modal
@@ -927,6 +1085,49 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
     borderBottomColor: `${COLORS.border}30`,
+  },
+  cardInfoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginTop: -SPACING.xs,
+    marginBottom: SPACING.sm,
+  },
+  infoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: `${COLORS.textPrimary}0D`,
+  },
+  infoText: {
+    fontSize: FONT_SIZES.xs + 1,
+    color: COLORS.textSecondary,
+    fontWeight: FONT_WEIGHTS.semibold,
+  },
+  infoAction: {
+    fontSize: FONT_SIZES.xs + 1,
+    color: COLORS.accentText,
+    fontWeight: FONT_WEIGHTS.semibold,
+  },
+  accountEdit: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: `${COLORS.accentPrimary}60`,
+  },
+  accountInput: {
+    flex: 1,
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textPrimary,
+    paddingVertical: 3,
   },
   distributorItemText: {
     flex: 1,

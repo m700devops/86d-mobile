@@ -3,7 +3,8 @@ import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, Tex
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Plus, X, Trash2, User, Mail, Check, Phone, Store, MapPin, CreditCard, ChevronRight } from 'lucide-react-native';
+import { Plus, X, Trash2, User, Mail, Check, Phone, Store, MapPin, CreditCard, ChevronRight, Hash, BadgeCheck, Reply } from 'lucide-react-native';
+import { WEEKDAYS, WEEKDAY_LABELS, Weekday, parseDays, joinDays } from '../utils/delivery';
 import { useDistributors } from '../context/DistributorContext';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 import { useAuth } from '../context/AuthContext';
@@ -15,7 +16,9 @@ import { formatThreshold } from '../utils/orderQuantity';
 const REORDER_THRESHOLD_OPTIONS = [0.5, 0.6, 0.7, 0.8];
 
 export default function SettingsScreen() {
-  const { distributors, initialsFor, addDistributor, updateDistributor, removeDistributor } = useDistributors();
+  const {
+    distributors, initialsFor, addDistributor, updateDistributor, removeDistributor, accountFor, setAccountNumber,
+  } = useDistributors();
   const { user, updateProfile, logout } = useAuth();
   const { currentLocation, locations, setCurrentLocation, addLocation, updateReorderThreshold } = useLocation();
   const [savingReorderThreshold, setSavingReorderThreshold] = useState(false);
@@ -160,21 +163,36 @@ export default function SettingsScreen() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [repName, setRepName] = useState('');
+  // Asked once per distributor and kept: the days they deliver (the order
+  // screen fills in the next one) and this bar's account number with them.
+  const [deliveryDays, setDeliveryDays] = useState<Weekday[]>([]);
+  const [accountInput, setAccountInput] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [savingDistributor, setSavingDistributor] = useState(false);
 
   const [businessNameInput, setBusinessNameInput] = useState('');
   const [managerNameInput, setManagerNameInput] = useState('');
+  // "Order sent by Dana Reyes, <title> at …" on every order email.
+  const [titleInput, setTitleInput] = useState('');
+  // Where distributors' replies go; blank = the login email.
+  const [replyToInput, setReplyToInput] = useState('');
   const [savingRestaurantInfo, setSavingRestaurantInfo] = useState(false);
 
   useEffect(() => {
     setBusinessNameInput(user?.business_name || '');
     setManagerNameInput(user?.manager_name || '');
-  }, [user?.business_name, user?.manager_name]);
+    setTitleInput(user?.title || '');
+    setReplyToInput(user?.order_reply_to || '');
+  }, [user?.business_name, user?.manager_name, user?.title, user?.order_reply_to]);
 
   const restaurantInfoDirty =
     businessNameInput.trim() !== (user?.business_name || '') ||
-    managerNameInput.trim() !== (user?.manager_name || '');
+    managerNameInput.trim() !== (user?.manager_name || '') ||
+    titleInput.trim() !== (user?.title || '') ||
+    replyToInput.trim() !== (user?.order_reply_to || '');
+  // An Apple "Hide My Email" relay may refuse a distributor's reply, so those
+  // accounts are nudged to give a reply-to.
+  const hiddenAppleEmail = /@privaterelay\.appleid\.com$/i.test(user?.email || '');
 
   const handleSaveRestaurantInfo = async () => {
     if (!businessNameInput.trim() || savingRestaurantInfo) return;
@@ -184,9 +202,16 @@ export default function SettingsScreen() {
       await updateProfile({
         business_name: businessNameInput.trim(),
         manager_name: managerNameInput.trim() || undefined,
+        title: titleInput.trim(),
+        order_reply_to: replyToInput.trim(),
       });
-    } catch {
-      Alert.alert('Save failed', "Couldn't save your restaurant info. Check your connection and try again.");
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      if (detail?.error === 'invalid_email') {
+        Alert.alert('Check the reply email', detail.message);
+      } else {
+        Alert.alert('Save failed', "Couldn't save your restaurant info. Check your connection and try again.");
+      }
     } finally {
       setSavingRestaurantInfo(false);
     }
@@ -213,12 +238,16 @@ export default function SettingsScreen() {
       setEmail(dist.email || '');
       setPhone(dist.phone || '');
       setRepName(dist.repName || '');
+      setDeliveryDays(parseDays(dist.deliveryDays));
+      setAccountInput(accountFor(dist.id) || '');
     } else {
       setEditingId(null);
       setName('');
       setEmail('');
       setPhone('');
       setRepName('');
+      setDeliveryDays([]);
+      setAccountInput('');
     }
     setIsModalOpen(true);
   };
@@ -228,21 +257,30 @@ export default function SettingsScreen() {
 
     setSavingDistributor(true);
     try {
+      const days = joinDays(deliveryDays) || null;
+      let distId = editingId;
       if (editingId) {
         await updateDistributor(editingId, {
           name,
           email,
           phone,
           repName,
+          deliveryDays: days,
         });
       } else {
-        await addDistributor({
+        const created = await addDistributor({
           id: Math.random().toString(36).substr(2, 9),
           name,
           email,
           phone,
           repName,
+          deliveryDays: days,
         });
+        distId = created.id;
+      }
+      // The account number is this bar's, saved separately; only when it changed.
+      if (distId && accountInput.trim() !== (accountFor(distId) || '')) {
+        await setAccountNumber(distId, accountInput);
       }
 
       setIsModalOpen(false);
@@ -250,6 +288,8 @@ export default function SettingsScreen() {
       setEmail('');
       setPhone('');
       setRepName('');
+      setDeliveryDays([]);
+      setAccountInput('');
       setEditingId(null);
     } catch {
       Alert.alert('Save failed', "Couldn't save this distributor. Check your connection and try again.");
@@ -321,6 +361,44 @@ export default function SettingsScreen() {
                   autoCapitalize="words"
                 />
               </View>
+            </View>
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>YOUR TITLE</Text>
+              <View style={styles.inputWithIcon}>
+                <BadgeCheck size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Bar Manager"
+                  placeholderTextColor={COLORS.textTertiary}
+                  value={titleInput}
+                  onChangeText={setTitleInput}
+                  autoCapitalize="words"
+                />
+              </View>
+              <Text style={styles.fieldHint}>
+                Orders say "Order sent by {managerNameInput.trim() || 'you'}, {titleInput.trim() || 'Bar Manager'} at {businessNameInput.trim() || 'your bar'}."
+              </Text>
+            </View>
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>DISTRIBUTOR REPLIES GO TO</Text>
+              <View style={styles.inputWithIcon}>
+                <Reply size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder={hiddenAppleEmail ? 'Add an email you check' : (user?.email || 'Your email')}
+                  placeholderTextColor={COLORS.textTertiary}
+                  value={replyToInput}
+                  onChangeText={setReplyToInput}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+              <Text style={styles.fieldHint}>
+                {hiddenAppleEmail
+                  ? 'You signed in with a hidden Apple email, which may not accept replies from distributors. Add an email you check.'
+                  : 'Leave blank to use your login email.'}
+              </Text>
             </View>
           </View>
           {restaurantInfoDirty && (
@@ -672,6 +750,50 @@ export default function SettingsScreen() {
                       />
                     </View>
                   </View>
+
+                  {/* Account number: this bar's, asked once and kept. */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>YOUR ACCOUNT # WITH THEM</Text>
+                    <View style={styles.inputWithIcon}>
+                      <Hash size={16} color={COLORS.textTertiary} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="Optional"
+                        placeholderTextColor={COLORS.textTertiary}
+                        value={accountInput}
+                        onChangeText={setAccountInput}
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                      />
+                    </View>
+                    <Text style={styles.fieldHint}>It's on any invoice from them. Goes on every order.</Text>
+                  </View>
+
+                  {/* Delivery days: the order screen fills in the next one. */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.fieldLabel}>DELIVERY DAYS</Text>
+                    <View style={styles.dayChips}>
+                      {WEEKDAYS.map(day => {
+                        const on = deliveryDays.includes(day);
+                        return (
+                          <TouchableOpacity
+                            key={day}
+                            style={[styles.dayChip, on && styles.dayChipOn]}
+                            onPress={() =>
+                              setDeliveryDays(prev => (on ? prev.filter(d => d !== day) : [...prev, day]))
+                            }
+                            activeOpacity={0.8}
+                            accessibilityState={{ selected: on }}
+                          >
+                            <Text style={[styles.dayChipText, on && styles.dayChipTextOn]}>
+                              {WEEKDAY_LABELS[day]}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.fieldHint}>Orders fill in their next delivery day for you.</Text>
+                  </View>
                 </View>
 
                 <TouchableOpacity
@@ -939,6 +1061,35 @@ const styles = StyleSheet.create({
     fontWeight: FONT_WEIGHTS.bold,
     color: COLORS.textTertiary,
     letterSpacing: 1,
+  },
+  fieldHint: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    lineHeight: 15,
+  },
+  dayChips: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  dayChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  dayChipOn: {
+    borderColor: COLORS.accentPrimary,
+    backgroundColor: `${COLORS.accentPrimary}22`,
+  },
+  dayChipText: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.textSecondary,
+    fontWeight: FONT_WEIGHTS.medium,
+  },
+  dayChipTextOn: {
+    color: COLORS.accentText,
   },
   inputWithIcon: {
     flexDirection: 'row',

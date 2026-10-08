@@ -19,6 +19,11 @@ export interface User {
   // Optional, from the bar-name screen ("for setup help"), stored as 615-742-9095.
   phone?: string | null;
   manager_name: string | null;
+  // "Order sent by Dana Reyes, <title> at …" on every order email; blank reads
+  // "Bar Manager".
+  title?: string | null;
+  // Where distributors' replies go, when it shouldn't be the login email.
+  order_reply_to?: string | null;
   subscription_status: string;
   subscription_tier: string;
   trial_ends_at: string | null;
@@ -256,6 +261,9 @@ export interface Distributor {
   email?: string;
   phone?: string;
   repName?: string;
+  // The days this distributor delivers, "mon,thu" (utils/delivery). Set once;
+  // the order screen fills in the next one as the "Deliver by" date.
+  deliveryDays?: string | null;
   // No `initials` here on purpose. The backend has no such column, so one set
   // on a Distributor could never survive a reload. Badges come from
   // `useDistributors().initialsFor(id)`, which derives them from the names and
@@ -313,6 +321,8 @@ export interface OrderDistributorSummary {
   email: string | null;
   status: 'sent' | 'failed' | 'no_email';
   items: OrderLineItem[];
+  account_number?: string | null;   // what the email carried
+  deliver_by?: string | null;       // ISO date the email asked for
 }
 
 export interface Order {

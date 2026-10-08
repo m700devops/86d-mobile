@@ -237,7 +237,10 @@ class ApiService {
     return response.data;
   }
 
-  async updateProfile(updates: { business_name?: string; manager_name?: string; phone?: string }): Promise<User> {
+  async updateProfile(updates: {
+    business_name?: string; manager_name?: string; phone?: string;
+    title?: string; order_reply_to?: string;
+  }): Promise<User> {
     const response = await this.client.patch<User>('/users/me', updates);
     await this.setUserData(response.data);
     return response.data;
@@ -443,28 +446,66 @@ class ApiService {
   }
 
   // Distributor methods
-  async getDistributors(): Promise<Distributor[]> {
-    const response = await this.client.get<{ distributors: Distributor[] }>('/distributors');
-    return response.data.distributors;
+  // The server speaks snake_case (rep_name, delivery_days); the app's
+  // Distributor is camelCase. Mapped here, once — rep_name used to arrive
+  // unmapped, so a saved rep never showed.
+  private toDistributor(raw: any): Distributor {
+    return {
+      ...raw,
+      repName: raw.repName ?? raw.rep_name ?? undefined,
+      deliveryDays: raw.deliveryDays ?? raw.delivery_days ?? null,
+    };
   }
 
-  async createDistributor(name: string, email?: string, phone?: string, repName?: string): Promise<Distributor> {
-    const response = await this.client.post<{ distributor: Distributor }>('/distributors', {
+  async getDistributors(): Promise<Distributor[]> {
+    const response = await this.client.get<{ distributors: any[] }>('/distributors');
+    return response.data.distributors.map(d => this.toDistributor(d));
+  }
+
+  async createDistributor(
+    name: string, email?: string, phone?: string, repName?: string, deliveryDays?: string | null
+  ): Promise<Distributor> {
+    const response = await this.client.post<{ distributor: any }>('/distributors', {
       name,
       email,
       phone,
       rep_name: repName,
+      delivery_days: deliveryDays || undefined,
     });
-    return response.data.distributor;
+    return this.toDistributor(response.data.distributor);
   }
 
-  async updateDistributor(id: string, updates: { name?: string; email?: string; phone?: string; repName?: string }): Promise<void> {
+  async updateDistributor(id: string, updates: {
+    name?: string; email?: string; phone?: string; repName?: string; deliveryDays?: string | null;
+  }): Promise<void> {
     await this.client.put(`/distributors/${id}`, {
       name: updates.name,
       email: updates.email,
       phone: updates.phone,
       rep_name: updates.repName,
+      // "" clears; undefined leaves it alone
+      delivery_days: updates.deliveryDays === undefined ? undefined : (updates.deliveryDays ?? ''),
     });
+  }
+
+  // This bar's account number with each distributor — per bar, because a
+  // distributor gives every licensed bar its own. Saved once, kept until edited.
+  async getDistributorAccounts(locationId: string): Promise<Record<string, string>> {
+    const response = await this.client.get<{ accounts: { distributor_id: string; account_number: string }[] }>(
+      `/locations/${locationId}/distributor-accounts`
+    );
+    const out: Record<string, string> = {};
+    response.data.accounts.forEach(a => { out[a.distributor_id] = a.account_number; });
+    return out;
+  }
+
+  // "" clears it. Resolves with the number as the server saved it ("Acct #4471" -> "4471").
+  async setDistributorAccount(locationId: string, distributorId: string, accountNumber: string): Promise<string | null> {
+    const response = await this.client.put<{ account_number: string | null }>(
+      `/locations/${locationId}/distributor-accounts/${distributorId}`,
+      { account_number: accountNumber }
+    );
+    return response.data.account_number;
   }
 
   async deleteDistributor(id: string): Promise<void> {
@@ -501,6 +542,10 @@ class ApiService {
     location_name: string;
     orders: {
       distributor_id: string;
+      // The day the bar wants it (ISO, the phone's calendar). Optional.
+      deliver_by?: string;
+      // Typed on the order screen: the server saves it for good, then uses it.
+      account_number?: string;
       // quantity is bottles; a case line adds unit 'case' + case_size.
       items: {
         name: string; quantity: number; size?: string; price?: number;

@@ -54,6 +54,29 @@ Don't describe either in UI copy or docs.
   in THIS order (1st red, 2nd blue, 3rd green, the rest a near-invisible black outline), so
   whoever came first that week took the red. Colours shift only when a distributor is added or
   removed
+- **The distributor email matches the landing page's order card** (86d-api `helpers.order_email`):
+  subject "Order #1042 from <bar>", then "Acct #4471" and "Deliver by Fri, Oct 10", a unit on
+  every line, "Order sent by Dana Reyes, Bar Manager at <bar>. Please put order #1042 on the
+  invoice.", a light HTML card, From "<bar> via 86'd". The app feeds it:
+  - **Account numbers** — per BAR per distributor (DistributorContext `accountFor` /
+    `setAccountNumber`, cached per location, `GET/PUT /locations/{id}/distributor-accounts`).
+    Asked in the distributor form ("Your account # with them — it's on any invoice") and right
+    on the order screen: a distributor with none shows "Add account #" in its box, Save keeps it
+    for good. If that save fails offline, the send carries it (`account_number`) and the server
+    saves it then. Never blocks a send.
+  - **Delivery days** — per distributor, Mon–Sun chips in the distributor form
+    (`distributors.delivery_days`, "mon,thu"; `utils/delivery.ts`). The order screen fills in
+    "Deliver by" with the NEXT delivery day after today (`nextDelivery` — today's truck may have
+    gone); one tap opens a picker (the next six delivery days, or the next week when none are
+    saved, plus "No date on this order"). Sent as `deliver_by`, an ISO date in the PHONE's
+    calendar (`isoDate`, never toISOString's UTC).
+  - **Settings → Restaurant**: YOUR TITLE (`users.title`, blank reads "Bar Manager") and
+    DISTRIBUTOR REPLIES GO TO (`users.order_reply_to`, blank = the login email; nudged for an
+    Apple hidden email, whose relay may refuse a distributor's reply; a bad address is a 422
+    `invalid_email` shown as such).
+  - api.ts maps the server's `rep_name`/`delivery_days` to `repName`/`deliveryDays` (rep_name
+    used to arrive unmapped, so a saved rep never showed). Order History shows the account and
+    date each email carried. Covered by utils/__tests__/delivery.test.ts
 - src/utils/caseOrder.ts — **case or bottles, decided FOR the bar** (2026-10-08). The manager
   is never asked: `planOrderLine()` rounds a shortfall up to a full case only when the extra
   bottles would be used within `CASE_CLEAR_WEEKS` (3) — Tito's short 4 at ~6/week → 1 case;
