@@ -920,7 +920,15 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
           ) : null}
         </View>
 
-        <View style={styles.startScreenContent}>
+        {/* Scrolls when the card is taller than the screen (small phones, big
+            text sizes). A plain centred View let it grow upward over the
+            header and hide the menu button, and pushed Start Scanning off
+            the bottom. */}
+        <ScrollView
+          style={styles.startScreenScroll}
+          contentContainerStyle={styles.startScreenContent}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.startCard}>
             <View style={styles.startIconContainer}>
               <View style={styles.startIconBox}>
@@ -984,7 +992,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -2194,8 +2202,11 @@ const styles = StyleSheet.create({
     minHeight: 56,
     justifyContent: 'center',
   },
-  startScreenContent: {
+  startScreenScroll: {
     flex: 1,
+  },
+  startScreenContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING['2xl'],
