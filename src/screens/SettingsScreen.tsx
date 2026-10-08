@@ -5,7 +5,6 @@ import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typograph
 import { SPACING } from '../constants/spacing';
 import { Plus, X, Trash2, User, Mail, Check, Phone, Store, MapPin, CreditCard, ChevronRight, Hash, BadgeCheck, Reply } from 'lucide-react-native';
 import { emailProblemText } from '../utils/emailProblem';
-import { WEEKDAYS, WEEKDAY_LABELS, Weekday, parseDays, joinDays } from '../utils/delivery';
 import { useDistributors } from '../context/DistributorContext';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
 import { useAuth } from '../context/AuthContext';
@@ -166,9 +165,7 @@ export default function SettingsScreen() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [repName, setRepName] = useState('');
-  // Asked once per distributor and kept: the days they deliver (the order
-  // screen fills in the next one) and this bar's account number with them.
-  const [deliveryDays, setDeliveryDays] = useState<Weekday[]>([]);
+  // Asked once per distributor and kept: this bar's account number with them.
   const [accountInput, setAccountInput] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [savingDistributor, setSavingDistributor] = useState(false);
@@ -241,7 +238,6 @@ export default function SettingsScreen() {
       setEmail(dist.email || '');
       setPhone(dist.phone || '');
       setRepName(dist.repName || '');
-      setDeliveryDays(parseDays(dist.deliveryDays));
       setAccountInput(accountFor(dist.id) || '');
     } else {
       setEditingId(null);
@@ -249,7 +245,6 @@ export default function SettingsScreen() {
       setEmail('');
       setPhone('');
       setRepName('');
-      setDeliveryDays([]);
       setAccountInput('');
     }
     setIsModalOpen(true);
@@ -260,7 +255,6 @@ export default function SettingsScreen() {
 
     setSavingDistributor(true);
     try {
-      const days = joinDays(deliveryDays) || null;
       let distId = editingId;
       if (editingId) {
         await updateDistributor(editingId, {
@@ -268,7 +262,6 @@ export default function SettingsScreen() {
           email,
           phone,
           repName,
-          deliveryDays: days,
         });
       } else {
         const created = await addDistributor({
@@ -277,7 +270,6 @@ export default function SettingsScreen() {
           email,
           phone,
           repName,
-          deliveryDays: days,
         });
         distId = created.id;
       }
@@ -291,7 +283,6 @@ export default function SettingsScreen() {
       setEmail('');
       setPhone('');
       setRepName('');
-      setDeliveryDays([]);
       setAccountInput('');
       setEditingId(null);
     } catch {
@@ -776,32 +767,6 @@ export default function SettingsScreen() {
                     </View>
                     <Text style={styles.fieldHint}>It's on any invoice from them. Goes on every order.</Text>
                   </View>
-
-                  {/* Delivery days: the order screen fills in the next one. */}
-                  <View style={styles.formGroup}>
-                    <Text style={styles.fieldLabel}>DELIVERY DAYS</Text>
-                    <View style={styles.dayChips}>
-                      {WEEKDAYS.map(day => {
-                        const on = deliveryDays.includes(day);
-                        return (
-                          <TouchableOpacity
-                            key={day}
-                            style={[styles.dayChip, on && styles.dayChipOn]}
-                            onPress={() =>
-                              setDeliveryDays(prev => (on ? prev.filter(d => d !== day) : [...prev, day]))
-                            }
-                            activeOpacity={0.8}
-                            accessibilityState={{ selected: on }}
-                          >
-                            <Text style={[styles.dayChipText, on && styles.dayChipTextOn]}>
-                              {WEEKDAY_LABELS[day]}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                    <Text style={styles.fieldHint}>Orders fill in their next delivery day for you.</Text>
-                  </View>
                 </View>
 
                 <TouchableOpacity
@@ -1080,30 +1045,6 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
     lineHeight: 15,
-  },
-  dayChips: {
-    flexDirection: 'row',
-    gap: 5,
-  },
-  dayChip: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  dayChipOn: {
-    borderColor: COLORS.accentPrimary,
-    backgroundColor: `${COLORS.accentPrimary}22`,
-  },
-  dayChipText: {
-    fontSize: FONT_SIZES.sm,
-    color: COLORS.textSecondary,
-    fontWeight: FONT_WEIGHTS.medium,
-  },
-  dayChipTextOn: {
-    color: COLORS.accentText,
   },
   inputWithIcon: {
     flexDirection: 'row',
