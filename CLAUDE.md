@@ -48,7 +48,12 @@ Don't describe either in UI copy or docs.
   retry after a lost response — the 20s timeout, bar wifi, or leaving the screen and coming
   back — emails nobody twice: 86d-api skips every distributor already sent that exact order
   and reports it sent with its original number (`results[].order_number`, used per
-  distributor). The network-error alert says resending is safe
+  distributor). The network-error alert says resending is safe. **Each distributor keeps its
+  own colour on every order** (`DISTRIBUTOR_COLORS` in constants/colors.ts, eight hues, brand red
+  first), picked by its place in the bar's name-sorted distributor list — it used to be by place
+  in THIS order (1st red, 2nd blue, 3rd green, the rest a near-invisible black outline), so
+  whoever came first that week took the red. Colours shift only when a distributor is added or
+  removed
 - src/utils/caseOrder.ts — **case or bottles, decided FOR the bar** (2026-10-08). The manager
   is never asked: `planOrderLine()` rounds a shortfall up to a full case only when the extra
   bottles would be used within `CASE_CLEAR_WEEKS` (3) — Tito's short 4 at ~6/week → 1 case;

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, Text, TextInput, TouchableOpacity, SafeAreaView, ScrollView, Animated, Modal, Alert, Linking, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import * as Print from 'expo-print';
 import * as Clipboard from 'expo-clipboard';
-import { COLORS } from '../constants/colors';
+import { COLORS, DISTRIBUTOR_COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Mail, Printer, Phone, Copy, CheckCircle2, ChevronRight, Truck, AlertTriangle, X } from 'lucide-react-native';
@@ -147,6 +147,12 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     .filter(group => group.items.length > 0);
 
   const unassignedItems = orderItems.filter(item => !item.distributorId);
+
+  // The same colour for a distributor on every order (constants/colors).
+  const distributorColor = (id: string) => {
+    const i = distributors.findIndex(d => d.id === id);
+    return DISTRIBUTOR_COLORS[(i < 0 ? 0 : i) % DISTRIBUTOR_COLORS.length];
+  };
 
   // One tap flips a line between cases and bottles, and the bar's choice is
   // saved for that bottle — so it's never asked again, and the app never
@@ -510,23 +516,22 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
         {/* Distributor Breakdown (Sidebar on desktop, top on mobile) */}
         <View style={styles.distributorSection}>
           <Text style={styles.sectionHeader}>Distributor Breakdown</Text>
-          {groupedByDistributor.map((group, idx) => (
+          {groupedByDistributor.map(group => (
             <View
               key={group.distributor.id}
               style={[
                 styles.distributorCard,
-                idx === 0 && styles.distributorCardAccent,
-                idx === 1 && styles.distributorCardBlue,
-                idx === 2 && styles.distributorCardGreen,
+                {
+                  backgroundColor: `${distributorColor(group.distributor.id)}08`,
+                  borderColor: `${distributorColor(group.distributor.id)}20`,
+                },
               ]}
             >
               <View style={styles.distributorCardHeader}>
                 <Text style={styles.distributorCardTitle}>{group.distributor.name}</Text>
                 <View style={[
                   styles.initialsBadge,
-                  idx === 0 && styles.initialsBadgeAccent,
-                  idx === 1 && styles.initialsBadgeBlue,
-                  idx === 2 && styles.initialsBadgeGreen,
+                  { backgroundColor: `${distributorColor(group.distributor.id)}15` },
                 ]}>
                   <Text style={styles.initialsText}>
                     {initialsFor(group.distributor.id)}
@@ -891,18 +896,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: SPACING.lg,
   },
-  distributorCardAccent: {
-    backgroundColor: `${COLORS.accentPrimary}08`,
-    borderColor: `${COLORS.accentPrimary}20`,
-  },
-  distributorCardBlue: {
-    backgroundColor: '#3B82F608',
-    borderColor: '#3B82F620',
-  },
-  distributorCardGreen: {
-    backgroundColor: '#10B98108',
-    borderColor: '#10B98120',
-  },
   distributorCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -921,15 +914,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  initialsBadgeAccent: {
-    backgroundColor: `${COLORS.accentPrimary}15`,
-  },
-  initialsBadgeBlue: {
-    backgroundColor: '#3B82F615',
-  },
-  initialsBadgeGreen: {
-    backgroundColor: '#10B98115',
   },
   initialsText: {
     fontSize: FONT_SIZES.xs,
