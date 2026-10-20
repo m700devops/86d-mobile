@@ -1,13 +1,13 @@
 # 86'd first-run screens: visual walkthrough (rendered screenshots + measurements)
 
-Status: IN PROGRESS. Screenshots are being added one at a time; sections marked "(pending)" are not yet rendered.
+Status: COMPLETE for the narrowed scope (2026-10-20). 23 screenshots, all from the real app bundle on Expo web with iOS geometry approximated (method and caveats below).
 
 Scope (narrowed by the coordinator on 2026-10-20 to save usage): iPhone 16 (393×852 pt) for every screen; iPhone SE (375×667 pt) only for the start screen and Register. Screenshots live in `screens/` next to this file. Code references are to commit 43c4757 of 86d-mobile (the code is unchanged by the later notes-only commit ae3f224).
 
 ## 1. What do the first-run screens look like on an iPhone?
 
 ### Takeaway
-(pending — filled in once the renders are done)
+A new user's first run is Login → Register → BarName → the start card → the iOS camera alert → the viewfinder → the number pad (Onboarding.tsx never runs). The scanning screens are visually simple — one dark card with one red button, then a camera with one white shutter — but the path to them opens on a "Welcome back" sign-in screen whose "Start Free Trial" button is below the fold, followed by a five-input sign-up form whose "Create Account" button is also below the fold on both phones once the iOS-only Apple button is accounted for.
 
 ### Cited Findings
 
@@ -60,18 +60,41 @@ Scope (narrowed by the coordinator on 2026-10-20 to save usage): iPhone 16 (393�
 - [`screens/05e-pad-unreadable-iphone16.png`](screens/05e-pad-unreadable-iphone16.png) (server couldn't read the label). A red alert icon and "Couldn't read the label — move closer and retake" (12 pt bold `#FF453A`), the readout at "0", the full keypad still live, "Cancel", and the red button now labelled "Retake Photo" (which discards anything typed and re-fires the shutter).
 - [`screens/05f-camera-saved-iphone16.png`](screens/05f-camera-saved-iphone16.png) (¼ s after "Add Bottle"). Sheet gone; the camera border turns green, a green pill near the bottom of the camera reads "Tito's, Handmade Vodka", the header says "1 bottle scanned" (tappable, opens the scanned list), the bottom bar shows the name in green over "Move to next bottle", and "Undo" appears beside "Done (1)".
 
-(screens 6–9 pending)
+**(6) Camera permission blocked** — [src/screens/CameraScan.tsx L1017–1081](../../src/screens/CameraScan.tsx)
+
+- [`screens/06b-permission-settings-iphone16.png`](screens/06b-permission-settings-iphone16.png) (`canAskAgain` false — **the screen an iPhone user actually gets after tapping "Don't Allow"**, because iOS reports it cannot ask again and `handleStartScanning` lands here straight from the system dialog). Boxed menu button top-left; otherwise an empty black screen with a centred block: "Camera access is turned off" (20 pt bold white); a three-line 14 pt grey explanation "iOS only asks once, so 86'd can't request it again from here. Turn Camera on for 86'd in Settings and come straight back — this screen updates itself."; a red "Open Settings" button (151×56 pt, not full width); and "Not now" in grey text (which returns to the start card).
+- [`screens/06a-permission-blocked-iphone16.png`](screens/06a-permission-blocked-iphone16.png) (`canAskAgain` true). Same layout with "Camera Access Required", the one-line "Enable camera access to scan bottles for inventory.", a red "Enable Camera" button and "Not now". On iOS this variant only shows while the system can still prompt (status undetermined), so a first-run user rarely sees it.
+- Not renderable: the iOS system alert that appears between the start card and the camera. Its body text in this build is the expo-camera plugin string **"Allow 86'd to access your camera to scan bottles."** — confirmed by evaluating the config plugins (`npx expo config --type introspect` → `ios.infoPlist.NSCameraUsageDescription`); the different `ios.infoPlist` string in app.json is overridden — [app.json](../../app.json)
+
+**(7) LoginScreen** — the first screen a signed-out new user sees — [src/screens/LoginScreen.tsx](../../src/screens/LoginScreen.tsx)
+
+- [`screens/07-login-iphone16.png`](screens/07-login-iphone16.png) (iPhone 16, Apple stand-in). The top quarter is the 190 pt app-icon tile (y ≈84–275). Under it "Scan it. Count it. Order it." (22 pt extra-bold white) and "AI Bar inventory in 10 minutes — not hours." (14 pt grey). Then the white "Continue with Apple" button, the 11 pt legal line, the "or" divider, and a card headed "Welcome back" / "Sign in to keep your bar stocked" with Email and Password fields; the screen ends at "Forgot password?". Below the fold: the white-filled "Sign In" button (y 838) and "New to 86'd?" over an outlined "Start Free Trial" button (y 970–1017) — the button a brand-new user needs.
+- [`screens/07-login-iphone16-webraw.png`](screens/07-login-iphone16-webraw.png) — the same screen as Expo web renders it, without the Apple block.
+
+**(8) PaywallScreen** (only after the 15-day trial; included for completeness) — [src/screens/PaywallScreen.tsx](../../src/screens/PaywallScreen.tsx)
+
+- [`screens/08-paywall-iphone16.png`](screens/08-paywall-iphone16.png). Centred column: a red padlock in a faint red rounded square; "Your free trial has ended" (20 pt bold); "Subscribe to keep scanning, ordering, and tracking your bar's inventory." (14 pt grey); "$49.99/month" (24 pt bold, from the mocked `GET /billing/price`); a full-width red "Subscribe Now"; a 10 pt dim note "You'll be taken to a secure checkout page. Once you've subscribed, come back here."; then two text buttons with icons, "I've subscribed — refresh" and "Sign out". No hamburger (the paywall replaces the whole app).
+
+**(9) ReviewGrid with two bottles** (first count, nothing set yet) — [src/screens/ReviewGrid.tsx](../../src/screens/ReviewGrid.tsx)
+
+- [`screens/09-review-iphone16.png`](screens/09-review-iphone16.png). Header: App.tsx's three-line hamburger, "Review & Par" (bold), a "2 ITEMS" pill. A search field ("Search bottles...") with a red square "+" button. A section header "UNASSIGNED · 2" with a red 10 pt "Tap item to assign". Two row cards: "Tito's / HANDMADE VODKA" and "Jameson / IRISH WHISKEY", each with an "ON HAND" stepper (− 4 +, − 2 +), a red-tinted "PAR" stepper showing 1 with a red "Not set" warning, a red-outlined "Assign →" chip and a trash icon. The Jameson row also carries an amber chip "Check — the second AI read Jameson Black …" (truncated with an ellipsis). The lower half of the screen is empty; pinned at the bottom are a full-width red "Generate Order Summary ›" button and a red "2 ITEMS MISSING A PAR LEVEL" warning with an alert icon. Tapping Generate in this state shows a blocking "Set par levels first" alert — [src/screens/ReviewGrid.tsx L135–154](../../src/screens/ReviewGrid.tsx)
 
 ### Inferences
-(pending)
+- Before the first photo a new email user passes five screens (Login, Register, BarName, start card, iOS alert) and fills 4 required fields + 1 checkbox, then 1–2 optional fields; an Apple user skips Register's fields but still sees Login, BarName (if Apple gave no business name), the start card and the alert. Whether that "feels complicated" is a judgement for the report; the renders show the friction is concentrated in the two account screens, not in the scan screens.
+- The first screen is built for returning users ("Welcome back", white "Sign In"), so a first-time user's first decision is to find the outlined "Start Free Trial" under the fold — or to take "Continue with Apple", the only account-creating action visible without scrolling on a phone.
+- The start card is the one screen that explains the product, and it does so in 51 words with a clear single action; its weakest element is the camera heads-up, which the code treats as important but the design renders as the faintest text on the card.
+- The amber disagreement state changes colour but not the action: the same red "Add Bottle" is the obvious next tap, and the warning is 10 pt — so a bartender moving fast is likely to save through it (the row then carries a Review chip whose instruction is truncated).
 
 ### Gaps
-(pending)
+- No device render: SF Pro wrapping, Dynamic Type, the real keyboard (and whether iOS shows the QuickType bar on these fields), the status bar and home indicator, haptics and real camera exposure were not observed. Line wraps may differ by a line here and there, which matters most on the SE start card (1 pt of slack).
+- The iOS camera alert itself, the splash screen and the "Loading..." screen were not rendered (described from code and config only).
+- iPhone SE was rendered only for the start card and Register (coordinator's scope); Login, BarName, camera, pad and Review on the SE are unmeasured — the pad's 55% cap would be ≈367 pt there, so the clipping seen on iPhone 16 is likely worse, but that is untested.
+- "First thing the eye lands on" is judged from size, brightness and contrast in the renders, not from eye-tracking or user tests.
 
 ## 2. Measured observations: fold, amount of text, hierarchy, primary button, contrast
 
 ### Takeaway
-(pending)
+Per screen the text load is moderate (camera 12 words; start card 51; Register 55; Login 52), so "too much text" is less the problem than **where the decisive control sits and how faint the helper text is**: on both account screens the new user's button is below the fold under a large logo and the Apple button; the start card only just fits an SE (1 pt spare); the first-scan number pad loses its "Identifying in the background" line to the hint bubble; and the sentences meant to reassure or instruct (camera heads-up, "Tap the shutter to scan", pad labels, Review labels) are 8–12 pt `#737373`, at or below WCAG AA.
 
 ### Cited Findings
 Method: every number below comes from `getBoundingClientRect()` and computed styles in the rendered page (harness: Playwright `page.evaluate`), in points. "Words" counts every visible token containing a letter, digit or `$` (button labels included). "Tappables" counts outermost focusable/pressable elements (React Native Web renders `TouchableOpacity` as a focusable element; inputs and pressable inline text such as "Terms of Service" count too). Contrast is the WCAG 2.x ratio of the text colour (alpha and ancestor opacity composited) against the composited background behind it; WCAG AA asks 4.5:1 for normal text and 3:1 for large text (≥24 px, or ≥18.66 px bold).
@@ -112,14 +135,35 @@ Method: every number below comes from `getBoundingClientRect()` and computed sty
 - Small/low-contrast text on the sheet: "BOTTLES ON HAND" 10 pt `#737373` = **4.04:1**; "Identifying in the background" 12 pt `#737373` = **4.04:1** (and clipped away on the first scan); the amber "The second AI read … — check the label" is **10 pt** (14.5:1, so legible in colour terms but the smallest text on the sheet); "Wrong bottle? Retake photo" is 10 pt (5.7:1) with a 12 pt-tall hit box (the code adds an 8 pt hitSlop).
 - State labels left over: while the sheet is open the header reads green "Scanning" and a green "Scanning..." chip stays on the camera even after the bottle is identified, because `scanState` stays `'capturing'` until the row is committed — [src/screens/CameraScan.tsx L1122–1131, L1186–1190, L607–668](../../src/screens/CameraScan.tsx)
 - Unreadable state keeps the full keypad live although the only action, "Retake Photo", throws the typed number away — [src/screens/CameraScan.tsx L1436, L745–752](../../src/screens/CameraScan.tsx)
+- Home indicator: the sheet is in a `Modal` with no SafeAreaView, and its buttons sit 24 pt above the screen edge (`paddingBottom: SPACING.xl`), so on iPhone 16 the bottom 10 pt of "Cancel"/"Add" (y 776–828) fall inside the 34 pt home-indicator inset (fold 818) — [src/screens/CameraScan.tsx L1810–1819](../../src/screens/CameraScan.tsx)
 
-(remaining screens pending)
+**(6) Permission blocked** — [`screens/06b-permission-settings-iphone16.png`](screens/06b-permission-settings-iphone16.png), [`screens/06a-permission-blocked-iphone16.png`](screens/06a-permission-blocked-iphone16.png)
+- Everything above the fold; content centred (y 355–578 in 06b), ~300 pt of empty black above. 06b: 36 words, 3 tappables (menu, "Open Settings" 151×56, "Not now" 87×33). 06a: 15 words, same 3 controls ("Enable Camera" 158×56).
+- Primary: the red button. No AA failures (body 7.6:1). The way out of the app (menu button) is present, as the code intends — [src/screens/CameraScan.tsx L1026–1050](../../src/screens/CameraScan.tsx)
+
+**(7) Login** — [`screens/07-login-iphone16.png`](screens/07-login-iphone16.png)
+- Content 982 pt vs 759 pt visible → 223 pt hidden. 44 of 52 words and 5 of 7 tappables visible. **"Start Free Trial" — the only way into Register — is 152 pt below the fold** (top y 970 vs fold 818); "Sign In" (y 838) is below it too. Without the Apple block the page is still 78 pt taller than the screen (837 pt).
+- What looks primary: two WHITE filled buttons — "Continue with Apple" (visible) and "Sign In" (below) — while red is not used on this screen's buttons at all; "Start Free Trial" is a 1.5 pt white-outline button at 25% opacity border — [src/screens/LoginScreen.tsx L353–391](../../src/screens/LoginScreen.tsx)
+- Eye: the 190 pt logo tile takes ≈25% of the visible height; the card greets "Welcome back" although for a new install this is the first screen.
+
+**(8) Paywall** — [`screens/08-paywall-iphone16.png`](screens/08-paywall-iphone16.png)
+- 38 words, 3 tappables, all above the fold; primary "Subscribe Now" (345×56 red). Two AA failures: the 10 pt checkout note and "Sign out" (12 pt), both `#737373` on `#0F0F0F` = 4.04:1.
+
+**(9) Review** — [`screens/09-review-iphone16.png`](screens/09-review-iphone16.png)
+- 53 words, 20 tappables, nothing scrolls with two bottles. Primary: "Generate Order Summary" (361×56, red, glow) — but red also marks the "+" button, both "Assign →" chips, both par steppers and "PAR" labels, "Tap item to assign", "Not set" (error red `#FF453A`) and the footer warning: on a first count, every row carries red.
+- Small text everywhere: "ON HAND"/"PAR"/"Not set" 8 pt; "Assign →" and the amber check chip 9 pt; product subtitles ("HANDMADE VODKA") 10 pt `#737373` = 3.98:1; "UNASSIGNED" and "2 ITEMS" 10 pt ≈4:1 (AA fails). The amber chip's sentence ("Check — the second AI read Jameson Black Barrel. Tap if this row is right") is cut to two lines with an ellipsis, so "Tap if this row is right" — the instruction — is not visible.
+
 
 ### Inferences
-(pending)
+- The same dim grey (`COLORS.textTertiary` `#737373`) carries most helper and instruction text in the scan flow; on the app's near-black surfaces it lands at 3.7–4.4:1, so the faintness is systemic (one token), not a one-off — [src/constants/colors.ts](../../src/constants/colors.ts)
+- Red does four jobs on these screens — brand tile, primary buttons, links ("Wrong bottle? Retake photo", "Tap item to assign") and warnings ("Not set", the footer) — so on Review, a first count looks like a page of errors even when nothing is wrong yet.
+- Layout risk is concentrated in fixed-height stacks: the SE start card (1 pt slack) and the 55%-capped pad sheet both have nowhere to give except the explanatory text, which is what disappears first.
+- On Login and Register the Apple button is the most prominent object above the fold on a phone; the email routes' main buttons are offscreen until the user scrolls.
 
 ### Gaps
-(pending)
+- Contrast figures are for the rendered colours over flat backgrounds; the start card's red glow, the auth screens' gradient glows and the live camera image behind the translucent overlays were not sampled pixel-by-pixel.
+- Word counts include button labels and the Apple stand-in's copy; the keypad digits are excluded from pad counts. Counts would shift slightly with SF Pro wraps.
+- Effective tap areas include `hitSlop` only where noted; the measured boxes are the visible element bounds.
 
 ## 3. Rendering caveats: what the real iOS screen would show instead
 
@@ -128,12 +172,20 @@ Expo web is close for layout, copy and colour, but four things differ on a phone
 
 ### Cited Findings
 - **Sign in with Apple renders nothing off iOS**: `AppleSignInButton` returns `null` unless `Platform.OS === 'ios'` and `isAvailableAsync()` resolves true — so Expo web shows no Apple button. On iOS it is a full-width white "Continue with Apple" button (`buttonType CONTINUE`, `buttonStyle WHITE`, 52 pt tall, corner radius 14), then an 11 pt grey legal line ("By continuing you agree to our Terms of Service and Privacy Policy", links underlined), then an "or" divider, with 18 pt below — placed ABOVE the email card on both Login and Register — [src/components/AppleSignInButton.tsx L23–37, L84–148](../../src/components/AppleSignInButton.tsx); [src/screens/LoginScreen.tsx L129–135](../../src/screens/LoginScreen.tsx); [src/screens/RegisterScreen.tsx L243–247](../../src/screens/RegisterScreen.tsx). The iOS-approximation screenshots insert a same-size stand-in at that spot; the `-webraw` files show what Expo web literally renders.
-- **The iOS camera dialog text**: two strings are configured — `ios.infoPlist.NSCameraUsageDescription` ("86'd uses the camera to identify bottles and scan barcodes for inventory counts.") and the expo-camera plugin's `cameraPermission` ("Allow 86'd to access your camera to scan bottles."). expo-camera's config plugin writes `permissions[key] || infoPlist[key] || default`, i.e. its own option first — [app.json](../../app.json); [node_modules/expo-camera/plugin/build/withCamera.js]; [node_modules/@expo/config-plugins/build/ios/Permissions.js `applyPermissions`]. (Which one lands in the built Info.plist depends on mod order — see Gaps.)
+- **The iOS camera dialog text**: two strings are configured — `ios.infoPlist.NSCameraUsageDescription` ("86'd uses the camera to identify bottles and scan barcodes for inventory counts.") and the expo-camera plugin's `cameraPermission` ("Allow 86'd to access your camera to scan bottles."). expo-camera's config plugin writes `permissions[key] || infoPlist[key] || default`, i.e. its own option first — [app.json](../../app.json); [node_modules/expo-camera/plugin/build/withCamera.js]; [node_modules/@expo/config-plugins/build/ios/Permissions.js `applyPermissions`]. Evaluating the plugins (`npx expo config --type introspect`, read-only) gives `NSCameraUsageDescription = "Allow 86'd to access your camera to scan bottles."`, so that is the sentence in the iOS alert; the app.json `infoPlist` string never ships.
 - **Camera permission on web never reports "can't ask again"**: expo-camera's web manager hard-codes `canAskAgain: true` even for a DENIED result, so the "Camera access is turned off / Open Settings" variant can't occur in a browser; it was forced for the screenshot by flipping that one value in the served bundle — [node_modules/expo-camera/build/ExpoCameraManager.web.js L8–29, L74–79]
 - **Keyboard**: BarNameScreen's name field has `autoFocus`, so on iOS the keyboard opens as the screen appears; LoginScreen deliberately has no autoFocus — [src/screens/BarNameScreen.tsx L117](../../src/screens/BarNameScreen.tsx); [CLAUDE.md "LoginScreen.tsx"](../../CLAUDE.md). Keyboard height used for the stand-in: 216 pt on Touch ID phones, ~290 pt on iPhone X-class (Face ID) phones — [Apple Developer Forums thread 90061](https://developer.apple.com/forums/thread/90061) ("Prior to the iPhone X … it's 216 pts"; the iPhone X code comment gives 290 − 216 = 74 extra)
 
+- **Web-only artifacts neutralised for these renders** (none affects iOS): (a) expo-camera's web view mirrors the video when the camera isn't reported as rear-facing (`transform: scaleX(-1)` for a front camera), which Chromium's fake webcam triggered — overridden, since an iPhone's back camera is never mirrored — [node_modules/expo-camera/build/ExpoCamera.web.js L105]; (b) a browser `<input>` keeps an intrinsic minimum width inside a flex row, which on the SE squeezed the field icons to nothing and pushed the password eye outside its box — overridden with `min-width: 0`, matching Yoga, which has no such minimum; (c) `canAskAgain` is always true on web (above).
+- **Not drawn at all**: the iOS status bar (time, battery) in the top inset and the home indicator in iPhone 16's bottom 34 pt — those bands are plain background in the PNGs. The 10 pt overlap of the pad buttons with the home-indicator band is computed from the layout, not seen.
+- Fonts: iOS uses SF Pro everywhere in these screens (no custom fonts in `src/`; `'monospace'` falls back to the system font as noted above); the PNGs use Inter.
+
 ### Inferences
-(pending)
+- The web renders are trustworthy for copy, colour, ordering and flexbox overflow (including the pad's clipped status line and the start card's 1 pt slack, which are pure layout), and least trustworthy for anything the OS draws (Apple button, alert, keyboard, status bar) — those were either stood in at their documented size or described.
+- Three web-only artifacts had to be neutralised to avoid false findings: the mirrored fake webcam, the `<input>` minimum width that hid the field icons on the SE, and `canAskAgain` always being true in browsers.
 
 ### Gaps
-(pending)
+- The stand-ins (Apple button title size, keyboard height 290 pt for iPhone 16) are approximations: the 290 pt figure comes from an iPhone X forum post, not an iPhone 16 measurement, and excludes any suggestion bar.
+- The measurement script's low-contrast flag on "86'd" (1.07:1) is a false positive — it is SVG text on the logo's paper tile, which the script's background compositing cannot see — and was ignored.
+- Haptics, the green capture flash/border animation timing and the real camera's exposure on a dim back bar were not observable.
+
