@@ -35,6 +35,10 @@ import { useProductBook } from '../context/ProductBookContext';
 import { useDistributors } from '../context/DistributorContext';
 import { Bottle, Product } from '../types';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
+import FirstTryCard from '../components/FirstTryCard';
+import { track, trackOnce } from '../services/analytics';
+import { isFirstTryDone, loadSchedule, markFirstTryDone, reminderIsOn } from '../services/countReminder';
+import { countPhrase, durationPhrase } from '../utils/countDay';
 
 // --- Types ---
 
@@ -100,13 +104,31 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [permission, requestPermission, getCameraPermission] = useCameraPermissions();
   const [showScanHint, setShowScanHint] = useState(false);
   const scanHintPulse = useRef(new Animated.Value(0)).current;
-  const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed } = useInventory();
+  const { bottles, addBottle, updateBottle, removeBottle, resolveScan, markScanFailed, clearBottles } = useInventory();
   const { currentLocation } = useLocation();
-  const { logout, refreshUser } = useAuth();
-  const { parFor, distributorFor, productForBarcode } = useProductBook();
+  const { user, logout, refreshUser } = useAuth();
+  const { parFor, distributorFor, productForBarcode, entries } = useProductBook();
   const { distributors } = useDistributors();
 
   const [showStartScreen, setShowStartScreen] = useState(true);
+
+  // --- First try: three bottles, then a win ---
+  // A brand-new bar's first run asks for 3 bottles, not the whole bar: nobody
+  // tries new software for the first time on the real count. "Bottle 2 of 3"
+  // sits where the counter normally is, and after the third FirstTryCard says
+  // what just happened. Shown once per install, and only to a bar with
+  // nothing in its book yet — an existing customer updating the app never
+  // sees it.
+  const [firstTryDone, setFirstTryDone] = useState<boolean | null>(null);
+  const [practice, setPractice] = useState(false);
+  const [showWin, setShowWin] = useState(false);
+  const [winTook, setWinTook] = useState<string | null>(null);
+  const [countsOn, setCountsOn] = useState<string | null>(null);
+  const practiceStartRef = useRef<number | null>(null);
+  const prevBottleCountRef = useRef<number | null>(null);
+  useEffect(() => {
+    isFirstTryDone().then(setFirstTryDone).catch(() => setFirstTryDone(true));
+  }, []);
   const [isScanning, setIsScanning] = useState(false);
   // Derived from the draft, never a local tally: this screen remounts every
   // time you come back from Review (or resume the app), and a local counter
@@ -114,6 +136,8 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   // had scanned nothing, and disabling the "Scanned So Far" list that was
   // sitting right there full of their bottles.
   const bottleCount = bottles.length;
+  const looksNew = firstTryDone === false && entries.length === 0;
+  const PRACTICE_BOTTLES = 3;
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [statusText, setStatusText] = useState(IDLE_STATUS);
   const [lastBottleId, setLastBottleId] = useState<string | null>(null);
@@ -248,21 +272,60 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [permission?.granted, getCameraPermission, showStartScreen]);
 
+  // A bottle saved on this screen (not one restored from the draft on mount).
+  // The third one of a first try opens FirstTryCard, after the green flash.
+  useEffect(() => {
+    const prev = prevBottleCountRef.current;
+    prevBottleCountRef.current = bottleCount;
+    if (prev === null || bottleCount <= prev) return;
+    trackOnce('first_bottle_saved');
+    if (!practice || bottleCount < PRACTICE_BOTTLES) return;
+    const took = practiceStartRef.current ? durationPhrase(Date.now() - practiceStartRef.current) : null;
+    setPractice(false);
+    setFirstTryDone(true);
+    markFirstTryDone();
+    trackOnce('first_try_done');
+    // "We'll remind you Sunday after close" only when a reminder really is set.
+    Promise.all([loadSchedule(user), reminderIsOn()])
+      .then(([s, on]) => setCountsOn(on ? countPhrase(s) : null))
+      .catch(() => {});
+    setTimeout(() => { setWinTook(took); setShowWin(true); }, 700);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bottleCount]);
+
+  // Counted once per visit to an empty start screen: the denominator for
+  // "saw how to start" → "tapped Start".
+  useEffect(() => {
+    if (showStartScreen && bottleCount === 0 && firstTryDone !== null) track('start_screen_viewed');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showStartScreen, firstTryDone === null]);
+
+  const clearPractice = () => {
+    clearBottles();
+    track('practice_cleared');
+    setShowWin(false);
+    setIsScanning(false);
+    setShowStartScreen(true);
+  };
+
   // --- Start scanning ---
 
   const handleStartScanning = useCallback(async () => {
-    setShowStartScreen(false);
-    if (!permission) {
-      const { granted } = await requestPermission();
-      if (granted) initScanning();
-    } else if (permission.granted) {
-      initScanning();
-    } else {
-      const { granted } = await requestPermission();
-      if (granted) initScanning();
+    track('start_tapped');
+    if (looksNew && bottleCount === 0) {
+      setPractice(true);
+      practiceStartRef.current = null;
     }
+    setShowStartScreen(false);
+    let granted = !!permission?.granted;
+    if (!granted) {
+      granted = (await requestPermission()).granted;
+      if (granted) trackOnce('camera_allowed');
+      else track('camera_denied');
+    }
+    if (granted) initScanning();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [permission]);
+  }, [permission, looksNew, bottleCount]);
 
   async function initScanning() {
     const token = await apiService.getAccessToken();
@@ -305,6 +368,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     let imageSizeKb = 0;
 
     isCapturingRef.current = true;
+    if (practiceStartRef.current === null) practiceStartRef.current = startTime;
     scanResultRef.current = null;
     identifyStatusRef.current = 'pending';
     setScanState('capturing');
@@ -394,9 +458,11 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
 
       imageSizeKb = Math.round((imageBase64.length * 0.75) / 1024);
 
+      trackOnce('first_scan_sent');
       const result = await apiService.analyzeBottleImage(imageBase64, currentLocation?.id);
 
       const scanOk = result != null && !!result.matched_product_id;
+      if (scanOk) trackOnce('first_scan_identified');
       await scanDiagnostics.logScan({
         timestamp: new Date().toISOString(),
         success: scanOk,
@@ -949,6 +1015,32 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                   Pick up right where you left off.
                 </Text>
               </>
+            ) : looksNew ? (
+              <>
+                <Text style={styles.startHeadline}>Try It on 3 Bottles</Text>
+                <Text style={styles.startSubheadline}>
+                  About a minute. Grab any 3 bottles off the shelf. This is exactly how a full count works.
+                </Text>
+
+                <View style={styles.startTips}>
+                  <View style={styles.startTip}>
+                    <View style={styles.startTipDot} />
+                    <Text style={styles.startTipText}>Point the camera at the label</Text>
+                  </View>
+                  <View style={styles.startTip}>
+                    <View style={styles.startTipDot} />
+                    <Text style={styles.startTipText}>Tap the shutter. AI names the bottle</Text>
+                  </View>
+                  <View style={styles.startTip}>
+                    <View style={styles.startTipDot} />
+                    <Text style={styles.startTipText}>Type how many you have</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.startPermissionNote}>
+                  We'll ask for camera access next. It's only used to identify bottles you scan.
+                </Text>
+              </>
             ) : (
               <>
                 <Text style={styles.startHeadline}>Scan Your Inventory</Text>
@@ -988,7 +1080,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
             >
               <Zap size={20} color="#FFFFFF" fill="#FFFFFF" />
               <Text style={styles.startButtonText}>
-                {bottleCount > 0 ? 'Continue Scanning' : 'Start Scanning'}
+                {bottleCount > 0 ? 'Continue Scanning' : looksNew ? 'Try 3 Bottles' : 'Start Scanning'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1122,6 +1214,8 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
           <Text style={[styles.counterText, isCapturing && styles.counterTextActive]} numberOfLines={1}>
             {isPaused ? 'Paused'
               : isCapturing ? 'Scanning'
+              // A first try reads as progress toward its three bottles.
+              : practice ? `Bottle ${Math.min(bottleCount + 1, PRACTICE_BOTTLES)} of ${PRACTICE_BOTTLES}`
               : bottleCount > 0
                 ? `${bottleCount} bottle${bottleCount === 1 ? '' : 's'} scanned`
                 // Nothing counted and nothing happening — "Scanning" was the
@@ -1455,6 +1549,14 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
           </View>
         </View>
       </Modal>
+
+      <FirstTryCard
+        visible={showWin}
+        took={winTook}
+        countsOn={countsOn}
+        onKeepGoing={() => setShowWin(false)}
+        onClear={clearPractice}
+      />
 
       <BarcodeScannerModal
         visible={showBarcodeScanner}

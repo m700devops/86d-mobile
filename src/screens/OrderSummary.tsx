@@ -13,6 +13,7 @@ import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { useProductBook, useBottleDefaults, bookProduct } from '../context/ProductBookContext';
 import { apiService } from '../services/api';
+import { track } from '../services/analytics';
 import { OrderItem, OrderDistributorSummary } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { orderQuantity } from '../utils/orderQuantity';
@@ -285,7 +286,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       const failures = response.results.filter(r => r.status !== 'sent');
 
       const allSentIds = Array.from(new Set([...sentDistributors, ...sentIds]));
-      if (sentIds.length > 0) setSentDistributors(allSentIds);
+      if (sentIds.length > 0) {
+        setSentDistributors(allSentIds);
+        track('order_sent');
+      }
       // Each distributor's own number: one already emailed on an earlier try
       // (a retry after a lost response) keeps the number that email carried.
       const allNumbers = { ...sentNumbers };

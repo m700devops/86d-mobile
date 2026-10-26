@@ -24,6 +24,10 @@ export interface User {
   title?: string | null;
   // Where distributors' replies go, when it shouldn't be the login email.
   order_reply_to?: string | null;
+  // When this bar usually counts, asked right after sign-up (CountDayScreen):
+  // 'mon'…'sun' | 'varies', and 'before_open' | 'afternoon' | 'after_close'.
+  count_day?: string | null;
+  count_time?: string | null;
   subscription_status: string;
   subscription_tier: string;
   trial_ends_at: string | null;

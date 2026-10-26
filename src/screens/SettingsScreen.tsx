@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert, KeyboardAvoidingView, Keyboard, Platform, TouchableWithoutFeedback, Linking, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ScrollView, TextInput, Modal, Animated, Alert, KeyboardAvoidingView, Keyboard, Platform, TouchableWithoutFeedback, Linking, ActivityIndicator, Switch } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { FONT_SIZES, FONT_WEIGHTS, LETTER_SPACING } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
-import { Plus, X, Trash2, User, Mail, Check, Phone, Store, MapPin, CreditCard, ChevronRight, Hash, BadgeCheck, Reply } from 'lucide-react-native';
+import { Plus, X, Trash2, User, Mail, Check, Phone, Store, MapPin, CreditCard, ChevronRight, Hash, BadgeCheck, Reply, CalendarCheck } from 'lucide-react-native';
 import { emailProblemText } from '../utils/emailProblem';
 import { useDistributors } from '../context/DistributorContext';
 import NumericDoneAccessory, { NUMERIC_ACCESSORY_ID } from '../components/NumericDoneAccessory';
@@ -12,6 +12,12 @@ import { useLocation } from '../context/LocationContext';
 import { apiService } from '../services/api';
 import ErrorMessage from '../components/ErrorMessage';
 import { formatThreshold } from '../utils/orderQuantity';
+import CountDayPicker from '../components/CountDayPicker';
+import { CountDay, CountTime, countPhrase } from '../utils/countDay';
+import {
+  disableReminder, enableReminder, loadSchedule, reminderIsOn, saveSchedule,
+} from '../services/countReminder';
+import { track } from '../services/analytics';
 
 const REORDER_THRESHOLD_OPTIONS = [0.5, 0.6, 0.7, 0.8];
 
@@ -25,6 +31,58 @@ export default function SettingsScreen() {
   const { currentLocation, locations, setCurrentLocation, addLocation, updateReorderThreshold } = useLocation();
   const [savingReorderThreshold, setSavingReorderThreshold] = useState(false);
   const reorderThreshold = currentLocation?.reorder_threshold ?? 0.7;
+
+  // Count day: when this bar counts, and the one reminder on that day.
+  // Set at sign-up (CountDayScreen); changed or switched off here.
+  const [countSaved, setCountSaved] = useState<{ day: CountDay; time: CountTime | null } | null>(null);
+  const [reminderOn, setReminderOn] = useState(false);
+  const [countModalOpen, setCountModalOpen] = useState(false);
+  const [countDay, setCountDay] = useState<CountDay | null>(null);
+  const [countTime, setCountTime] = useState<CountTime | null>(null);
+  const [countRemind, setCountRemind] = useState(true);
+  const [savingCount, setSavingCount] = useState(false);
+  useEffect(() => {
+    loadSchedule(user).then(setCountSaved).catch(() => {});
+    reminderIsOn().then(setReminderOn).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openCountModal = () => {
+    setCountDay(countSaved?.day ?? null);
+    setCountTime(countSaved?.time ?? null);
+    setCountRemind(countSaved ? reminderOn : true);
+    setCountModalOpen(true);
+  };
+
+  const handleSaveCountDay = async () => {
+    if (!countDay || savingCount) return;
+    setSavingCount(true);
+    const schedule = { day: countDay, time: countDay === 'varies' ? null : countTime };
+    try {
+      await saveSchedule(schedule);
+      setCountSaved(schedule);
+      track('count_day_set');
+      if (countRemind && countDay !== 'varies') {
+        const result = await enableReminder(schedule);
+        setReminderOn(result === 'on');
+        if (result === 'on') track('reminder_on');
+        if (result === 'declined') {
+          track('reminder_declined');
+          Alert.alert(
+            'Notifications are off',
+            "86'd can't remind you until notifications are turned on for it in iPhone Settings.",
+            [{ text: 'Not now', style: 'cancel' }, { text: 'Open Settings', onPress: () => Linking.openSettings() }]
+          );
+        }
+      } else {
+        await disableReminder();
+        setReminderOn(false);
+      }
+      setCountModalOpen(false);
+    } finally {
+      setSavingCount(false);
+    }
+  };
 
   const handleSetReorderThreshold = async (value: number) => {
     if (!currentLocation || savingReorderThreshold || value === reorderThreshold) return;
@@ -443,6 +501,25 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Count Day Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>COUNT DAY</Text>
+          <TouchableOpacity style={styles.reorderCard} onPress={openCountModal} activeOpacity={0.8}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <CalendarCheck size={20} color={COLORS.textSecondary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>{countPhrase(countSaved) ?? 'Not set'}</Text>
+                <Text style={styles.settingSubLabel}>
+                  {!countSaved ? 'Tell us when you count and we\'ll remind you that day'
+                    : countSaved.day === 'varies' ? 'No reminder'
+                    : reminderOn ? 'Reminder on' : 'Reminder off'}
+                </Text>
+              </View>
+              <ChevronRight size={18} color={COLORS.textTertiary} />
+            </View>
+          </TouchableOpacity>
+        </View>
+
         {/* Distributors Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -636,6 +713,46 @@ export default function SettingsScreen() {
             >
               <Check size={18} color="#FFFFFF" />
               <Text style={styles.saveButtonText}>{changingPassword ? 'Changing...' : 'Change Password'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Count Day Modal */}
+      <Modal transparent visible={countModalOpen} onRequestClose={() => setCountModalOpen(false)} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>When do you count?</Text>
+              <TouchableOpacity onPress={() => setCountModalOpen(false)} activeOpacity={0.7}>
+                <X size={20} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalForm}>
+              <CountDayPicker
+                day={countDay}
+                time={countTime}
+                onChange={(d, t) => { setCountDay(d); setCountTime(t); }}
+              />
+              {countDay && countDay !== 'varies' && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20 }}>
+                  <Text style={styles.settingLabel}>Remind me on count day</Text>
+                  <Switch
+                    value={countRemind}
+                    onValueChange={setCountRemind}
+                    trackColor={{ true: COLORS.accentPrimary, false: COLORS.border }}
+                  />
+                </View>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[styles.saveButton, (!countDay || savingCount) && styles.saveButtonDisabled]}
+              onPress={handleSaveCountDay}
+              disabled={!countDay || savingCount}
+              activeOpacity={0.8}
+            >
+              <Check size={18} color="#FFFFFF" />
+              <Text style={styles.saveButtonText}>{savingCount ? 'Saving...' : 'Save'}</Text>
             </TouchableOpacity>
           </View>
         </View>

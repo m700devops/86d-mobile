@@ -53,7 +53,8 @@
       ],
       "expo-sharing",
       "@sentry/react-native",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      "./plugins/withoutPushEntitlement"
     ]
   }
 }

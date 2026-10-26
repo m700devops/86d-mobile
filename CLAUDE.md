@@ -109,6 +109,36 @@ Don't describe either in UI copy or docs.
   sign-up form). Confirm Email STAYS — that address is the only account-recovery path
   there is and nothing in the app verifies it, so a typo means an account nobody can
   get back into. Remove it only once email verification exists
+- **FIRST COUNT (2026-10-26)** — five bars signed up and none counted. A sign-up happens on a
+  sales call, away from the bar, days before the next count, and nothing tied the two together.
+  The trial stays 15 days from sign-up (owner's call). The path is now:
+  - **src/screens/CountDayScreen.tsx** — right after the bar name (Skip there leads here too):
+    "When do you usually count?" — day chips, then Before opening / Afternoon / After close
+    (src/components/CountDayPicker.tsx, shared with Settings). The button says "Remind me
+    Sundays", and the iOS notification dialog appears only after that tap — iOS asks once, so
+    they know what they're allowing. Saved on the phone AND to the profile (86d-api
+    users.count_day/count_time); Skip is one tap. A when-and-where plan is the best-evidenced
+    follow-through technique there is (implementation intentions)
+  - **The reminder** (src/services/countReminder.ts, src/utils/countDay.ts): ONE weekly LOCAL
+    notification on count day (9:30 before opening, 12:30 afternoon, 5pm for an after-close
+    count), "start with 3 bottles" until the first try is done. No push server, no token.
+    expo-notifications' config plugin is applied AUTOMATICALLY and always adds the push
+    entitlement, so `plugins/withoutPushEntitlement.js` (in app.json) takes it out — the build's
+    capabilities and profile stay as they were. Check with `npx expo config --type introspect`:
+    entitlements must be Sign in with Apple only. A tap opens the camera (App.tsx,
+    `onReminderOpened`, also on a cold start). Settings → COUNT DAY changes it or turns it off
+  - **"Try It on 3 Bottles"** (CameraScan start screen) for a bar with nothing in its book and no
+    first try on this install (`@86d_first_try_done`): the counter reads "Bottle 2 of 3", and the
+    third bottle opens src/components/FirstTryCard.tsx — "That's a count. 3 bottles in 48
+    seconds…", Keep counting / "That was practice, clear these 3" (clearBottles, which reports
+    no scan outcomes). An existing customer updating the app never sees it
+  - **Events after sign-up** (services/analytics.ts, `trackOnce` for first_*): bar_name_saved,
+    count_day_set/_skipped, start_screen_viewed, start_tapped, camera_allowed/_denied,
+    first_scan_sent, first_scan_identified, first_bottle_saved, first_try_done,
+    practice_cleared, reminder_on/_declined/_opened, review_opened, order_sent — 86d-api's
+    APP_EVENTS must list every one, or it's dropped. The CRM's Customers page and Follow-ups
+    ("haven't scanned yet") read the server side
+  - Covered by src/utils/__tests__/countDay.test.ts; the screens were checked in Chromium (verify-ui)
 - src/screens/BarNameScreen.tsx — shown once, right after ANY new account (email sign-up or a
   social sign-in with no `business_name`): the bar's name, plus an OPTIONAL phone ("for setup
   help"), saved as `users.phone` through `PATCH /users/me` (86d-api checks it is a dialable US
@@ -130,7 +160,7 @@ Don't describe either in UI copy or docs.
   iOS-only app Apple alone gets the same result with no OAuth client id, no Google
   Cloud project and no secret. Apple's own sheet never shows our terms, so the line
   under the button is the consent surface and pressing through it is the acceptance
-- src/services/analytics.ts — the five pre-signup funnel events (app_opened,
+- src/services/analytics.ts — the pre-signup funnel events (and, since FIRST COUNT, the steps after) (app_opened,
   login_viewed, register_viewed, register_submitted, register_succeeded) posted to the
   backend's `POST /v1/events`. Fire-and-forget by construction: batched briefly, given
   up on silently rather than retried (bar wifi fails constantly and a retry ladder here

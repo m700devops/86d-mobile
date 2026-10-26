@@ -19,11 +19,13 @@ import PricingScreen from './screens/PricingScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import PaywallScreen from './screens/PaywallScreen';
 import BarNameScreen from './screens/BarNameScreen';
+import CountDayScreen from './screens/CountDayScreen';
 import ManualAdd from './components/ManualAdd';
 import Sidebar from './components/Sidebar';
 import TrialBanner from './components/TrialBanner';
 import { isEntitled, trialDaysLeft } from './utils/entitlements';
 import { track } from './services/analytics';
+import { onReminderOpened } from './services/countReminder';
 
 type ReorderSource = { distributors: OrderDistributorSummary[] };
 
@@ -38,15 +40,18 @@ const RESUMABLE_SCREENS: AppScreen[] = ['camera', 'review', 'order', 'orders', '
 function AppContent() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const { addBottle } = useInventory();
-  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password' | 'bar-name'>('camera');
+  const [currentScreen, setCurrentScreen] = useState<AppScreen | 'login' | 'register' | 'forgot-password' | 'bar-name' | 'count-day'>('camera');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
   const [reorderOrder, setReorderOrder] = useState<ReorderSource | null>(null);
   const [isRestoringScreen, setIsRestoringScreen] = useState(true);
   const restoreDecided = useRef(false);
+  // A cold start from the count-day reminder goes to the camera, not to
+  // whatever screen the app was last left on.
+  const openedFromReminder = useRef(false);
   const trialDays = trialDaysLeft(user);
 
-  const navigate = (screen: AppScreen | 'login' | 'register' | 'forgot-password' | 'bar-name') => {
+  const navigate = (screen: AppScreen | 'login' | 'register' | 'forgot-password' | 'bar-name' | 'count-day') => {
     setReorderOrder(null);
     setCurrentScreen(screen);
   };
@@ -61,6 +66,16 @@ function AppContent() {
   useEffect(() => {
     track('app_opened');
   }, []);
+
+  // A tap on the count-day reminder opens the camera — that's what it was for.
+  // (A signed-out tap just lands on login; the camera needs an account.)
+  useEffect(() => onReminderOpened(() => {
+    track('reminder_opened');
+    openedFromReminder.current = true;
+    setReorderOrder(null);
+    setCurrentScreen(screen => (screen === 'login' || screen === 'register' || screen === 'forgot-password')
+      ? screen : 'camera');
+  }), []);
 
   // Once auth has settled, resume the last main screen for an authenticated
   // user — nothing to resume for a signed-out session.
@@ -79,7 +94,7 @@ function AppContent() {
     }
     AsyncStorage.getItem(LAST_SCREEN_KEY)
       .then(saved => {
-        if (saved && (RESUMABLE_SCREENS as string[]).includes(saved)) {
+        if (saved && !openedFromReminder.current && (RESUMABLE_SCREENS as string[]).includes(saved)) {
           setCurrentScreen(saved as AppScreen);
         }
       })
@@ -166,7 +181,9 @@ function AppContent() {
 
     switch (currentScreen) {
       case 'bar-name':
-        return <BarNameScreen onDone={() => navigate('camera')} />;
+        return <BarNameScreen onDone={() => navigate('count-day')} />;
+      case 'count-day':
+        return <CountDayScreen onDone={() => navigate('camera')} />;
       case 'camera':
         return (
           <CameraScan

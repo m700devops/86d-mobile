@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Store, Phone } from 'lucide-react-native';
 import { apiService } from '../services/api';
+import { track } from '../services/analytics';
 import { useAuth } from '../context/AuthContext';
 import { BrandMark } from '../components/Brand';
 import ErrorMessage from '../components/ErrorMessage';
@@ -60,6 +61,7 @@ export default function BarNameScreen({ onDone }: Props) {
         phoneTrimmed ? { business_name: trimmed, phone: phoneTrimmed } : { business_name: trimmed }
       );
       await refreshUser();
+      track('bar_name_saved');
       onDone();
     } catch (e: any) {
       // A number the server can't dial is the one thing worth stopping for:

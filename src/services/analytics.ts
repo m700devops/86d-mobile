@@ -2,10 +2,11 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL, APP_VERSION, STORAGE_KEYS } from '../config/api';
 
-// The five steps between tapping the icon and having an account. Everything
-// after this is already visible server-side (users, inventory_sessions,
-// /v1/crm/funnel); none of this was, so "how many people open the app and
-// never finish signing up" had no answer.
+// The five steps between tapping the icon and having an account, then the
+// steps from a new account to a first count. The server sees a scan only once
+// a photo is sent, and nothing at all of the start screen, the camera prompt
+// or the count-day question — so when five bars signed up and none counted,
+// there was no way to say where they stopped.
 //
 // Names must match APP_EVENTS in the backend's main.py — anything else is
 // dropped on arrival rather than stored.
@@ -14,7 +15,25 @@ export type AppEvent =
   | 'login_viewed'
   | 'register_viewed'
   | 'register_submitted'
-  | 'register_succeeded';
+  | 'register_succeeded'
+  // sign-up → first count
+  | 'bar_name_saved'
+  | 'count_day_set'
+  | 'count_day_skipped'
+  | 'start_screen_viewed'
+  | 'start_tapped'
+  | 'camera_allowed'
+  | 'camera_denied'
+  | 'first_scan_sent'
+  | 'first_scan_identified'
+  | 'first_bottle_saved'
+  | 'first_try_done'
+  | 'practice_cleared'
+  | 'reminder_on'
+  | 'reminder_declined'
+  | 'reminder_opened'
+  | 'review_opened'
+  | 'order_sent';
 
 const ANON_ID_KEY = '@86d_anon_id';
 
@@ -112,4 +131,24 @@ export function track(event: AppEvent): void {
       void flush();
     }, FLUSH_DELAY_MS);
   }
+}
+
+const ONCE_PREFIX = '@86d_once_';
+const sentOnce = new Set<AppEvent>();
+
+/**
+ * Record an event at most once per install — for "first scan", "first bottle
+ * saved" and the like, which would otherwise fire on every bottle of every
+ * count. Same fire-and-forget rules as track().
+ */
+export function trackOnce(event: AppEvent): void {
+  if (sentOnce.has(event)) return;
+  sentOnce.add(event);
+  AsyncStorage.getItem(ONCE_PREFIX + event)
+    .then(seen => {
+      if (seen) return;
+      track(event);
+      return AsyncStorage.setItem(ONCE_PREFIX + event, '1');
+    })
+    .catch(() => {});
 }
