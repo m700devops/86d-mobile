@@ -59,7 +59,7 @@ export default function SettingsScreen() {
     setSavingCount(true);
     const schedule = { day: countDay, time: countDay === 'varies' ? null : countTime };
     try {
-      await saveSchedule(schedule);
+      await saveSchedule(schedule, user?.id);
       setCountSaved(schedule);
       track('count_day_set');
       if (countRemind && countDay !== 'varies') {

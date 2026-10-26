@@ -13,6 +13,7 @@ import CountDayPicker from '../components/CountDayPicker';
 import { COLORS } from '../constants/colors';
 import { CountDay, CountTime, dayPlural } from '../utils/countDay';
 import { enableReminder, saveSchedule } from '../services/countReminder';
+import { useAuth } from '../context/AuthContext';
 import { track } from '../services/analytics';
 
 interface Props {
@@ -33,6 +34,7 @@ interface Props {
  * iOS asks once. Skipping is always one tap; nothing here can block the app.
  */
 export default function CountDayScreen({ onDone }: Props) {
+  const { user } = useAuth();
   const [day, setDay] = useState<CountDay | null>(null);
   const [time, setTime] = useState<CountTime | null>(null);
   const [saving, setSaving] = useState(false);
@@ -44,7 +46,7 @@ export default function CountDayScreen({ onDone }: Props) {
     setSaving(true);
     try {
       const schedule = { day, time: day === 'varies' ? null : time };
-      await saveSchedule(schedule);
+      await saveSchedule(schedule, user?.id);
       track('count_day_set');
       if (day !== 'varies') {
         const result = await enableReminder(schedule);

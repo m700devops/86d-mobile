@@ -126,7 +126,11 @@ Don't describe either in UI copy or docs.
     entitlement, so `plugins/withoutPushEntitlement.js` (in app.json) takes it out — the build's
     capabilities and profile stay as they were. Check with `npx expo config --type introspect`:
     entitlements must be Sign in with Apple only. A tap opens the camera (App.tsx,
-    `onReminderOpened`, also on a cold start). Settings → COUNT DAY changes it or turns it off
+    `onReminderOpened`, also on a cold start; the response is then CLEARED, or iOS hands it back
+    on every later launch). Settings → COUNT DAY changes it or turns it off. The phone's copy
+    is per account (`@86d_count_schedule:<userId>`), a deliberate sign-out cancels the reminder
+    (AuthContext.logout), and the profile PATCH is sent in the background, never awaited — a
+    new customer never waits on bar wifi to leave this step
   - **"Try It on 3 Bottles"** (CameraScan start screen) for a bar with nothing in its book and no
     first try on this install (`@86d_first_try_done`): the counter reads "Bottle 2 of 3", and the
     third bottle opens src/components/FirstTryCard.tsx — "That's a count. 3 bottles in 48

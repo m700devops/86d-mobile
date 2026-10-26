@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { apiService } from '../services/api';
+import { cancelOnSignOut } from '../services/countReminder';
 import { User, LoginRequest, RegisterRequest, AppleSignInRequest } from '../types';
 
 interface AuthContextType {
@@ -107,6 +108,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       await apiService.logout();
+      // The count-day reminder belongs to this account; the next person to
+      // sign in on this phone sets their own.
+      await cancelOnSignOut();
       setUser(null);
     } finally {
       setIsLoading(false);

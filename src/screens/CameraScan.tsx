@@ -283,7 +283,7 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
     const took = practiceStartRef.current ? durationPhrase(Date.now() - practiceStartRef.current) : null;
     setPractice(false);
     setFirstTryDone(true);
-    markFirstTryDone();
+    markFirstTryDone(user);
     trackOnce('first_try_done');
     // "We'll remind you Sunday after close" only when a reminder really is set.
     Promise.all([loadSchedule(user), reminderIsOn()])

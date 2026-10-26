@@ -16,9 +16,11 @@ import type { User } from '../types';
 //
 // The schedule is kept on the phone as well as in the profile
 // (users.count_day / count_time), so the reminder works offline and on an API
-// that hasn't got those columns yet.
+// that hasn't got those columns yet. The phone's copy is per ACCOUNT — a
+// second person signing in on the same phone must not inherit someone else's
+// count day — and signing out cancels the reminder (cancelOnSignOut).
 
-const SCHEDULE_KEY = '@86d_count_schedule';
+const scheduleKey = (userId: string) => `@86d_count_schedule:${userId}`;
 const REMINDER_ID_KEY = '@86d_count_reminder_id';
 const FIRST_TRY_KEY = '@86d_first_try_done';
 
@@ -37,9 +39,10 @@ try {
   // Web preview / a platform without notifications: nothing to configure.
 }
 
-export async function loadSchedule(user?: User | null): Promise<CountSchedule | null> {
+export async function loadSchedule(user: User | null | undefined): Promise<CountSchedule | null> {
+  if (!user) return null;
   try {
-    const raw = await AsyncStorage.getItem(SCHEDULE_KEY);
+    const raw = await AsyncStorage.getItem(scheduleKey(user.id));
     if (raw) {
       const s = JSON.parse(raw);
       if (isCountDay(s?.day)) return { day: s.day, time: isCountTime(s.time) ? s.time : null };
@@ -53,19 +56,23 @@ export async function loadSchedule(user?: User | null): Promise<CountSchedule | 
   return null;
 }
 
-/** Saved on the phone first, then to the profile. Never throws. */
-export async function saveSchedule(s: CountSchedule): Promise<void> {
-  try {
-    await AsyncStorage.setItem(SCHEDULE_KEY, JSON.stringify(s));
-  } catch {
-    // the profile copy below still lands
+/**
+ * Saved on the phone, then sent to the profile in the background — never
+ * awaited: on bar wifi that request can take the client's whole 20-second
+ * timeout, and a new customer mustn't sit on this step while it does. The
+ * phone's copy is what the reminder runs from. Never throws.
+ */
+export async function saveSchedule(s: CountSchedule, userId: string | undefined): Promise<void> {
+  if (userId) {
+    try {
+      await AsyncStorage.setItem(scheduleKey(userId), JSON.stringify(s));
+    } catch {
+      // the profile copy below still lands
+    }
   }
-  try {
-    await apiService.updateProfile({ count_day: s.day, count_time: s.time });
-  } catch {
-    // An older API answers "no fields" (it doesn't know count_day yet); the
-    // phone's copy is what the reminder runs from either way.
-  }
+  // An older API answers "no fields" (it doesn't know count_day yet); offline
+  // it just fails. Either way the phone's copy stands.
+  apiService.updateProfile({ count_day: s.day, count_time: s.time }).catch(() => {});
 }
 
 export async function isFirstTryDone(): Promise<boolean> {
@@ -76,14 +83,14 @@ export async function isFirstTryDone(): Promise<boolean> {
   }
 }
 
-export async function markFirstTryDone(): Promise<void> {
+export async function markFirstTryDone(user: User | null | undefined): Promise<void> {
   try {
     await AsyncStorage.setItem(FIRST_TRY_KEY, '1');
   } catch {
     // worst case the first-run framing shows once more
   }
   // The reminder said "start with 3 bottles"; that's done now.
-  const s = await loadSchedule();
+  const s = await loadSchedule(user);
   if (s && (await reminderIsOn())) await schedule(s, false);
 }
 
@@ -148,16 +155,26 @@ export async function disableReminder(): Promise<void> {
   await cancelExisting();
 }
 
-/** Fires when someone taps the reminder; returns the unsubscribe. */
+/** The reminder belongs to the account that set it: signing out cancels it. */
+export async function cancelOnSignOut(): Promise<void> {
+  await cancelExisting();
+}
+
+/**
+ * Fires when someone taps the reminder; returns the unsubscribe. Each tap is
+ * handled once: iOS keeps returning the last response on every later launch
+ * until it's cleared, which would route every launch to the camera.
+ */
 export function onReminderOpened(handler: () => void): () => void {
+  const handle = (r: Notifications.NotificationResponse | null) => {
+    if (r?.notification.request.content.data?.kind !== 'count_day') return;
+    Notifications.clearLastNotificationResponseAsync().catch(() => {});
+    handler();
+  };
   try {
     // Cold start: the tap that launched the app.
-    Notifications.getLastNotificationResponseAsync()
-      .then(r => { if (r?.notification.request.content.data?.kind === 'count_day') handler(); })
-      .catch(() => {});
-    const sub = Notifications.addNotificationResponseReceivedListener(r => {
-      if (r.notification.request.content.data?.kind === 'count_day') handler();
-    });
+    Notifications.getLastNotificationResponseAsync().then(handle).catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(handle);
     return () => sub.remove();
   } catch {
     return () => {};
