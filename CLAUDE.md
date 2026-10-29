@@ -146,6 +146,17 @@ Don't describe either in UI copy or docs.
     practice_cleared, reminder_on/_declined/_opened, review_opened, order_sent — 86d-api's
     APP_EVENTS must list every one, or it's dropped. The CRM's Customers page and Follow-ups
     ("haven't scanned yet") read the server side
+  - **The walkthrough video on that start screen** (src/components/HowItWorksVideo.tsx,
+    expo-video, 2026-10-29): `HowItWorksLoop` — 0:04–0:19 of the owner's recording, silent,
+    looping (`audioMixingMode: 'mixWithOthers'`, so the bar's music keeps playing), 112pt wide
+    beside the three steps numbered like its captions; tapping it, or "Watch a full count, start
+    to order (35 sec)", opens `HowItWorksPlayer` — the full cut with the voiceover and native
+    controls, "Try 3 bottles now" on screen throughout (closes it and starts the camera). Both
+    clips are BUNDLED (assets/video, 1.1MB + 2.1MB): a first look mustn't wait on bar wifi. The
+    VideoViews get EXPLICIT sizes — on web the video element otherwise kept its natural 540x1168
+    and the player ran under its button. Re-cut both from a fresh recording when the UI changes
+    (86d-api serves the same full cut at /watch). Events how_video_opened / how_video_finished.
+    expo-video's config plugin adds no entitlement or background mode (introspect checked)
   - Covered by src/utils/__tests__/countDay.test.ts; the screens were checked in Chromium (verify-ui)
 - src/screens/BarNameScreen.tsx — shown once, right after ANY new account (email sign-up or a
   social sign-in with no `business_name`): the bar's name, plus an OPTIONAL phone ("for setup

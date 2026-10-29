@@ -33,7 +33,9 @@ export type AppEvent =
   | 'reminder_declined'
   | 'reminder_opened'
   | 'review_opened'
-  | 'order_sent';
+  | 'order_sent'
+  | 'how_video_opened'
+  | 'how_video_finished';
 
 const ANON_ID_KEY = '@86d_anon_id';
 

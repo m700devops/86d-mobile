@@ -36,6 +36,7 @@ import { useDistributors } from '../context/DistributorContext';
 import { Bottle, Product } from '../types';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 import FirstTryCard from '../components/FirstTryCard';
+import { HowItWorksLoop, HowItWorksPlayer } from '../components/HowItWorksVideo';
 import { track, trackOnce } from '../services/analytics';
 import { isFirstTryDone, loadSchedule, markFirstTryDone, reminderIsOn } from '../services/countReminder';
 import { countPhrase, durationPhrase } from '../utils/countDay';
@@ -122,6 +123,8 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
   const [firstTryDone, setFirstTryDone] = useState<boolean | null>(null);
   const [practice, setPractice] = useState(false);
   const [showWin, setShowWin] = useState(false);
+  // The owner's walkthrough, full screen with sound (HowItWorksVideo).
+  const [showHowVideo, setShowHowVideo] = useState(false);
   const [winTook, setWinTook] = useState<string | null>(null);
   const [countsOn, setCountsOn] = useState<string | null>(null);
   const practiceStartRef = useRef<number | null>(null);
@@ -996,11 +999,15 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.startCard}>
-            <View style={styles.startIconContainer}>
-              <View style={styles.startIconBox}>
-                <Camera size={32} color="#FFFFFF" />
+            {/* A brand-new bar sees the count itself (the looping clip below)
+                instead of an icon. */}
+            {!(bottleCount === 0 && looksNew) && (
+              <View style={styles.startIconContainer}>
+                <View style={styles.startIconBox}>
+                  <Camera size={32} color="#FFFFFF" />
+                </View>
               </View>
-            </View>
+            )}
 
             {/* Resuming an existing count is the common case mid-shift — a
                 screen that reads like a fresh start makes people wonder
@@ -1022,18 +1029,20 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                   About a minute. Grab any 3 bottles off the shelf. This is exactly how a full count works.
                 </Text>
 
-                <View style={styles.startTips}>
-                  <View style={styles.startTip}>
-                    <View style={styles.startTipDot} />
-                    <Text style={styles.startTipText}>Point the camera at the label</Text>
-                  </View>
-                  <View style={styles.startTip}>
-                    <View style={styles.startTipDot} />
-                    <Text style={styles.startTipText}>Tap the shutter. AI names the bottle</Text>
-                  </View>
-                  <View style={styles.startTip}>
-                    <View style={styles.startTipDot} />
-                    <Text style={styles.startTipText}>Type how many you have</Text>
+                {/* Show, then tell: a real count looping beside the three
+                    steps, numbered like the captions in the clip. Tapping the
+                    clip plays the whole walkthrough with sound. */}
+                <View style={styles.firstRunRow}>
+                  <HowItWorksLoop width={112} onPress={() => setShowHowVideo(true)} />
+                  <View style={styles.firstRunSteps}>
+                    {['Snap the label', 'Type the count', 'AI names the bottle'].map((step, i) => (
+                      <View key={step} style={styles.firstRunStep}>
+                        <View style={styles.firstRunNum}>
+                          <Text style={styles.firstRunNumText}>{i + 1}</Text>
+                        </View>
+                        <Text style={styles.firstRunStepText}>{step}</Text>
+                      </View>
+                    ))}
                   </View>
                 </View>
 
@@ -1083,8 +1092,27 @@ export default function CameraScan({ onReview, onBack, onOpenMenu }: Props) {
                 {bottleCount > 0 ? 'Continue Scanning' : looksNew ? 'Try 3 Bottles' : 'Start Scanning'}
               </Text>
             </TouchableOpacity>
+
+            {bottleCount === 0 && looksNew && (
+              <TouchableOpacity
+                style={styles.watchLink}
+                onPress={() => setShowHowVideo(true)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.watchLinkText}>Watch a full count, start to order (35 sec)</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
+
+        {looksNew && (
+          <HowItWorksPlayer
+            visible={showHowVideo}
+            onClose={() => setShowHowVideo(false)}
+            onStart={() => { setShowHowVideo(false); handleStartScanning(); }}
+          />
+        )}
       </SafeAreaView>
     );
   }
@@ -2356,6 +2384,26 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 32,
   },
+  firstRunRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 24,
+  },
+  firstRunSteps: { flex: 1, gap: 16 },
+  firstRunStep: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  firstRunNum: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: COLORS.accentPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  firstRunNumText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  firstRunStepText: { flex: 1, color: COLORS.textPrimary, fontSize: 15, fontWeight: '600', lineHeight: 20 },
+  watchLink: { alignItems: 'center', marginTop: 16, paddingVertical: 4 },
+  watchLinkText: { color: COLORS.accentText, fontSize: 14, fontWeight: '600' },
   startTip: {
     flexDirection: 'row',
     alignItems: 'center',
