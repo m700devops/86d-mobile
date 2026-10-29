@@ -43,7 +43,11 @@ Don't describe either in UI copy or docs.
   corrected. Par's minimum is 1: 0 is the backend's "never set"
 
 - src/screens/OrderSummary.tsx — order summary: distributor breakdown, Email/Call/Print
-  actions, first-send restaurant-name setup modal. **Every send carries a `client_ref`**
+  actions, first-send restaurant-name setup modal. **That modal shows only when the ACCOUNT has
+  no bar name — checked with the server first** (`refreshUser()`, capped at `PROFILE_CHECK_MS`
+  6s), never on the phone's copy alone: sign-ins used to come back without `business_name`, so
+  a bar that had told us its name was asked again on every order. AuthContext also reads the
+  full profile in the background right after every sign-in (`fillInProfile`). **Every send carries a `client_ref`**
   (the count's `getOrderRef()` from InventoryContext; a reorder gets one per screen), so a
   retry after a lost response — the 20s timeout, bar wifi, or leaving the screen and coming
   back — emails nobody twice: 86d-api skips every distributor already sent that exact order

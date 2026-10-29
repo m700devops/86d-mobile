@@ -28,6 +28,10 @@ interface Props {
   presetOrder?: { distributors: OrderDistributorSummary[] } | null;
 }
 
+// How long the order screen waits on the server for the bar's name before
+// asking for it instead (see handleSendOrders).
+const PROFILE_CHECK_MS = 6000;
+
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
   const { bottles, isHydrated, updateBottle, clearBottles, getOrderRef } = useInventory();
   // A reorder from history isn't a count's draft: one id for this screen.
@@ -36,7 +40,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   // A bounce Resend reported since launch should show before this order goes.
   useEffect(() => { refreshDistributors(); }, [refreshDistributors]);
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, refreshUser } = useAuth();
   const { priceFor, setDistributor, orderChoiceFor, caseSizeFor, setOrderChoice } = useProductBook();
   const { parOf, distributorOf } = useBottleDefaults();
   const [isSending, setIsSending] = useState(false);
@@ -211,7 +215,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     return item.reason ? `${capitalize(item.reason)} · tap to switch` : '';
   };
 
-  const handleSendOrders = () => {
+  const handleSendOrders = async () => {
     if (isSending || groupedByDistributor.length === 0) return;
 
     if (!currentLocation) {
@@ -220,10 +224,23 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     }
 
     if (!user?.business_name) {
-      setRestaurantNameInput(user?.business_name ?? '');
-      setManagerNameInput(user?.manager_name ?? '');
-      setShowRestaurantSetup(true);
-      return;
+      // Ask the server before asking the person. The phone's copy of the
+      // account can be missing the bar's name when the account has it (a
+      // sign-in used to come back without it), and asking a bar that already
+      // told us, on every order, is the bug this guards against. Capped, so a
+      // dead connection still gets to the question quickly.
+      setIsSending(true);
+      const fresh = await Promise.race([
+        refreshUser().then(ok => (ok ? apiService.getUserData() : null)),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), PROFILE_CHECK_MS)),
+      ]).catch(() => null);
+      setIsSending(false);
+      if (!fresh?.business_name) {
+        setRestaurantNameInput('');
+        setManagerNameInput(fresh?.manager_name ?? user?.manager_name ?? '');
+        setShowRestaurantSetup(true);
+        return;
+      }
     }
 
     performSend();
