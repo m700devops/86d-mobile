@@ -240,6 +240,7 @@ class ApiService {
   async updateProfile(updates: {
     business_name?: string; manager_name?: string; phone?: string;
     title?: string; order_reply_to?: string;
+    count_day?: string | null; count_time?: string | null;
   }): Promise<User> {
     const response = await this.client.patch<User>('/users/me', updates);
     await this.setUserData(response.data);

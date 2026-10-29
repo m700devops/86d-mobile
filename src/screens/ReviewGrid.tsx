@@ -13,6 +13,7 @@ import { useDistributors } from '../context/DistributorContext';
 import { useLocation } from '../context/LocationContext';
 import { useProductBook, useBottleDefaults, bookProduct } from '../context/ProductBookContext';
 import { apiService } from '../services/api';
+import { track } from '../services/analytics';
 import { Bottle } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { orderQuantity, DEFAULT_REORDER_THRESHOLD, formatThreshold } from '../utils/orderQuantity';
@@ -52,6 +53,7 @@ export default function ReviewGrid({ onGenerateOrder, onAddManual, onNavigateToS
   const { setPar, setDistributor } = useProductBook();
   const { parOf, isParSet, distributorOf } = useBottleDefaults();
   const [searchQuery, setSearchQuery] = useState('');
+  useEffect(() => { track('review_opened'); }, []);
   // Which distributor sections are folded — by id, so it survives the list
   // re-sorting itself as stock/par values change. Session-only on purpose:
   // resets on next visit rather than risking a section staying hidden across

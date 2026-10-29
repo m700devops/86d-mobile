@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { apiService } from '../services/api';
+import { cancelOnSignOut } from '../services/countReminder';
 import { User, LoginRequest, RegisterRequest, AppleSignInRequest } from '../types';
 
 interface AuthContextType {
@@ -83,10 +84,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // A sign-in's own user can be the short version: 86d-api's login used to
+  // return it without business_name / manager_name, and the app kept that, so
+  // the order screen asked for the bar's name again after every sign-in. Read
+  // the full profile right after, in the background — never blocking sign-in.
+  const fillInProfile = () => {
+    apiService.getCurrentUser().then(setUser).catch(() => {});
+  };
+
   const login = async (data: LoginRequest, signal?: AbortSignal) => {
     // Don't touch global isLoading — LoginScreen manages its own spinner
     const response = await apiService.login(data, signal);
     setUser(response.user);
+    fillInProfile();
   };
 
   const register = async (data: RegisterRequest, signal?: AbortSignal) => {
@@ -100,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithApple = async (data: AppleSignInRequest, signal?: AbortSignal): Promise<User> => {
     const response = await apiService.signInWithApple(data, signal);
     setUser(response.user);
+    fillInProfile();
     return response.user;
   };
 
@@ -107,6 +118,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       await apiService.logout();
+      // The count-day reminder belongs to this account; the next person to
+      // sign in on this phone sets their own.
+      await cancelOnSignOut();
       setUser(null);
     } finally {
       setIsLoading(false);

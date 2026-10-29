@@ -13,6 +13,7 @@ import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { useProductBook, useBottleDefaults, bookProduct } from '../context/ProductBookContext';
 import { apiService } from '../services/api';
+import { track } from '../services/analytics';
 import { OrderItem, OrderDistributorSummary } from '../types';
 import { bottleSubtitle } from '../utils/bottleSubtitle';
 import { orderQuantity } from '../utils/orderQuantity';
@@ -27,6 +28,10 @@ interface Props {
   presetOrder?: { distributors: OrderDistributorSummary[] } | null;
 }
 
+// How long the order screen waits on the server for the bar's name before
+// asking for it instead (see handleSendOrders).
+const PROFILE_CHECK_MS = 6000;
+
 export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: Props) {
   const { bottles, isHydrated, updateBottle, clearBottles, getOrderRef } = useInventory();
   // A reorder from history isn't a count's draft: one id for this screen.
@@ -35,7 +40,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
   // A bounce Resend reported since launch should show before this order goes.
   useEffect(() => { refreshDistributors(); }, [refreshDistributors]);
   const { currentLocation, loadFailed: locationLoadFailed, reload: reloadLocations } = useLocation();
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, refreshUser } = useAuth();
   const { priceFor, setDistributor, orderChoiceFor, caseSizeFor, setOrderChoice } = useProductBook();
   const { parOf, distributorOf } = useBottleDefaults();
   const [isSending, setIsSending] = useState(false);
@@ -210,7 +215,7 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     return item.reason ? `${capitalize(item.reason)} · tap to switch` : '';
   };
 
-  const handleSendOrders = () => {
+  const handleSendOrders = async () => {
     if (isSending || groupedByDistributor.length === 0) return;
 
     if (!currentLocation) {
@@ -219,10 +224,23 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     }
 
     if (!user?.business_name) {
-      setRestaurantNameInput(user?.business_name ?? '');
-      setManagerNameInput(user?.manager_name ?? '');
-      setShowRestaurantSetup(true);
-      return;
+      // Ask the server before asking the person. The phone's copy of the
+      // account can be missing the bar's name when the account has it (a
+      // sign-in used to come back without it), and asking a bar that already
+      // told us, on every order, is the bug this guards against. Capped, so a
+      // dead connection still gets to the question quickly.
+      setIsSending(true);
+      const fresh = await Promise.race([
+        refreshUser().then(ok => (ok ? apiService.getUserData() : null)),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), PROFILE_CHECK_MS)),
+      ]).catch(() => null);
+      setIsSending(false);
+      if (!fresh?.business_name) {
+        setRestaurantNameInput('');
+        setManagerNameInput(fresh?.manager_name ?? user?.manager_name ?? '');
+        setShowRestaurantSetup(true);
+        return;
+      }
     }
 
     performSend();
@@ -285,7 +303,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
       const failures = response.results.filter(r => r.status !== 'sent');
 
       const allSentIds = Array.from(new Set([...sentDistributors, ...sentIds]));
-      if (sentIds.length > 0) setSentDistributors(allSentIds);
+      if (sentIds.length > 0) {
+        setSentDistributors(allSentIds);
+        track('order_sent');
+      }
       // Each distributor's own number: one already emailed on an earlier try
       // (a retry after a lost response) keeps the number that email carried.
       const allNumbers = { ...sentNumbers };
@@ -442,31 +463,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     );
   }
 
-  // Empty state
-  if (orderItems.length === 0) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIcon}>
-            <CheckCircle2 size={40} color={COLORS.success} />
-          </View>
-          <Text style={styles.emptyTitle}>All Stocked!</Text>
-          <Text style={styles.emptyText}>
-            Your current inventory matches all par levels. No orders needed right now.
-          </Text>
-          <TouchableOpacity
-            style={styles.emptyButton}
-            onPress={onViewOrders}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.emptyButtonText}>View Order History</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // Success state — only once every distributor has been emailed. A partial
+  // Success state — checked BEFORE the empty state: sending clears the count,
+  // so the order list is empty by now, and the empty check used to win —
+  // "All Stocked! No orders needed" right after an order went out.
+  // Only once every distributor has been emailed. A partial
   // send keeps the user on the order screen with their counts intact so they
   // can fix the failure and finish, instead of being shown a green checkmark
   // over an order that never fully went out.
@@ -528,6 +528,30 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             activeOpacity={0.7}
           >
             <Text style={styles.secondaryLinkText}>Start a New Scan</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Empty state
+  if (orderItems.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIcon}>
+            <CheckCircle2 size={40} color={COLORS.success} />
+          </View>
+          <Text style={styles.emptyTitle}>All Stocked!</Text>
+          <Text style={styles.emptyText}>
+            Your current inventory matches all par levels. No orders needed right now.
+          </Text>
+          <TouchableOpacity
+            style={styles.emptyButton}
+            onPress={onViewOrders}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.emptyButtonText}>View Order History</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
