@@ -463,31 +463,10 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
     );
   }
 
-  // Empty state
-  if (orderItems.length === 0) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIcon}>
-            <CheckCircle2 size={40} color={COLORS.success} />
-          </View>
-          <Text style={styles.emptyTitle}>All Stocked!</Text>
-          <Text style={styles.emptyText}>
-            Your current inventory matches all par levels. No orders needed right now.
-          </Text>
-          <TouchableOpacity
-            style={styles.emptyButton}
-            onPress={onViewOrders}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.emptyButtonText}>View Order History</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // Success state — only once every distributor has been emailed. A partial
+  // Success state — checked BEFORE the empty state: sending clears the count,
+  // so the order list is empty by now, and the empty check used to win —
+  // "All Stocked! No orders needed" right after an order went out.
+  // Only once every distributor has been emailed. A partial
   // send keeps the user on the order screen with their counts intact so they
   // can fix the failure and finish, instead of being shown a green checkmark
   // over an order that never fully went out.
@@ -549,6 +528,30 @@ export default function OrderSummary({ onRestart, onViewOrders, presetOrder }: P
             activeOpacity={0.7}
           >
             <Text style={styles.secondaryLinkText}>Start a New Scan</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Empty state
+  if (orderItems.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIcon}>
+            <CheckCircle2 size={40} color={COLORS.success} />
+          </View>
+          <Text style={styles.emptyTitle}>All Stocked!</Text>
+          <Text style={styles.emptyText}>
+            Your current inventory matches all par levels. No orders needed right now.
+          </Text>
+          <TouchableOpacity
+            style={styles.emptyButton}
+            onPress={onViewOrders}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.emptyButtonText}>View Order History</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
