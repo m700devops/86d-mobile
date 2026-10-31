@@ -21,7 +21,9 @@ interface Props {
 }
 
 /**
- * Asked once, right after the bar name: when does this bar count?
+ * Asked once, right after the bar name: which day does this bar count?
+ * Just the day — one tap. The reminder comes at midday; the time of day
+ * (and "it varies") can be set later in Settings.
  *
  * Most accounts are made on a sales call, away from the bar and days before
  * the next count, and then nothing connects the two — five bars signed up in
@@ -77,6 +79,7 @@ export default function CountDayScreen({ onDone }: Props) {
         </Text>
 
         <CountDayPicker
+          daysOnly
           day={day}
           time={time}
           onChange={(d, t) => { setDay(d); setTime(t); }}

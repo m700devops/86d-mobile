@@ -7,6 +7,10 @@ interface Props {
   day: CountDay | null;
   time: CountTime | null;
   onChange: (day: CountDay | null, time: CountTime | null) => void;
+  /** Just the seven days: the sign-up step asks for nothing more (the
+   *  owner's call — a first screen with three rows of chips was too much).
+   *  Settings shows "It varies" and the time of day as well. */
+  daysOnly?: boolean;
 }
 
 /**
@@ -15,7 +19,7 @@ interface Props {
  * one tap with a thumb behind the bar. Shared by the sign-up step and
  * Settings so the two can't drift.
  */
-export default function CountDayPicker({ day, time, onChange }: Props) {
+export default function CountDayPicker({ day, time, onChange, daysOnly }: Props) {
   const weekday = day && day !== 'varies';
   return (
     <View>
@@ -38,6 +42,7 @@ export default function CountDayPicker({ day, time, onChange }: Props) {
         })}
       </View>
 
+      {!daysOnly && (
       <TouchableOpacity
         style={[styles.varies, day === 'varies' && styles.chipOn]}
         onPress={() => onChange('varies', null)}
@@ -47,8 +52,9 @@ export default function CountDayPicker({ day, time, onChange }: Props) {
       >
         <Text style={[styles.variesText, day === 'varies' && styles.chipTextOn]}>It varies</Text>
       </TouchableOpacity>
+      )}
 
-      {weekday && (
+      {weekday && !daysOnly && (
         <View style={styles.times}>
           {COUNT_TIMES.map(t => {
             const on = time === t.key;
