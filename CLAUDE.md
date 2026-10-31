@@ -117,7 +117,9 @@ Don't describe either in UI copy or docs.
   sales call, away from the bar, days before the next count, and nothing tied the two together.
   The trial stays 15 days from sign-up (owner's call). The path is now:
   - **src/screens/CountDayScreen.tsx** — right after the bar name (Skip there leads here too):
-    "When do you usually count?" — day chips, then Before opening / Afternoon / After close
+    "When do you usually count?" — the seven day chips ONLY (`daysOnly`; the owner found three
+    rows of chips too much for a first screen, 2026-10-31). The reminder then comes at 12:30;
+    "It varies" and Before opening / Afternoon / After close are in Settings
     (src/components/CountDayPicker.tsx, shared with Settings). The button says "Remind me
     Sundays", and the iOS notification dialog appears only after that tap — iOS asks once, so
     they know what they're allowing. Saved on the phone AND to the profile (86d-api
